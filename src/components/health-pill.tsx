@@ -59,13 +59,13 @@ export default function HealthPill({
   function pillStyle(h: Health) {
   switch (h) {
     case "at_risk":
-      return "border border-yellow-500/60 text-yellow-400";
+      return "border border-yellow-500/70 text-yellow-700";
     case "on_hold":
-      return "border border-red-500/60 text-red-400";
+      return "border border-red-500/70 text-red-700";
     case "complete":
-      return "border border-green-500/60 text-green-400";
+      return "border border-green-500/70 text-green-700";
     default:
-      return "border border-white/40 text-white";
+      return "border border-black/40 text-black";
   }
 }
 

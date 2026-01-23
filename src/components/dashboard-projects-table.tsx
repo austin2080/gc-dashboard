@@ -64,7 +64,7 @@ export default function DashboardProjectsTable({ projects }: { projects: Project
               projects.map((p) => (
                 <tr
                   key={p.id}
-                  className="border-b last:border-b-0 cursor-pointer hover:bg-black/5"
+                  className="border-b last:border-b-0 cursor-pointer transition-colors hover:[&>td]:bg-black/[0.03] active:[&>td]:bg-black/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
                   onClick={() => onRowClick(p.id)}
                   onKeyDown={(e) => onRowKeyDown(p.id, e)}
                   role="link"
