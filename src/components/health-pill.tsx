@@ -72,7 +72,11 @@ export default function HealthPill({
 
 
   return (
-  <div className="flex items-center gap-2">
+  <div
+    className="flex items-center gap-2"
+    onClick={(e) => e.stopPropagation()}
+    onPointerDown={(e) => e.stopPropagation()}
+  >
     <div className={`relative inline-flex items-center rounded-full px-3 py-1 text-xs whitespace-nowrap ${pillStyle(
     health
   )}`}

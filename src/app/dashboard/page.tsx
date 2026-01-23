@@ -1,9 +1,9 @@
-import HealthPill from "@/components/health-pill";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getMyCompanyId } from "@/lib/db/company";
 import { listProjects } from "@/lib/db/projects";
+import DashboardProjectsTable from "@/components/dashboard-projects-table";
 
 function money(n: number) {
   return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
@@ -68,54 +68,7 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      {/* Projects table (fixed height + internal scroll) */}
-      <section className="border rounded-lg">
-        <div className="p-4 border-b">
-          <h2 className="font-semibold">Projects</h2>
-          <p className="text-sm opacity-70">Click a project later to open details.</p>
-        </div>
-
-        <div className="max-h-[520px] overflow-auto">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-black/5 backdrop-blur border-b">
-              <tr>
-                <th className="text-left p-3">Project</th>
-                <th className="text-left p-3">City</th>
-                <th className="text-left p-3">Health</th>
-                <th className="text-right p-3">Contract</th>
-                <th className="text-right p-3">Est Profit</th>
-                <th className="text-right p-3">Est Buyout</th>
-                <th className="text-left p-3">Updated</th>
-              </tr>
-            </thead>
-            <tbody>
-              {projects.length === 0 ? (
-                <tr>
-                  <td className="p-4 opacity-70" colSpan={7}>
-                    No projects yet. Add a few rows in Supabase → projects table.
-                  </td>
-                </tr>
-              ) : (
-                projects.map((p) => (
-                  <tr key={p.id} className="border-b last:border-b-0">
-                    <td className="p-3 font-medium">{p.name}</td>
-                    <td className="p-3">{p.city ?? "-"}</td>
-                    <td className="p-3">
-                      <HealthPill projectId={p.id} initialHealth={p.health} />
-                    </td>
-                    <td className="p-3 text-right">{money(p.contracted_value || 0)}</td>
-                    <td className="p-3 text-right">{money(p.estimated_profit || 0)}</td>
-                    <td className="p-3 text-right">{money(p.estimated_buyout || 0)}</td>
-                    <td className="p-3">
-                      {p.updated_at ? new Date(p.updated_at).toLocaleString() : "-"}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      <DashboardProjectsTable projects={projects} />
     </main>
   );
 }
