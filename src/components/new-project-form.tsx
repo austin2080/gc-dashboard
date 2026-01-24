@@ -50,6 +50,14 @@ export default function NewProjectForm({
               />
             </label>
             <label className="space-y-1">
+              <div className="opacity-70">Project Number</div>
+              <input
+                name="project_number"
+                className="w-full rounded border border-black/20 px-3 py-2"
+                placeholder="P-1027"
+              />
+            </label>
+            <label className="space-y-1">
               <div className="opacity-70">City</div>
               <input
                 name="city"
@@ -64,10 +72,10 @@ export default function NewProjectForm({
                 className="w-full rounded border border-black/20 px-3 py-2"
                 defaultValue="on_track"
               >
-                <option value="on_track">On Track</option>
+                <option value="on_track">Active</option>
                 <option value="at_risk">At Risk</option>
                 <option value="on_hold">On Hold</option>
-                <option value="complete">Complete</option>
+                <option value="complete">Inactive</option>
               </select>
             </label>
             <label className="space-y-1">
@@ -104,7 +112,7 @@ export default function NewProjectForm({
               />
             </label>
             <label className="space-y-1">
-              <div className="opacity-70">Estimated Profit</div>
+              <div className="opacity-70">Est. OH&P</div>
               <input
                 type="number"
                 name="estimated_profit"

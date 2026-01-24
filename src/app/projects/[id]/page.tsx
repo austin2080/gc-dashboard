@@ -39,13 +39,38 @@ export default async function ProjectDetailPage({ params }: PageProps) {
   const contracted = project.contracted_value ?? 0;
   const profit = project.estimated_profit ?? 0;
   const buyout = project.estimated_buyout ?? 0;
-  const margin = contracted ? (profit / contracted) * 100 : 0;
+  const margin = contracted ? ((profit + buyout) / contracted) * 100 : 0;
+  const alerts = [
+    {
+      title: "Schedule milestone approaching",
+      detail: "Foundations due in 5 days",
+      severity: "warning",
+    },
+    {
+      title: "Procurement item overdue",
+      detail: "RTU delivery is 3 days late",
+      severity: "critical",
+    },
+    {
+      title: "RFI overdue",
+      detail: "RFI-014 needs response (2 days overdue)",
+      severity: "critical",
+    },
+    {
+      title: "Submittal overdue",
+      detail: "Submittal-22 pending approval (5 days)",
+      severity: "warning",
+    },
+  ] as const;
 
   return (
     <main className="p-6 space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">{project.name}</h1>
+          <h1 className="text-2xl font-semibold">
+            {project.project_number ? `${project.project_number} - ` : ""}
+            {project.name}
+          </h1>
           <div className="text-sm opacity-80">
             {project.city ?? "City TBD"} · Health: {project.health}
           </div>
@@ -56,9 +81,9 @@ export default async function ProjectDetailPage({ params }: PageProps) {
           <Link className="border rounded px-3 py-2 text-sm" href="/projects">
             Back to Projects
           </Link>
-          <button className="border rounded px-3 py-2 text-sm opacity-60" disabled>
+          <Link className="border rounded px-3 py-2 text-sm" href={`/projects/${project.id}/edit`}>
             Edit Project
-          </button>
+          </Link>
         </div>
       </header>
 
@@ -71,7 +96,7 @@ export default async function ProjectDetailPage({ params }: PageProps) {
           </div>
         </div>
         <div className="border rounded-lg p-4">
-          <div className="text-sm opacity-70">Est. Profit</div>
+          <div className="text-sm opacity-70">Est. OH&P</div>
           <div className="text-xl font-semibold mt-1">
             {profit.toLocaleString(undefined, { style: "currency", currency: "USD" })}
           </div>
@@ -88,10 +113,74 @@ export default async function ProjectDetailPage({ params }: PageProps) {
         </div>
       </section>
 
+      {/* Change orders & pay apps */}
+      <section className="grid grid-cols-1 md:grid-cols-4 gap-3">
+        <div className="border rounded-lg p-4">
+          <div className="text-sm opacity-70">Owner Change Orders</div>
+          <div className="text-xl font-semibold mt-1">—</div>
+          <div className="text-xs opacity-60 mt-1">Pending change orders: —</div>
+        </div>
+        <div className="border rounded-lg p-4">
+          <div className="text-sm opacity-70">Subcontractor Change Orders</div>
+          <div className="text-xl font-semibold mt-1">—</div>
+          <div className="text-xs opacity-60 mt-1">Pending change orders: —</div>
+        </div>
+        <div className="border rounded-lg p-4">
+          <div className="text-sm opacity-70">Owner Pay App Status</div>
+          <div className="text-xl font-semibold mt-1">—</div>
+          <div className="text-xs opacity-60 mt-1">Outstanding: —</div>
+        </div>
+        <div className="border rounded-lg p-4">
+          <div className="text-sm opacity-70">Payments Received</div>
+          <div className="text-xl font-semibold mt-1">—</div>
+          <div className="text-xs opacity-60 mt-1">Most recent: —</div>
+        </div>
+      </section>
+
+      {/* Actions / alerts */}
+      <section className="border rounded-lg p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold">Action Needed / Alerts</h2>
+          <div className="text-xs opacity-60">{alerts.length} items</div>
+        </div>
+        {alerts.length === 0 ? (
+          <div className="text-sm opacity-70">
+            No alerts yet. When deadlines approach or items go overdue, they’ll show up here.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {alerts.map((a, idx) => (
+              <div
+                key={`${a.title}-${idx}`}
+                className="flex items-center justify-between gap-4 rounded border border-black/10 px-3 py-2 text-sm"
+              >
+                <div>
+                  <div className="font-medium">{a.title}</div>
+                  <div className="text-xs opacity-70">{a.detail}</div>
+                </div>
+                <span
+                  className={`rounded-full px-2 py-1 text-xs ${
+                    a.severity === "critical"
+                      ? "border border-red-500/40 text-red-700"
+                      : "border border-yellow-500/40 text-yellow-700"
+                  }`}
+                >
+                  {a.severity === "critical" ? "Critical" : "Warning"}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       {/* Overview */}
       <section className="border rounded-lg p-4 space-y-3">
         <h2 className="font-semibold">Overview</h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+          <div>
+            <div className="opacity-70">Project Number</div>
+            <div>{project.project_number ?? "-"}</div>
+          </div>
           <div>
             <div className="opacity-70">City</div>
             <div>{project.city ?? "-"}</div>
@@ -122,21 +211,7 @@ export default async function ProjectDetailPage({ params }: PageProps) {
       </section>
 
       {/* Sections */}
-      <section className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="border rounded-lg p-4 space-y-2">
-          <h3 className="font-semibold">Bidding</h3>
-          <p className="text-sm opacity-70">
-            Track ITBs, bid leveling, and vendor coverage for this project.
-          </p>
-          <div className="text-xs opacity-60">Coming soon</div>
-        </div>
-        <div className="border rounded-lg p-4 space-y-2">
-          <h3 className="font-semibold">Procurement</h3>
-          <p className="text-sm opacity-70">
-            Track long-lead items and material status specific to this project.
-          </p>
-          <div className="text-xs opacity-60">Coming soon</div>
-        </div>
+      <section className="grid grid-cols-1 lg:grid-cols-1 gap-4">
         <div className="border rounded-lg p-4 space-y-2">
           <h3 className="font-semibold">Project Directory</h3>
           <p className="text-sm opacity-70">

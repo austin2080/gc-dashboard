@@ -28,8 +28,8 @@ function isActive(pathname: string, href: string) {
 export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
   const pathname = usePathname();
 
-  const projectItems = projects.map((p) => ({
-    label: p.name,
+  const projectLinks = projects.map((p) => ({
+    label: p.project_number ? `${p.project_number} - ${p.name}` : p.name,
     href: `/projects/${p.id}`,
   }));
 
@@ -44,8 +44,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
         <nav className="flex flex-wrap gap-2">
           {STATIC_NAV.map((item) => {
             const active = isActive(pathname, item.href);
-            const children =
-              item.href === "/projects" ? projectItems : item.children ?? [];
+            const children = item.children ?? [];
 
             return (
               <div key={item.href} className="relative group pb-2">
@@ -58,7 +57,32 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                   {item.label}
                 </Link>
 
-                {children.length ? (
+                {item.href === "/projects" ? (
+                  <div className="absolute left-0 top-full z-30 hidden min-w-[260px] rounded-md border border-black/10 bg-white p-2 shadow-sm group-hover:block group-focus-within:block">
+                    <Link
+                      href="/projects/new"
+                      className="block rounded px-2 py-1 text-xs font-medium opacity-90 hover:bg-black/[0.03]"
+                    >
+                      + Create New
+                    </Link>
+                    <div className="my-1 border-t border-black/10" />
+                    {projectLinks.length ? (
+                      projectLinks.map((child) => (
+                        <Link
+                          key={child.href}
+                          href={child.href}
+                          className="block rounded px-2 py-1 text-xs opacity-80 hover:bg-black/[0.03]"
+                        >
+                          {child.label}
+                        </Link>
+                      ))
+                    ) : (
+                      <div className="px-2 py-1 text-xs opacity-60">
+                        No active projects yet
+                      </div>
+                    )}
+                  </div>
+                ) : children.length ? (
                   <div className="absolute left-0 top-full z-30 hidden min-w-[260px] rounded-md border border-black/10 bg-white p-2 shadow-sm group-hover:block group-focus-within:block">
                     {children.map((child) =>
                       "href" in child ? (
@@ -75,11 +99,6 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                         </div>
                       )
                     )}
-                    {item.href === "/projects" && projects.length === 0 ? (
-                      <div className="px-2 py-1 text-xs opacity-60">
-                        No active projects yet
-                      </div>
-                    ) : null}
                   </div>
                 ) : null}
               </div>

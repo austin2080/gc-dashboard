@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 
 export type ProjectRow = {
   id: string;
+  project_number?: string | null;
   name: string;
   city: string | null;
   health: "on_track" | "at_risk" | "on_hold" | "complete";
@@ -13,16 +14,24 @@ export type ProjectRow = {
   updated_at: string;
 };
 
-export async function listProjects(companyId: string) {
+export async function listProjects(
+  companyId: string,
+  opts?: { createdBy?: string }
+) {
   const supabase = await createClient();
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("projects")
     .select(
-      "id,name,city,health,start_date,end_date,contracted_value,estimated_profit,estimated_buyout,updated_at"
+      "id,project_number,name,city,health,start_date,end_date,contracted_value,estimated_profit,estimated_buyout,updated_at"
     )
-    .eq("company_id", companyId)
-    .order("updated_at", { ascending: false });
+    .eq("company_id", companyId);
+
+  if (opts?.createdBy) {
+    query = query.eq("created_by", opts.createdBy);
+  }
+
+  const { data, error } = await query.order("updated_at", { ascending: false });
 
   if (error) throw error;
   return (data ?? []) as ProjectRow[];

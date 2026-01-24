@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { getMyCompanyId } from "@/lib/db/company";
+import { getMyCompanyMember } from "@/lib/db/company";
 import { listProjects } from "@/lib/db/projects";
 import ProjectsTable from "@/components/projects-table";
 
@@ -9,8 +9,12 @@ export default async function ProjectsPage() {
   const { data } = await supabase.auth.getUser();
   if (!data.user) redirect("/login");
 
-  const companyId = await getMyCompanyId();
-  const projects = await listProjects(companyId);
+  const member = await getMyCompanyMember();
+  const companyId = member.company_id;
+  const canViewAll = member.can_view_all_projects ?? false;
+
+  const projectsMine = await listProjects(companyId, { createdBy: data.user.id });
+  const projectsAll = canViewAll ? await listProjects(companyId) : projectsMine;
 
   return (
     <main className="p-6 space-y-6">
@@ -19,7 +23,11 @@ export default async function ProjectsPage() {
         <p className="text-sm opacity-80">Manage all projects for your company.</p>
       </header>
 
-      <ProjectsTable projects={projects} />
+      <ProjectsTable
+        projectsAll={projectsAll}
+        projectsMine={projectsMine}
+        canViewAll={canViewAll}
+      />
     </main>
   );
 }

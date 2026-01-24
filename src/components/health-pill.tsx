@@ -7,10 +7,10 @@ import { createClient } from "@/lib/supabase/client";
 type Health = "on_track" | "at_risk" | "on_hold" | "complete";
 
 const HEALTH_OPTIONS: { value: Health; label: string }[] = [
-  { value: "on_track", label: "On Track" },
+  { value: "on_track", label: "Active" },
   { value: "at_risk", label: "At Risk" },
-  { value: "on_hold", label: "On Hold" },
-  { value: "complete", label: "Complete" },
+  { value: "on_hold", label: "Starting Soon" },
+  { value: "complete", label: "Inactive" },
 ];
 
 function labelFor(value: Health) {

@@ -19,6 +19,7 @@ async function createProject(_: FormState, formData: FormData): Promise<FormStat
     return { error: "Project name is required." };
   }
 
+  const project_number = String(formData.get("project_number") ?? "").trim() || null;
   const city = String(formData.get("city") ?? "").trim();
   const health = String(formData.get("health") ?? "on_track");
   const start_date = String(formData.get("start_date") ?? "").trim() || null;
@@ -32,6 +33,7 @@ async function createProject(_: FormState, formData: FormData): Promise<FormStat
     .from("projects")
     .insert({
       name,
+      project_number,
       city: city || null,
       health,
       start_date,
@@ -40,6 +42,7 @@ async function createProject(_: FormState, formData: FormData): Promise<FormStat
       estimated_profit,
       estimated_buyout,
       company_id: companyId,
+      created_by: data.user.id,
     })
     .select("id")
     .single();

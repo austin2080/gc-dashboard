@@ -10,10 +10,10 @@ function money(n: number) {
 }
 
 function healthLabel(h: string) {
-  if (h === "on_track") return "On Track";
+  if (h === "on_track") return "Active";
   if (h === "at_risk") return "At Risk";
   if (h === "on_hold") return "On Hold";
-  if (h === "complete") return "Complete";
+  if (h === "complete") return "Inactive";
   return h;
 }
 
@@ -63,7 +63,7 @@ export default async function DashboardPage() {
           <div className="text-xl font-semibold mt-1">{money(totalContract)}</div>
         </div>
         <div className="border rounded-lg p-4">
-          <div className="text-sm opacity-70">Total Est. Profit</div>
+          <div className="text-sm opacity-70">Total Est. OH&P</div>
           <div className="text-xl font-semibold mt-1">{money(totalProfit)}</div>
         </div>
       </section>
