@@ -9,6 +9,9 @@ type FormState = { error?: string };
 type SovItem = {
   cost_code: string;
   description: string;
+  unit: string;
+  quantity: string;
+  unit_price: string;
   amount: string;
 };
 
@@ -54,6 +57,7 @@ export default function NewPrimeContractForm({
   headerTitle = "New Prime Contract",
   headerSubtitle = "Create a contract for this project.",
   backHref,
+  costCodes = [],
 }: {
   action: (prevState: FormState, formData: FormData) => Promise<FormState>;
   projectId: string;
@@ -62,12 +66,31 @@ export default function NewPrimeContractForm({
   headerTitle?: string;
   headerSubtitle?: string;
   backHref?: string;
+  costCodes?: { code: string; description: string | null }[];
 }) {
   const [state, formAction] = useFormState<FormState, FormData>(action, {});
   const [sovItems, setSovItems] = useState<SovItem[]>(
     defaults?.schedule_of_values?.length
       ? defaults.schedule_of_values
-      : [{ cost_code: "", description: "", amount: "" }]
+      : [
+          {
+            cost_code: "",
+            description: "",
+            amount: "",
+            unit: "",
+            quantity: "",
+            unit_price: "",
+          },
+        ]
+  );
+
+  const moneyFormatter = useMemo(
+    () =>
+      new Intl.NumberFormat("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }),
+    []
   );
 
   const sovTotal = useMemo(() => {
@@ -77,6 +100,19 @@ export default function NewPrimeContractForm({
     }, 0);
   }, [sovItems]);
 
+  function formatMoney(value: string) {
+    const num = Number(String(value).replace(/[^\d.]/g, ""));
+    if (Number.isNaN(num)) return "";
+    return moneyFormatter.format(num);
+  }
+
+  function calcAmount(qtyRaw: string, unitRaw: string) {
+    const qty = Number(String(qtyRaw).replace(/[^\d.]/g, ""));
+    const unitPrice = Number(String(unitRaw).replace(/[^\d.]/g, ""));
+    if (Number.isNaN(qty) || Number.isNaN(unitPrice)) return "";
+    return moneyFormatter.format(qty * unitPrice);
+  }
+
   function updateSovItem(index: number, patch: Partial<SovItem>) {
     setSovItems((prev) =>
       prev.map((item, i) => (i === index ? { ...item, ...patch } : item))
@@ -84,7 +120,17 @@ export default function NewPrimeContractForm({
   }
 
   function addSovItem() {
-    setSovItems((prev) => [...prev, { cost_code: "", description: "", amount: "" }]);
+    setSovItems((prev) => [
+      ...prev,
+      {
+        cost_code: "",
+        description: "",
+        amount: "",
+        unit: "",
+        quantity: "",
+        unit_price: "",
+      },
+    ]);
   }
 
   function removeSovItem(index: number) {
@@ -287,6 +333,9 @@ export default function NewPrimeContractForm({
                 <tr>
                   <th className="text-left p-3">Cost Code</th>
                   <th className="text-left p-3">Description</th>
+                  <th className="text-left p-3">Unit</th>
+                  <th className="text-right p-3">Qty</th>
+                  <th className="text-right p-3">Unit Price</th>
                   <th className="text-right p-3">Amount</th>
                   <th className="text-right p-3">Actions</th>
                 </tr>
@@ -295,12 +344,27 @@ export default function NewPrimeContractForm({
                 {sovItems.map((item, idx) => (
                   <tr key={`sov-${idx}`} className="border-b last:border-b-0">
                     <td className="p-3">
-                      <input
+                      <select
                         className="w-full rounded border border-black/20 px-3 py-2"
                         value={item.cost_code}
-                        onChange={(e) => updateSovItem(idx, { cost_code: e.target.value })}
-                        placeholder="01-000"
-                      />
+                        onChange={(e) => {
+                          const selected = costCodes.find((c) => c.code === e.target.value);
+                          updateSovItem(idx, {
+                            cost_code: e.target.value,
+                            description:
+                              item.description && item.description.length > 0
+                                ? item.description
+                                : selected?.description ?? "",
+                          });
+                        }}
+                      >
+                        <option value="">Select cost code</option>
+                        {costCodes.map((c) => (
+                          <option key={c.code} value={c.code}>
+                            {c.code} — {c.description ?? ""}
+                          </option>
+                        ))}
+                      </select>
                     </td>
                     <td className="p-3">
                       <input
@@ -311,12 +375,81 @@ export default function NewPrimeContractForm({
                       />
                     </td>
                     <td className="p-3">
+                      <select
+                        className="w-full rounded border border-black/20 px-3 py-2"
+                        value={item.unit}
+                        onChange={(e) => updateSovItem(idx, { unit: e.target.value })}
+                      >
+                        <option value="">Select</option>
+                        <option value="ls">LS (Lump Sum)</option>
+                        <option value="ea">EA (Each)</option>
+                        <option value="lf">LF (Linear Foot)</option>
+                        <option value="sf">SF (Square Foot)</option>
+                        <option value="sy">SY (Square Yard)</option>
+                        <option value="cy">CY (Cubic Yard)</option>
+                        <option value="ton">TON</option>
+                        <option value="hr">HR (Hour)</option>
+                        <option value="day">DAY</option>
+                        <option value="mo">MO (Month)</option>
+                      </select>
+                    </td>
+                    <td className="p-3">
                       <input
                         className="w-full rounded border border-black/20 px-3 py-2 text-right"
-                        value={item.amount}
-                        onChange={(e) => updateSovItem(idx, { amount: e.target.value })}
+                        value={item.quantity}
+                        onChange={(e) => {
+                          const nextQty = e.target.value;
+                          const amount = calcAmount(nextQty, item.unit_price);
+                          updateSovItem(idx, {
+                            quantity: nextQty,
+                            amount,
+                          });
+                        }}
+                        onBlur={() =>
+                          updateSovItem(idx, {
+                            quantity: formatMoney(item.quantity),
+                          })
+                        }
                         placeholder="0.00"
                       />
+                    </td>
+                    <td className="p-3">
+                      <div className="relative">
+                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-black/60">
+                          $
+                        </span>
+                        <input
+                          className="w-full rounded border border-black/20 pl-6 pr-3 py-2 text-right"
+                          value={item.unit_price}
+                          onChange={(e) => {
+                            const nextPrice = e.target.value;
+                            const amount = calcAmount(item.quantity, nextPrice);
+                            updateSovItem(idx, {
+                              unit_price: nextPrice,
+                              amount,
+                            });
+                          }}
+                          onBlur={() =>
+                            updateSovItem(idx, {
+                              unit_price: formatMoney(item.unit_price),
+                            })
+                          }
+                          placeholder="0.00"
+                        />
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <div className="relative">
+                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-black/60">
+                          $
+                        </span>
+                        <input
+                          className="w-full rounded border border-black/20 pl-6 pr-3 py-2 text-right"
+                          value={item.amount}
+                          readOnly
+                          placeholder="0.00"
+                        />
+                      </div>
                     </td>
                     <td className="p-3 text-right">
                       <button
@@ -333,11 +466,11 @@ export default function NewPrimeContractForm({
               </tbody>
               <tfoot>
                 <tr className="border-t bg-black/[0.02]">
-                  <td className="p-3 font-medium" colSpan={2}>
+                  <td className="p-3 font-medium" colSpan={5}>
                     Total
                   </td>
                   <td className="p-3 text-right font-semibold">
-                    {sovTotal.toLocaleString(undefined, { style: "currency", currency: "USD" })}
+                    ${moneyFormatter.format(sovTotal)}
                   </td>
                   <td className="p-3"></td>
                 </tr>

@@ -109,5 +109,23 @@ export default async function NewPrimeContractPage({ params }: PageProps) {
   const resolved = await Promise.resolve(params);
   const projectId = resolved?.id ?? "";
 
-  return <NewPrimeContractForm action={createPrimeContract.bind(null, projectId)} projectId={projectId} />;
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getUser();
+  if (!data.user) redirect("/login");
+
+  const companyId = await getMyCompanyId();
+  const { data: costCodes } = await supabase
+    .from("cost_codes")
+    .select("code,description")
+    .eq("company_id", companyId)
+    .eq("is_active", true)
+    .order("code", { ascending: true });
+
+  return (
+    <NewPrimeContractForm
+      action={createPrimeContract.bind(null, projectId)}
+      projectId={projectId}
+      costCodes={costCodes ?? []}
+    />
+  );
 }

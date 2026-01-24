@@ -7,6 +7,7 @@ import type { ProjectRow } from "@/lib/db/projects";
 const STATIC_NAV = [
   { label: "Dashboard", href: "/dashboard" },
   { label: "Projects", href: "/projects", hasDropdown: true },
+  { label: "Cost Codes", href: "/cost-codes" },
   {
     label: "Bidding",
     href: "/bidding",

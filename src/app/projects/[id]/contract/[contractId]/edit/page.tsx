@@ -125,7 +125,7 @@ export default async function EditPrimeContractPage({ params }: PageProps) {
   const { data: contract } = await supabase
     .from("prime_contracts")
     .select(
-      "id,title,owner_name,contractor_name,architect_engineer,retention_amount,status,executed,original_amount,revised_amount,estimated_profit,estimated_buyout,change_orders_amount,pay_app_status,payments_received,inclusions,exclusions,invoice_contact_name,invoice_contact_email,invoice_contact_phone,schedule_of_values"
+      "id,title,owner_name,contractor_name,architect_engineer,retention_percent,status,executed,original_amount,estimated_profit,estimated_buyout,change_orders_amount,pay_app_status,payments_received,inclusions,exclusions,invoice_contact_name,invoice_contact_email,invoice_contact_phone,schedule_of_values"
     )
     .eq("id", contractId)
     .eq("project_id", projectId)
@@ -140,6 +140,13 @@ export default async function EditPrimeContractPage({ params }: PageProps) {
     );
   }
 
+  const { data: costCodes } = await supabase
+    .from("cost_codes")
+    .select("code,description")
+    .eq("company_id", companyId)
+    .eq("is_active", true)
+    .order("code", { ascending: true });
+
   const defaults = {
     title: contract.title,
     owner_name: contract.owner_name,
@@ -152,7 +159,6 @@ export default async function EditPrimeContractPage({ params }: PageProps) {
     change_orders_amount: contract.change_orders_amount,
     estimated_profit: contract.estimated_profit,
     estimated_buyout: contract.estimated_buyout,
-    change_orders_summary: contract.change_orders_summary,
     pay_app_status: contract.pay_app_status,
     payments_received: contract.payments_received,
     inclusions: contract.inclusions,
@@ -174,6 +180,7 @@ export default async function EditPrimeContractPage({ params }: PageProps) {
       headerTitle="Edit Prime Contract"
       headerSubtitle="Update contract details and schedule of values."
       backHref={`/projects/${projectId}/contract/${contractId}`}
+      costCodes={costCodes ?? []}
     />
   );
 }

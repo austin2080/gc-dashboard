@@ -1,4 +1,5 @@
 import ContractStatusPill from "@/components/contract-status-pill";
+import InlineEstBuyout from "@/components/inline-est-buyout";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -34,7 +35,7 @@ export default async function ContractDetailPage({ params }: PageProps) {
   const { data: contract } = await supabase
     .from("prime_contracts")
     .select(
-      "id,title,owner_name,contractor_name,architect_engineer,retention_percent,status,executed,original_amount,revised_amount,estimated_profit,estimated_buyout,change_orders_amount,pay_app_status,payments_received,inclusions,exclusions,invoice_contact_name,invoice_contact_email,invoice_contact_phone"
+      "id,title,owner_name,contractor_name,architect_engineer,retention_percent,status,executed,original_amount,revised_amount,estimated_profit,estimated_buyout,change_orders_amount,pay_app_status,payments_received,inclusions,exclusions,invoice_contact_name,invoice_contact_email,invoice_contact_phone,schedule_of_values"
     )
     .eq("id", contractId)
     .eq("project_id", projectId)
@@ -49,13 +50,53 @@ export default async function ContractDetailPage({ params }: PageProps) {
     );
   }
 
-  const originalAmount = contract.original_amount ?? 0;
+  const sovItems = Array.isArray(contract.schedule_of_values)
+    ? contract.schedule_of_values
+    : [];
+  const sovTotal = sovItems.reduce((sum: number, item: any) => {
+    const val = Number(String(item?.amount ?? "").replace(/[^\d.]/g, ""));
+    return sum + (Number.isNaN(val) ? 0 : val);
+  }, 0);
   const changeOrdersAmount = contract.change_orders_amount ?? 0;
-  const revisedAmount = originalAmount + changeOrdersAmount;
-  const estOHP = contract.estimated_profit ?? 0;
+  const estOHP = sovItems.reduce((sum: number, item: any) => {
+    const label = `${item?.cost_code ?? ""} ${item?.description ?? ""}`.toLowerCase();
+    const isOhp =
+      label.includes("oh&p") ||
+      label.includes("oh&p") ||
+      label.includes("ohp") ||
+      label.includes("overhead") ||
+      label.includes("profit");
+    if (!isOhp) return sum;
+    const val = Number(String(item?.amount ?? "").replace(/[^\d.]/g, ""));
+    return sum + (Number.isNaN(val) ? 0 : val);
+  }, 0);
+  const originalAmount = sovTotal;
+  const revisedAmount = sovTotal + changeOrdersAmount;
   const estBuyout = contract.estimated_buyout ?? 0;
   const margin = originalAmount ? ((estOHP + estBuyout) / originalAmount) * 100 : 0;
   const status = (contract.status as "draft" | "out_for_signature" | "approved") ?? "draft";
+
+  async function updateEstBuyout(next: number) {
+    "use server";
+    const supabase = await createClient();
+    const { data } = await supabase.auth.getUser();
+    if (!data.user) redirect("/login");
+
+    const companyId = await getMyCompanyId();
+    const { data: project } = await supabase
+      .from("projects")
+      .select("id")
+      .eq("id", projectId)
+      .eq("company_id", companyId)
+      .single();
+    if (!project) redirect("/projects");
+
+    await supabase
+      .from("prime_contracts")
+      .update({ estimated_buyout: next })
+      .eq("id", contractId)
+      .eq("project_id", projectId);
+  }
 
   return (
     <main className="p-6 space-y-6">
@@ -127,7 +168,7 @@ export default async function ContractDetailPage({ params }: PageProps) {
         </div>
         <div className="border rounded-lg p-4">
           <div className="text-sm opacity-70">Est. Buyout</div>
-          <div className="text-xl font-semibold mt-1">{money(estBuyout)}</div>
+          <InlineEstBuyout value={estBuyout} onSave={updateEstBuyout} />
         </div>
         <div className="border rounded-lg p-4">
           <div className="text-sm opacity-70">Est. Margin</div>
@@ -169,7 +210,12 @@ export default async function ContractDetailPage({ params }: PageProps) {
               Cost codes, descriptions, and values used to bill the owner.
             </p>
           </div>
-          <button className="border rounded px-3 py-2 text-sm">Add Line Item</button>
+          <Link
+            className="border rounded px-3 py-2 text-sm"
+            href={`/projects/${projectId}/contract/${contractId}/edit`}
+          >
+            Edit Contract
+          </Link>
         </div>
         <div className="max-h-[420px] overflow-auto">
           <table className="w-full text-sm">
@@ -177,24 +223,44 @@ export default async function ContractDetailPage({ params }: PageProps) {
               <tr>
                 <th className="text-left p-3">Cost Code</th>
                 <th className="text-left p-3">Description</th>
+                <th className="text-left p-3">Unit</th>
+                <th className="text-right p-3">Qty</th>
+                <th className="text-right p-3">Unit Price</th>
                 <th className="text-right p-3">Amount</th>
-                <th className="text-right p-3">% of Contract</th>
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td className="p-4 opacity-70" colSpan={4}>
-                  No line items yet. Click “Add Line Item” to start your schedule of values.
-                </td>
-              </tr>
+              {sovItems.length ? (
+                sovItems.map((item: any, idx: number) => (
+                  <tr key={`sov-${idx}`} className="border-b last:border-b-0">
+                    <td className="p-3 font-medium">{item.cost_code || "-"}</td>
+                    <td className="p-3">{item.description || "-"}</td>
+                    <td className="p-3">{item.unit || "-"}</td>
+                    <td className="p-3 text-right">{item.quantity || "-"}</td>
+                    <td className="p-3 text-right">
+                      {item.unit_price ? `$${item.unit_price}` : "-"}
+                    </td>
+                    <td className="p-3 text-right">
+                      {item.amount ? `$${item.amount}` : "-"}
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td className="p-4 opacity-70" colSpan={6}>
+                    No line items yet. Click “Edit Contract” to add schedule of values.
+                  </td>
+                </tr>
+              )}
             </tbody>
             <tfoot>
               <tr className="border-t bg-black/[0.02]">
-                <td className="p-3 font-medium" colSpan={2}>
+                <td className="p-3 font-medium" colSpan={5}>
                   Total
                 </td>
-                <td className="p-3 text-right font-semibold">$0.00</td>
-                <td className="p-3 text-right">—</td>
+                <td className="p-3 text-right font-semibold">
+                  ${sovTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </td>
               </tr>
             </tfoot>
           </table>
