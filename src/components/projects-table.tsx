@@ -2,6 +2,7 @@
 
 import type { KeyboardEvent } from "react";
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import HealthPill from "@/components/health-pill";
 import type { ProjectRow } from "@/lib/db/projects";
@@ -68,14 +69,12 @@ export default function ProjectsTable({ projects }: { projects: ProjectRow[] }) 
           {filterButton("complete", "Complete")}
         </div>
 
-        <button
-          type="button"
-          className="rounded border border-black px-3 py-2 text-sm opacity-60"
-          disabled
-          title="Add project flow coming soon"
+        <Link
+          href="/projects/new"
+          className="rounded border border-black px-3 py-2 text-sm hover:bg-black/5"
         >
           New Project
-        </button>
+        </Link>
       </div>
 
       <section className="border rounded-lg">

@@ -7,7 +7,7 @@ import { listProjects } from "@/lib/db/projects";
 export const dynamic = "force-dynamic";
 
 type PageProps = {
-  params: { id: string };
+  params: { id: string } | Promise<{ id: string }>;
 };
 
 export default async function ProjectDetailPage({ params }: PageProps) {
@@ -18,7 +18,14 @@ export default async function ProjectDetailPage({ params }: PageProps) {
   const companyId = await getMyCompanyId();
 
   const projects = await listProjects(companyId);
-  const project = projects.find((p) => p.id === params.id) ?? null;
+  const resolvedParams = await Promise.resolve(params);
+  const requestedId =
+    typeof resolvedParams?.id === "string"
+      ? resolvedParams.id.trim()
+      : Array.isArray(resolvedParams?.id)
+        ? resolvedParams.id[0]
+        : "";
+  const project = projects.find((p) => p.id === requestedId) ?? null;
 
   if (!project) {
     return (
