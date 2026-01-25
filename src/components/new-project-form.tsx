@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useFormState, useFormStatus } from "react-dom";
+import { useActionState } from "react";
+import { useFormStatus } from "react-dom";
 
 type FormState = { error?: string };
 
@@ -22,7 +23,7 @@ export default function NewProjectForm({
 }: {
   action: (prevState: FormState, formData: FormData) => Promise<FormState>;
 }) {
-  const [state, formAction] = useFormState<FormState, FormData>(action, {});
+  const [state, formAction] = useActionState<FormState, FormData>(action, {});
 
   return (
     <main className="p-6 space-y-6">

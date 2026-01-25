@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { useFormState, useFormStatus } from "react-dom";
+import { useMemo, useState, useActionState } from "react";
+import { useFormStatus } from "react-dom";
 
 type FormState = { error?: string };
 
@@ -38,7 +38,7 @@ export default function EditProjectForm({
   action: (prevState: FormState, formData: FormData) => Promise<FormState>;
   project: ProjectDefaults;
 }) {
-  const [state, formAction] = useFormState<FormState, FormData>(action, {});
+  const [state, formAction] = useActionState<FormState, FormData>(action, {});
   const formatMoney = useMemo(
     () =>
       new Intl.NumberFormat("en-US", {

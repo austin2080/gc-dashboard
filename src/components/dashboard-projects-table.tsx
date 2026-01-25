@@ -22,6 +22,8 @@ function money(n: number) {
 
 export default function DashboardProjectsTable({ projects }: { projects: ProjectRow[] }) {
   const router = useRouter();
+  const activeCount = projects.filter((p) => p.health !== "complete").length;
+  const atRiskCount = projects.filter((p) => p.health === "at_risk").length;
 
   function onRowClick(id: string) {
     router.push(`/projects/${id}`);
@@ -36,10 +38,12 @@ export default function DashboardProjectsTable({ projects }: { projects: Project
 
   return (
     <section className="border rounded-lg">
-      <div className="p-4 border-b">
-        <h2 className="font-semibold">Projects</h2>
-        <p className="text-sm opacity-70">Click a project to open details.</p>
-      </div>
+        <div className="p-4 border-b flex items-center justify-between gap-4">
+          <h2 className="font-semibold">Projects</h2>
+          <div className="text-sm opacity-70">
+            Active Projects: {activeCount} · At Risk: {atRiskCount}
+          </div>
+        </div>
 
       <div className="max-h-[520px] overflow-auto">
         <table className="w-full text-sm">

@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useFormState, useFormStatus } from "react-dom";
+import { useMemo, useState, useActionState } from "react";
+import { useFormStatus } from "react-dom";
 import Link from "next/link";
 
 type FormState = { error?: string };
@@ -68,7 +68,7 @@ export default function NewPrimeContractForm({
   backHref?: string;
   costCodes?: { code: string; description: string | null }[];
 }) {
-  const [state, formAction] = useFormState<FormState, FormData>(action, {});
+  const [state, formAction] = useActionState<FormState, FormData>(action, {});
   const [sovItems, setSovItems] = useState<SovItem[]>(
     defaults?.schedule_of_values?.length
       ? defaults.schedule_of_values

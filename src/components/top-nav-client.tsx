@@ -17,7 +17,7 @@ const STATIC_NAV = [
       { label: "Vendor Coverage (trade gaps)", href: "/bidding/vendor-coverage" },
     ],
   },
-  { label: "Subcontractor Directory", href: "/subcontractors" },
+  { label: "Directory", href: "/directory" },
   { label: "Procurement Tracking", href: "/procurement" },
 ];
 
