@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getMyCompanyId } from "@/lib/db/company";
 import { listProjects } from "@/lib/db/projects";
+import ProjectTeamTable from "@/components/project-team-table";
 
 export const dynamic = "force-dynamic";
 
@@ -434,16 +435,32 @@ export default async function ProjectDetailPage({ params }: PageProps) {
         </div>
       </section>
 
-      {/* Sections */}
-      <section className="grid grid-cols-1 lg:grid-cols-1 gap-4">
-        <div className="border rounded-lg p-4 space-y-2">
-          <h3 className="font-semibold">Project Directory</h3>
-          <p className="text-sm opacity-70">
-            Key contacts, vendors, and project-specific subcontractors.
-          </p>
-          <div className="text-xs opacity-60">Coming soon</div>
-        </div>
-      </section>
+      {/* Project Team */}
+      <ProjectTeamTable
+        teamMembers={[
+          {
+            role: "Project Manager",
+            name: "John Smith",
+            email: "john.smith@company.com",
+            office: "(555) 123-4567",
+            mobile: "(555) 987-6543",
+          },
+          {
+            role: "Superintendent",
+            name: "Sarah Johnson",
+            email: "sarah.johnson@company.com",
+            office: "(555) 123-4568",
+            mobile: "(555) 987-6544",
+          },
+          {
+            role: "Safety Manager",
+            name: "Mike Wilson",
+            email: "mike.wilson@company.com",
+            office: "(555) 123-4569",
+            mobile: "(555) 987-6545",
+          },
+        ]}
+      />
     </main>
   );
 }
