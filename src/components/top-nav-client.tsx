@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useState } from "react";
 import type { ProjectRow } from "@/lib/db/projects";
 
 const STATIC_NAV = [
@@ -28,6 +29,7 @@ function isActive(pathname: string, href: string) {
 
 export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
   const pathname = usePathname();
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
   const projectLinks = projects.map((p) => ({
     label: p.project_number ? `${p.project_number} - ${p.name}` : p.name,
@@ -36,13 +38,39 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
 
   return (
     <header className="sticky top-0 z-20 w-full border-b border-black/10 bg-white">
-      <div className="flex items-center justify-between px-6 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
         <div className="flex items-center gap-3">
           <div className="text-xs uppercase tracking-widest opacity-60">GC</div>
           <div className="text-lg font-semibold">Dashboard</div>
         </div>
 
-        <nav className="flex flex-wrap gap-2">
+        <div className="flex flex-1 items-center justify-end gap-3">
+          <button
+            type="button"
+            onClick={() => setMobileSearchOpen((v) => !v)}
+            className="rounded-xl border border-black/15 px-3 py-2 text-sm md:hidden"
+            aria-label="Toggle search"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="h-4 w-4"
+            >
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+          </button>
+          <div className="hidden min-w-[240px] max-w-[420px] flex-1 md:block">
+            <input
+              className="w-full rounded-xl border border-black/15 px-4 py-2 text-sm"
+              placeholder="Quick search projects, contracts, RFIs..."
+            />
+          </div>
+
+          <nav className="flex flex-wrap gap-2">
           {STATIC_NAV.map((item) => {
             const active = isActive(pathname, item.href);
             const children = item.children ?? [];
@@ -105,7 +133,16 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
               </div>
             );
           })}
-        </nav>
+          </nav>
+        </div>
+        {mobileSearchOpen ? (
+          <div className="w-full md:hidden">
+            <input
+              className="w-full rounded-xl border border-black/15 px-4 py-2 text-sm"
+              placeholder="Quick search projects, contracts, RFIs..."
+            />
+          </div>
+        ) : null}
       </div>
     </header>
   );

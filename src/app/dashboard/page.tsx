@@ -115,21 +115,20 @@ export default async function DashboardPage() {
 
   return (
     <main className="p-6 space-y-6">
-      <header className="flex items-start justify-between gap-4">
+      <section className="border rounded-2xl p-4 md:p-5 flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">Dashboard</h1>
-          <p className="text-sm opacity-80">Logged in as: {data.user.email}</p>
+          <div className="text-xs uppercase tracking-wide opacity-60">Homepage</div>
+          <h1 className="text-2xl md:text-3xl font-semibold mt-1">Welcome back</h1>
+          <div className="text-sm opacity-70">Logged in as: {data.user.email}</div>
         </div>
-
-        <div className="flex gap-2">
-          <Link className="border rounded px-3 py-2 text-sm" href="/projects">
-            Projects
-          </Link>
-          <Link className="border rounded px-3 py-2 text-sm" href="/bidding">
-            Bidding
+        <div className="flex flex-wrap items-center gap-2">
+          <button className="border rounded-lg px-3 py-2 text-sm">Notifications</button>
+          <button className="border rounded-lg px-3 py-2 text-sm">Quick Actions</button>
+          <Link className="border rounded-lg px-3 py-2 text-sm" href="/projects/new">
+            New Project
           </Link>
         </div>
-      </header>
+      </section>
 
       {/* Summary cards */}
       <section className="grid grid-cols-1 md:grid-cols-4 gap-3">
