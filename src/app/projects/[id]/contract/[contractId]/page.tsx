@@ -1,5 +1,6 @@
 import ContractStatusPill from "@/components/contract-status-pill";
 import InlineEstBuyout from "@/components/inline-est-buyout";
+import ContractActionsDropdown from "@/components/contract-actions-dropdown";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -116,6 +117,7 @@ export default async function ContractDetailPage({ params }: PageProps) {
           >
             Edit Contract
           </Link>
+          <ContractActionsDropdown projectId={projectId} contractId={contractId} />
         </div>
       </header>
 

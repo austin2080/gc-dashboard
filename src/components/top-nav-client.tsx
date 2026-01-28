@@ -33,6 +33,7 @@ const PROJECT_TOOL_GROUPS = [
     items: [
       { label: "RFIs", path: "rfis" },
       { label: "Submittals", path: "submittals" },
+      { label: "Commitments", path: "commitments" },
       { label: "Schedule", path: "schedule" },
       { label: "Daily Log", path: "daily-log" },
       { label: "Meeting Minutes", path: "meeting-minutes" },
