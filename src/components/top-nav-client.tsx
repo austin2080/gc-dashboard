@@ -2,53 +2,274 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import type { ProjectRow } from "@/lib/db/projects";
 
-const STATIC_NAV = [
-  { label: "Dashboard", href: "/dashboard" },
-  { label: "Projects", href: "/projects", hasDropdown: true },
-  { label: "Cost Codes", href: "/cost-codes" },
-  {
-    label: "Bidding",
-    href: "/bidding",
-    children: [
-      { label: "ITBs (create, send, track invitations)", href: "/bidding/itbs" },
-      { label: "Bid Leveling (side-by-side comparison)", href: "/bidding/bid-leveling" },
-      { label: "Vendor Coverage (trade gaps)", href: "/bidding/vendor-coverage" },
-    ],
-  },
-  { label: "Directory", href: "/directory" },
-  { label: "Procurement Tracking", href: "/procurement" },
+const GLOBAL_TOOLS = [
+  { label: "Home", href: "/dashboard" },
+  { label: "All Projects", href: "/projects" },
+  { label: "Main Directory", href: "/directory" },
+  { label: "Permissions", href: "/permissions" },
+  { label: "Workflows", href: "/workflows" },
+  { label: "Documents", href: "/documents" },
+  { label: "Financials", href: "/financials" },
+  { label: "ERP Integrations", href: "/integrations" },
+  { label: "Admin", href: "/admin" },
 ];
 
-function isActive(pathname: string, href: string) {
-  if (href === "/dashboard") return pathname === "/dashboard";
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
+const PROJECT_TOOL_GROUPS = [
+  {
+    title: "Directory",
+    description: "People and companies tied to the project",
+    items: [
+      { label: "Project Contacts", path: "directory" },
+      { label: "Subcontractors", path: "subcontractors" },
+      { label: "Consultants", path: "consultants" },
+    ],
+  },
+  {
+    title: "Project Management",
+    description: "Day-to-day execution and coordination tools",
+    items: [
+      { label: "RFIs", path: "rfis" },
+      { label: "Submittals", path: "submittals" },
+      { label: "Schedule", path: "schedule" },
+      { label: "Daily Log", path: "daily-log" },
+      { label: "Meeting Minutes", path: "meeting-minutes" },
+    ],
+  },
+  {
+    title: "Plans & Specs",
+    description: "Issued documents and design references",
+    items: [
+      { label: "Drawings", path: "drawings" },
+      { label: "Specifications", path: "specifications" },
+    ],
+  },
+  {
+    title: "Documents",
+    description: "Non-plan files and project records",
+    items: [
+      { label: "Project Files", path: "documents" },
+      { label: "Uploads", path: "uploads" },
+      { label: "Revisions", path: "revisions" },
+    ],
+  },
+  {
+    title: "Financials",
+    description: "Anything that affects money, contracts, and cost tracking",
+    items: [
+      { label: "Budget", path: "budget" },
+      { label: "Direct Costs", path: "direct-costs" },
+      { label: "Buyout", path: "buyout" },
+      { label: "Change Events", path: "change-events" },
+      { label: "Change Orders", path: "change-orders" },
+      { label: "Pay Apps / Invoicing", path: "pay-apps" },
+      { label: "Prime Contract", path: "contract" },
+    ],
+  },
+  {
+    title: "Field",
+    description: "Visual and on-site documentation",
+    items: [
+      { label: "Photos", path: "photos" },
+      { label: "Safety", path: "safety" },
+      { label: "Inspections", path: "inspections" },
+      { label: "Punch List", path: "punch-list" },
+    ],
+  },
+];
 
 export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
   const pathname = usePathname();
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const toolsRef = useRef<HTMLDivElement | null>(null);
+  const projectsRef = useRef<HTMLDivElement | null>(null);
+  const profileRef = useRef<HTMLDivElement | null>(null);
+
+  const activeProject = useMemo(() => {
+    const match = pathname.match(/^\/projects\/([^/]+)/);
+    if (!match) return null;
+    return projects.find((p) => p.id === match[1]) ?? null;
+  }, [pathname, projects]);
 
   const projectLinks = projects.map((p) => ({
     label: p.project_number ? `${p.project_number} - ${p.name}` : p.name,
     href: `/projects/${p.id}`,
   }));
 
+  const projectContextLabel = activeProject
+    ? activeProject.project_number
+      ? `${activeProject.project_number} - ${activeProject.name}`
+      : activeProject.name
+    : "No project selected";
+
+  const closeAllMenus = () => {
+    setToolsOpen(false);
+    setProjectsOpen(false);
+    setProfileOpen(false);
+  };
+
+  useEffect(() => {
+    if (!toolsOpen && !projectsOpen && !profileOpen) return;
+    const handleClick = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (toolsRef.current && !toolsRef.current.contains(target)) {
+        setToolsOpen(false);
+      }
+      if (projectsRef.current && !projectsRef.current.contains(target)) {
+        setProjectsOpen(false);
+      }
+      if (profileRef.current && !profileRef.current.contains(target)) {
+        setProfileOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [toolsOpen, projectsOpen, profileOpen]);
+
   return (
     <header className="sticky top-0 z-20 w-full border-b border-black/10 bg-white">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
-        <div className="flex items-center gap-3">
-          <div className="text-xs uppercase tracking-widest opacity-60">GC</div>
-          <div className="text-lg font-semibold">Dashboard</div>
+      <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <Link href="/dashboard" className="flex items-center gap-2">
+            <div className="text-xs uppercase tracking-widest opacity-60">GC</div>
+            <div className="text-xl font-semibold">Dashboard</div>
+          </Link>
+
+          <div className="flex items-center gap-2">
+            <div className="relative" ref={projectsRef}>
+              <button
+                className="rounded-full border border-black/10 px-3 py-1 text-base cursor-pointer flex items-center gap-2"
+                type="button"
+                onClick={() => setProjectsOpen((open) => !open)}
+              >
+                {projectContextLabel}
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="h-3 w-3 opacity-60"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+              {projectsOpen ? (
+                <div className="absolute left-0 top-full z-30 min-w-[260px] rounded-md border border-black/10 bg-white p-2 shadow-sm">
+                <div className="px-2 py-1 text-sm uppercase tracking-wide opacity-60">Active Project</div>
+                <Link
+                  href="/projects"
+                  onClick={closeAllMenus}
+                  className="block rounded px-2 py-1 text-base font-medium opacity-90 hover:bg-black/[0.03]"
+                >
+                  View all projects
+                </Link>
+                <div className="my-1 border-t border-black/10" />
+                {projectLinks.length ? (
+                  projectLinks.map((child) => (
+                    <Link
+                      key={child.href}
+                      href={child.href}
+                      onClick={closeAllMenus}
+                      className="block rounded px-2 py-1 text-base opacity-80 hover:bg-black/[0.03]"
+                    >
+                      {child.label}
+                    </Link>
+                  ))
+                ) : (
+                  <div className="px-2 py-1 text-base opacity-60">No active projects yet</div>
+                )}
+              </div>
+              ) : null}
+            </div>
+            <div className="relative" ref={toolsRef}>
+              <button
+                className="rounded-full border border-black/10 px-3 py-1 text-base cursor-pointer flex items-center gap-2"
+                type="button"
+                onClick={() => setToolsOpen((open) => !open)}
+              >
+                {activeProject ? "Project Tools" : "Company Tools"}
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="h-3 w-3 opacity-60"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+              {toolsOpen ? (
+                <div className="fixed left-0 right-0 top-16 z-30">
+                  <div className="mx-6 rounded-2xl border border-black/10 bg-white p-5 shadow-xl">
+                    <div className="px-2 py-2">
+                    <div className="text-sm uppercase tracking-wide opacity-60">
+                      {activeProject ? "Project Tools" : "Company Tools"}
+                    </div>
+                    <div className="text-base font-semibold">
+                      {activeProject ? projectContextLabel : "Company Overview"}
+                    </div>
+                  </div>
+                  {activeProject ? (
+                    <div className="grid grid-cols-3 gap-4">
+                      {PROJECT_TOOL_GROUPS.map((group) => (
+                        <div key={group.title} className="space-y-2">
+                          <div>
+                            <div className="text-sm font-semibold uppercase tracking-wide">
+                              {group.title}
+                            </div>
+                            <div className="text-xs opacity-60 mt-1">
+                              {group.description}
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            {group.items.map((item) => (
+                              <Link
+                                key={item.label}
+                                href={`/projects/${activeProject.id}/${item.path}`}
+                                onClick={closeAllMenus}
+                                className="block rounded px-2 py-1 text-sm text-black/80 hover:bg-black/[0.03]"
+                              >
+                                {item.label}
+                              </Link>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                      {GLOBAL_TOOLS.map((tool) => (
+                      <Link
+                        key={tool.label}
+                        href={tool.href}
+                        onClick={closeAllMenus}
+                        className="rounded-lg px-3 py-2 text-xs font-medium text-black/80 hover:bg-black/[0.03]"
+                      >
+                        {tool.label}
+                      </Link>
+                      ))}
+                    </div>
+                  )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
         </div>
 
-        <div className="flex flex-1 items-center justify-end gap-3">
+        <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
           <button
             type="button"
             onClick={() => setMobileSearchOpen((v) => !v)}
-            className="rounded-xl border border-black/15 px-3 py-2 text-sm md:hidden"
+            className="rounded-xl border border-black/15 px-3 py-2 text-base md:hidden"
             aria-label="Toggle search"
           >
             <svg
@@ -63,82 +284,66 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
               <path d="m20 20-3.5-3.5" />
             </svg>
           </button>
-          <div className="hidden min-w-[240px] max-w-[420px] flex-1 md:block">
+          <div className="hidden min-w-[220px] max-w-[360px] flex-1 md:block">
             <input
-              className="w-full rounded-xl border border-black/15 px-4 py-2 text-sm"
+              className="w-full rounded-xl border border-black/15 px-4 py-2 text-base"
               placeholder="Quick search projects, contracts, RFIs..."
             />
           </div>
 
-          <nav className="flex flex-wrap gap-2">
-          {STATIC_NAV.map((item) => {
-            const active = isActive(pathname, item.href);
-            const children = item.children ?? [];
+          <button className="rounded-full border border-black/10 px-3 py-2 text-base cursor-pointer" aria-label="Notifications">
+            🔔
+          </button>
 
-            return (
-              <div key={item.href} className="relative group pb-2">
+          <div className="relative" ref={profileRef}>
+            <button
+              className="rounded-full border border-black/10 px-3 py-2 text-base cursor-pointer flex items-center gap-2"
+              type="button"
+              onClick={() => setProfileOpen((open) => !open)}
+            >
+              Profile
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="h-3 w-3 opacity-60"
+              >
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+            {profileOpen ? (
+              <div className="absolute right-0 top-full z-30 min-w-[180px] rounded-md border border-black/10 bg-white p-2 shadow-sm">
                 <Link
-                  href={item.href}
-                  className={`rounded-full px-3 py-1 text-sm transition-colors ${
-                    active ? "bg-black/5 text-black" : "text-black/80 hover:bg-black/[0.03]"
-                  }`}
+                  href="/profile"
+                  onClick={closeAllMenus}
+                  className="block rounded px-2 py-1 text-base opacity-80 hover:bg-black/[0.03]"
                 >
-                  {item.label}
+                  Profile
                 </Link>
-
-                {item.href === "/projects" ? (
-                  <div className="absolute left-0 top-full z-30 hidden min-w-[260px] rounded-md border border-black/10 bg-white p-2 shadow-sm group-hover:block group-focus-within:block">
-                    <Link
-                      href="/projects/new"
-                      className="block rounded px-2 py-1 text-xs font-medium opacity-90 hover:bg-black/[0.03]"
-                    >
-                      + Create New
-                    </Link>
-                    <div className="my-1 border-t border-black/10" />
-                    {projectLinks.length ? (
-                      projectLinks.map((child) => (
-                        <Link
-                          key={child.href}
-                          href={child.href}
-                          className="block rounded px-2 py-1 text-xs opacity-80 hover:bg-black/[0.03]"
-                        >
-                          {child.label}
-                        </Link>
-                      ))
-                    ) : (
-                      <div className="px-2 py-1 text-xs opacity-60">
-                        No active projects yet
-                      </div>
-                    )}
-                  </div>
-                ) : children.length ? (
-                  <div className="absolute left-0 top-full z-30 hidden min-w-[260px] rounded-md border border-black/10 bg-white p-2 shadow-sm group-hover:block group-focus-within:block">
-                    {children.map((child) =>
-                      "href" in child ? (
-                        <Link
-                          key={child.href}
-                          href={child.href}
-                          className="block rounded px-2 py-1 text-xs opacity-80 hover:bg-black/[0.03]"
-                        >
-                          {child.label}
-                        </Link>
-                      ) : (
-                        <div key={child.label} className="px-2 py-1 text-xs opacity-70">
-                          {child.label}
-                        </div>
-                      )
-                    )}
-                  </div>
-                ) : null}
+                <Link
+                  href="/settings"
+                  onClick={closeAllMenus}
+                  className="block rounded px-2 py-1 text-base opacity-80 hover:bg-black/[0.03]"
+                >
+                  Settings
+                </Link>
+                <Link
+                  href="/logout"
+                  onClick={closeAllMenus}
+                  className="block rounded px-2 py-1 text-base opacity-80 hover:bg-black/[0.03]"
+                >
+                  Log out
+                </Link>
               </div>
-            );
-          })}
-          </nav>
+            ) : null}
+          </div>
         </div>
         {mobileSearchOpen ? (
           <div className="w-full md:hidden">
             <input
-              className="w-full rounded-xl border border-black/15 px-4 py-2 text-sm"
+              className="w-full rounded-xl border border-black/15 px-4 py-2 text-base"
               placeholder="Quick search projects, contracts, RFIs..."
             />
           </div>

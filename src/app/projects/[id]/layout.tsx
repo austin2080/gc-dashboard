@@ -1,6 +1,6 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getMyCompanyId } from "@/lib/db/company";
-import ProjectSubnav from "@/components/project-subnav";
 
 type LayoutProps = {
   children: React.ReactNode;
@@ -33,7 +33,13 @@ export default async function ProjectLayout({ children, params }: LayoutProps) {
 
   return (
     <div>
-      <ProjectSubnav projectId={projectId} projectName={projectName} />
+      <div className="px-6 pt-4 text-sm text-black/60">
+        <Link className="hover:text-black" href="/projects">
+          Projects
+        </Link>
+        <span className="mx-2">/</span>
+        <span className="text-black">{projectName ?? "Project"}</span>
+      </div>
       {children}
     </div>
   );
