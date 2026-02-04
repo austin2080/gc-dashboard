@@ -245,7 +245,7 @@ export default function ProjectPhotosPage() {
           </label>
         </div>
         <button
-          className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium shadow-sm"
+          className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm"
           type="button"
         >
           Upload Photos
@@ -340,7 +340,7 @@ export default function ProjectPhotosPage() {
           <button
             className={
               activeTab === "all"
-                ? "rounded-full bg-black px-4 py-1.5 text-sm font-medium text-white"
+                ? "rounded-full bg-primary px-4 py-1.5 text-sm font-medium text-white"
                 : "rounded-full border border-black/10 px-4 py-1.5 text-sm font-medium text-black/70"
             }
             type="button"
@@ -351,7 +351,7 @@ export default function ProjectPhotosPage() {
           <button
             className={
               activeTab === "albums"
-                ? "rounded-full bg-black px-4 py-1.5 text-sm font-medium text-white"
+                ? "rounded-full bg-primary px-4 py-1.5 text-sm font-medium text-white"
                 : "rounded-full border border-black/10 px-4 py-1.5 text-sm font-medium text-black/70"
             }
             type="button"
@@ -491,7 +491,7 @@ export default function ProjectPhotosPage() {
                 {albums.length ? `${albums.length} album(s)` : "No albums yet."}
               </div>
               <button
-                className="rounded-full border border-black/10 bg-white px-4 py-2 text-sm font-medium shadow-sm"
+                className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-white shadow-sm"
                 type="button"
                 onClick={() => setShowCreateAlbumModal(true)}
               >
@@ -645,7 +645,7 @@ export default function ProjectPhotosPage() {
                 Close
               </button>
               <button
-                className="rounded-full bg-black px-4 py-2 text-sm text-white"
+                className="rounded-full bg-primary px-4 py-2 text-sm text-white"
                 type="button"
                 onClick={() => {
                   if (!selectedPhoto) return;
@@ -694,7 +694,7 @@ export default function ProjectPhotosPage() {
                 Close
               </button>
               <button
-                className="rounded-full bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
+                className="rounded-full bg-primary px-4 py-2 text-sm text-white disabled:opacity-50"
                 type="button"
                 disabled={!selectedAlbumId || selectedIds.size === 0}
                 onClick={() => {
@@ -751,7 +751,7 @@ export default function ProjectPhotosPage() {
                 Cancel
               </button>
               <button
-                className="rounded-full bg-black px-4 py-2 text-sm text-white disabled:opacity-50"
+                className="rounded-full bg-primary px-4 py-2 text-sm text-white disabled:opacity-50"
                 type="button"
                 disabled={!albumName.trim()}
                 onClick={() => {

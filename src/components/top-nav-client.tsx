@@ -87,6 +87,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const hasUnreadNotifications = true;
   const toolsRef = useRef<HTMLDivElement | null>(null);
   const projectsRef = useRef<HTMLDivElement | null>(null);
   const profileRef = useRef<HTMLDivElement | null>(null);
@@ -102,7 +103,8 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
     href: `/projects/${p.id}`,
   }));
 
-  const projectContextLabel = activeProject
+  const hasActiveProject = Boolean(activeProject);
+  const projectContextLabel = hasActiveProject
     ? activeProject.project_number
       ? `${activeProject.project_number} - ${activeProject.name}`
       : activeProject.name
@@ -133,18 +135,22 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
   }, [toolsOpen, projectsOpen, profileOpen]);
 
   return (
-    <header className="sticky top-0 z-20 w-full border-b border-black/10 bg-white">
+    <header className="sticky top-0 z-20 w-full border-b border-white/10 bg-[color:var(--brand)] text-white">
       <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3">
         <div className="flex flex-wrap items-center gap-3">
           <Link href="/dashboard" className="flex items-center gap-2">
-            <div className="text-xs uppercase tracking-widest opacity-60">GC</div>
+            <div className="text-xs uppercase tracking-widest opacity-70">GC</div>
             <div className="text-xl font-semibold">Dashboard</div>
           </Link>
 
           <div className="flex items-center gap-2">
             <div className="relative" ref={projectsRef}>
               <button
-                className="rounded-full border border-black/10 px-3 py-1 text-base cursor-pointer flex items-center gap-2"
+                className={`rounded-full px-3 py-1 text-base cursor-pointer flex items-center gap-2 ${
+                  hasActiveProject
+                    ? "border border-white/20"
+                    : "border border-white/15 bg-white/[0.04] text-white/70"
+                }`}
                 type="button"
                 onClick={() => setProjectsOpen((open) => !open)}
               >
@@ -161,12 +167,12 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                 </svg>
               </button>
               {projectsOpen ? (
-                <div className="absolute left-0 top-full z-30 min-w-[260px] rounded-md border border-black/10 bg-white p-2 shadow-sm">
-                <div className="px-2 py-1 text-sm uppercase tracking-wide opacity-60">Active Project</div>
+                <div className="absolute left-0 top-full z-30 min-w-[260px] rounded-md border border-black/10 bg-white p-2 text-black/80 shadow-sm">
+                <div className="px-2 py-1 text-sm uppercase tracking-wide text-black/50">Active Project</div>
                 <Link
                   href="/projects"
                   onClick={closeAllMenus}
-                  className="block rounded px-2 py-1 text-base font-medium opacity-90 hover:bg-black/[0.03]"
+                  className="block rounded px-2 py-1 text-base font-medium text-black/90 hover:bg-black/[0.03]"
                 >
                   View all projects
                 </Link>
@@ -177,20 +183,20 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                       key={child.href}
                       href={child.href}
                       onClick={closeAllMenus}
-                      className="block rounded px-2 py-1 text-base opacity-80 hover:bg-black/[0.03]"
+                      className="block rounded px-2 py-1 text-base text-black/80 hover:bg-black/[0.03]"
                     >
                       {child.label}
                     </Link>
                   ))
                 ) : (
-                  <div className="px-2 py-1 text-base opacity-60">No active projects yet</div>
+                  <div className="px-2 py-1 text-base text-black/60">No active projects yet</div>
                 )}
               </div>
               ) : null}
             </div>
             <div className="relative" ref={toolsRef}>
               <button
-                className="rounded-full border border-black/10 px-3 py-1 text-base cursor-pointer flex items-center gap-2"
+                className="rounded-full border border-white/20 px-3 py-1 text-base cursor-pointer flex items-center gap-2"
                 type="button"
                 onClick={() => setToolsOpen((open) => !open)}
               >
@@ -208,12 +214,12 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
               </button>
               {toolsOpen ? (
                 <div className="fixed left-0 right-0 top-16 z-30">
-                  <div className="mx-6 rounded-2xl border border-black/10 bg-white p-5 shadow-xl">
+                  <div className="mx-6 rounded-2xl border border-black/10 bg-white p-5 text-black/80 shadow-xl">
                     <div className="px-2 py-2">
-                    <div className="text-sm uppercase tracking-wide opacity-60">
+                    <div className="text-sm uppercase tracking-wide text-black/50">
                       {activeProject ? "Project Tools" : "Company Tools"}
                     </div>
-                    <div className="text-base font-semibold">
+                    <div className="text-base font-semibold text-black/90">
                       {activeProject ? projectContextLabel : "Company Overview"}
                     </div>
                   </div>
@@ -225,7 +231,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                             <div className="text-sm font-semibold uppercase tracking-wide">
                               {group.title}
                             </div>
-                            <div className="text-xs opacity-60 mt-1">
+                            <div className="text-xs text-black/60 mt-1">
                               {group.description}
                             </div>
                           </div>
@@ -270,7 +276,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
           <button
             type="button"
             onClick={() => setMobileSearchOpen((v) => !v)}
-            className="rounded-xl border border-black/15 px-3 py-2 text-base md:hidden"
+            className="rounded-xl border border-white/20 px-3 py-2 text-base md:hidden"
             aria-label="Toggle search"
           >
             <svg
@@ -287,18 +293,24 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
           </button>
           <div className="hidden min-w-[220px] max-w-[360px] flex-1 md:block">
             <input
-              className="w-full rounded-xl border border-black/15 px-4 py-2 text-base"
+              className="w-full rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-base text-white placeholder:text-white/60"
               placeholder="Quick search projects, contracts, RFIs..."
             />
           </div>
 
-          <button className="rounded-full border border-black/10 px-3 py-2 text-base cursor-pointer" aria-label="Notifications">
+          <button
+            className="relative rounded-full border border-white/20 px-3 py-2 text-base cursor-pointer"
+            aria-label="Notifications"
+          >
             🔔
+            {hasUnreadNotifications ? (
+              <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary ring-2 ring-[color:var(--brand)]" />
+            ) : null}
           </button>
 
           <div className="relative" ref={profileRef}>
             <button
-              className="rounded-full border border-black/10 px-3 py-2 text-base cursor-pointer flex items-center gap-2"
+              className="rounded-full border border-white/20 px-3 py-2 text-base cursor-pointer flex items-center gap-2"
               type="button"
               onClick={() => setProfileOpen((open) => !open)}
             >
@@ -315,25 +327,25 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
               </svg>
             </button>
             {profileOpen ? (
-              <div className="absolute right-0 top-full z-30 min-w-[180px] rounded-md border border-black/10 bg-white p-2 shadow-sm">
+              <div className="absolute right-0 top-full z-30 min-w-[180px] rounded-md border border-black/10 bg-white p-2 text-black/80 shadow-sm">
                 <Link
                   href="/profile"
                   onClick={closeAllMenus}
-                  className="block rounded px-2 py-1 text-base opacity-80 hover:bg-black/[0.03]"
+                  className="block rounded px-2 py-1 text-base text-black/80 hover:bg-black/[0.03]"
                 >
                   Profile
                 </Link>
                 <Link
                   href="/settings"
                   onClick={closeAllMenus}
-                  className="block rounded px-2 py-1 text-base opacity-80 hover:bg-black/[0.03]"
+                  className="block rounded px-2 py-1 text-base text-black/80 hover:bg-black/[0.03]"
                 >
                   Settings
                 </Link>
                 <Link
                   href="/logout"
                   onClick={closeAllMenus}
-                  className="block rounded px-2 py-1 text-base opacity-80 hover:bg-black/[0.03]"
+                  className="block rounded px-2 py-1 text-base text-black/80 hover:bg-black/[0.03]"
                 >
                   Log out
                 </Link>
@@ -344,7 +356,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
         {mobileSearchOpen ? (
           <div className="w-full md:hidden">
             <input
-              className="w-full rounded-xl border border-black/15 px-4 py-2 text-base"
+              className="w-full rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-base text-white placeholder:text-white/60"
               placeholder="Quick search projects, contracts, RFIs..."
             />
           </div>

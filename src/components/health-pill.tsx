@@ -17,6 +17,13 @@ function labelFor(value: Health) {
   return HEALTH_OPTIONS.find((o) => o.value === value)?.label ?? value;
 }
 
+function iconFor(value: Health) {
+  if (value === "on_track") return "✓";
+  if (value === "at_risk") return "⚠️";
+  if (value === "on_hold") return "⏳";
+  return "⏸️";
+}
+
 export default function HealthPill({
   projectId,
   initialHealth,
@@ -59,11 +66,11 @@ export default function HealthPill({
   function pillStyle(h: Health) {
   switch (h) {
     case "at_risk":
-      return "border border-yellow-500/70 text-yellow-700";
+      return "border border-[color:var(--warning)] text-[color:var(--warning)]";
     case "on_hold":
       return "border border-red-500/70 text-red-700";
     case "complete":
-      return "border border-green-500/70 text-green-700";
+      return "border border-[color:var(--success)] text-[color:var(--success)]";
     default:
       return "border border-black/40 text-black";
   }
@@ -82,7 +89,7 @@ export default function HealthPill({
   )}`}
 >
 
-      {/* Show label once */}
+      <span className="mr-1">{iconFor(health)}</span>
       <span>{labelFor(health)}</span>
 
       {/* Invisible select sits on top so clicking the pill works */}

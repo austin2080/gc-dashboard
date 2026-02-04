@@ -16,6 +16,13 @@ type ProjectRow = {
   updated_at: string | null;
 };
 
+function healthBarColor(health: ProjectRow["health"]) {
+  if (health === "at_risk") return "#DC2626";
+  if (health === "on_hold") return "#F59E0B";
+  if (health === "on_track") return "#16A34A";
+  return "#9CA3AF";
+}
+
 function money(n: number) {
   return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
 }
@@ -37,13 +44,16 @@ export default function DashboardProjectsTable({ projects }: { projects: Project
   }
 
   return (
-    <section className="border rounded-lg">
-        <div className="p-4 border-b flex items-center justify-between gap-4">
-          <h2 className="font-semibold">Projects</h2>
-          <div className="text-sm opacity-70">
-            Active Projects: {activeCount} · At Risk: {atRiskCount}
-          </div>
+    <section className="card mt-10">
+      <div className="p-4 border-b flex items-center justify-between gap-4">
+        <h2 className="font-semibold">Projects</h2>
+        <div className="text-sm text-[color:var(--muted)]">
+          Active Projects: {activeCount} ·{" "}
+          <span className="font-semibold text-[color:var(--danger)]">
+            At Risk: {atRiskCount}
+          </span>
         </div>
+      </div>
 
       <div className="max-h-[520px] overflow-auto">
         <table className="w-full text-sm">
@@ -70,23 +80,47 @@ export default function DashboardProjectsTable({ projects }: { projects: Project
                 projects.map((p) => (
                   <tr
                     key={p.id}
-                  className="border-b last:border-b-0 cursor-pointer transition-colors hover:[&>td]:bg-black/[0.03] active:[&>td]:bg-black/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
-                  onClick={() => onRowClick(p.id)}
-                  onKeyDown={(e) => onRowKeyDown(p.id, e)}
-                  role="link"
-                  tabIndex={0}
+                    className="group border-b last:border-b-0 cursor-pointer transition-colors hover:[&>td]:bg-[color:var(--hover)] active:[&>td]:bg-black/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40"
+                    onClick={() => onRowClick(p.id)}
+                    onKeyDown={(e) => onRowKeyDown(p.id, e)}
+                    role="link"
+                    tabIndex={0}
                   >
-                    <td className="p-3">{p.project_number ?? "-"}</td>
-                    <td className="p-3 font-medium">{p.name}</td>
-                    <td className="p-3">{p.city ?? "-"}</td>
-                    <td className="p-3">
+                    <td
+                      className="px-3 py-4 border-l-[3px] border-l-[color:var(--status-color)]"
+                      style={{ ["--status-color" as string]: healthBarColor(p.health) }}
+                    >
+                      {p.project_number ?? "-"}
+                    </td>
+                    <td className="px-3 py-4 font-medium group-hover:text-black group-hover:underline">
+                      {p.name}
+                    </td>
+                    <td className="px-3 py-4">{p.city ?? "-"}</td>
+                    <td className="px-3 py-4">
                       <HealthPill projectId={p.id} initialHealth={p.health} />
                     </td>
-                  <td className="p-3 text-right">{money(p.contracted_value || 0)}</td>
-                  <td className="p-3 text-right">{money(p.estimated_profit || 0)}</td>
-                  <td className="p-3 text-right">{money(p.estimated_buyout || 0)}</td>
-                  <td className="p-3">
-                    {p.updated_at ? new Date(p.updated_at).toLocaleString() : "-"}
+                  <td className="px-3 py-4 text-right">
+                    {money(p.contracted_value || 0)}
+                  </td>
+                  <td className="px-3 py-4 text-right">
+                    {money(p.estimated_profit || 0)}
+                  </td>
+                  <td className="px-3 py-4 text-right">
+                    {money(p.estimated_buyout || 0)}
+                  </td>
+                  <td className="px-3 py-4">
+                    {p.updated_at ? (
+                      <div className="text-[13px]">
+                        <div className="text-[#374151]">
+                          {new Date(p.updated_at).toLocaleDateString()}
+                        </div>
+                        <div className="text-[#9CA3AF]">
+                          {new Date(p.updated_at).toLocaleTimeString()}
+                        </div>
+                      </div>
+                    ) : (
+                      "-"
+                    )}
                   </td>
                 </tr>
               ))

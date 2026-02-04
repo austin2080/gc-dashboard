@@ -17,6 +17,12 @@ function healthLabel(h: string) {
   return h;
 }
 
+function marginAccent(margin: number) {
+  if (margin >= 10) return "#16A34A";
+  if (margin >= 5) return "#F59E0B";
+  return "#DC2626";
+}
+
 export default async function DashboardPage() {
   const supabase = await createClient();
   const { data } = await supabase.auth.getUser();
@@ -132,40 +138,76 @@ export default async function DashboardPage() {
 
       {/* Summary cards */}
       <section className="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <div className="border rounded-lg p-4">
-          <div className="text-sm opacity-70">Total Contracted</div>
-          <div className="text-xl font-semibold mt-1">{money(totalContract)}</div>
+        <div
+          className="card p-4 border-l-[3px] border-l-[color:var(--status-color)] border-[#E5E7EB] cursor-pointer transition-colors hover:bg-[color:var(--background)]"
+          style={{ ["--status-color" as string]: "#3B82F6" }}
+        >
+          <div className="text-sm font-medium text-[color:var(--muted)]">
+            Total Contracted
+          </div>
+          <div className="text-3xl font-semibold mt-1">{money(totalContract)}</div>
         </div>
-        <div className="border rounded-lg p-4">
-          <div className="text-sm opacity-70">Total Est. OH&P</div>
-          <div className="text-xl font-semibold mt-1">{money(totalProfit)}</div>
+        <div
+          className="card p-4 border-l-[3px] border-l-[color:var(--status-color)] border-[#E5E7EB] cursor-pointer transition-colors hover:bg-[color:var(--background)]"
+          style={{ ["--status-color" as string]: "#16A34A" }}
+        >
+          <div className="text-sm font-medium text-[color:var(--muted)]">
+            Total Est. OH&P
+          </div>
+          <div className="text-3xl font-semibold mt-1">{money(totalProfit)}</div>
         </div>
-        <div className="border rounded-lg p-4">
-          <div className="text-sm opacity-70">Total Est. Buyout</div>
-          <div className="text-xl font-semibold mt-1">{money(totalBuyout)}</div>
+        <div
+          className="card p-4 border-l-[3px] border-l-[color:var(--status-color)] border-[#E5E7EB] cursor-pointer transition-colors hover:bg-[color:var(--background)]"
+          style={{ ["--status-color" as string]: "#F59E0B" }}
+        >
+          <div className="text-sm font-medium text-[color:var(--muted)]">
+            Total Est. Buyout
+          </div>
+          <div className="text-3xl font-semibold mt-1">{money(totalBuyout)}</div>
         </div>
-        <div className="border rounded-lg p-4">
-          <div className="text-sm opacity-70">Est. Margin</div>
-          <div className="text-xl font-semibold mt-1">{totalMargin.toFixed(1)}%</div>
+        <div
+          className="card p-4 border-l-[3px] border-l-[color:var(--status-color)] border-[#E5E7EB] cursor-pointer transition-colors hover:bg-[color:var(--background)]"
+          style={{ ["--status-color" as string]: marginAccent(totalMargin) }}
+        >
+          <div className="text-sm font-medium text-[color:var(--muted)]">
+            Est. Margin
+          </div>
+          <div className="text-3xl font-semibold mt-1">{totalMargin.toFixed(1)}%</div>
         </div>
-        <div className="border rounded-lg p-4">
-          <div className="text-sm opacity-70">Pay Apps &gt; 30 Days</div>
-          <div className="text-xl font-semibold mt-1">{overdue30Count}</div>
-          <div className="text-xs opacity-60 mt-1">{money(overdue30Amount)}</div>
+        <div className="card p-4">
+          <div className="text-sm font-medium text-[color:var(--muted)] flex items-center gap-2">
+            <span>⏳</span>
+            Pay Apps &gt; 30 Days
+          </div>
+          <div className="text-2xl font-semibold mt-2">{overdue30Count}</div>
+          <div className="text-xs text-[color:var(--muted)] mt-1">
+            {money(overdue30Amount)}
+          </div>
         </div>
-        <div className="border rounded-lg p-4">
-          <div className="text-sm opacity-70">Pay Apps &gt; 60 Days</div>
-          <div className="text-xl font-semibold mt-1">{overdue60Count}</div>
-          <div className="text-xs opacity-60 mt-1">{money(overdue60Amount)}</div>
+        <div className="card p-4">
+          <div className="text-sm font-medium text-[color:var(--muted)] flex items-center gap-2">
+            <span>⚠️</span>
+            Pay Apps &gt; 60 Days
+          </div>
+          <div className="text-2xl font-semibold mt-2">{overdue60Count}</div>
+          <div className="text-xs text-[color:var(--muted)] mt-1">
+            {money(overdue60Amount)}
+          </div>
         </div>
-        <div className="border rounded-lg p-4">
-          <div className="text-sm opacity-70">Payments Received</div>
-          <div className="text-xl font-semibold mt-1">{money(paymentsReceived)}</div>
+        <div className="card p-4">
+          <div className="text-sm font-medium text-[color:var(--muted)] flex items-center gap-2">
+            <span>💰</span>
+            Payments Received
+          </div>
+          <div className="text-2xl font-semibold mt-2">{money(paymentsReceived)}</div>
         </div>
-        <div className="border rounded-lg p-4 space-y-1">
-          <div className="text-sm opacity-70">Lien Waivers</div>
-          <div className="text-sm">Conditional: 3</div>
-          <div className="text-sm">Unconditional: 5</div>
+        <div className="card p-4 space-y-1">
+          <div className="text-sm font-medium text-[color:var(--muted)] flex items-center gap-2">
+            <span>📄</span>
+            Lien Waivers
+          </div>
+          <div className="text-sm text-[color:var(--warning)]">Conditional: 3</div>
+          <div className="text-sm text-[color:var(--success)]">Unconditional: 5</div>
         </div>
       </section>
 
