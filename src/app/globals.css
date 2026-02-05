@@ -1,11 +1,16 @@
 @import "tailwindcss";
-@import "react-pdf/dist/esm/Page/AnnotationLayer.css";
-@import "react-pdf/dist/esm/Page/TextLayer.css";
 
 :root {
   --background: #ffffff;
   --foreground: #2f3a4a;
   --brand: #2f3a4a;
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+}
+
+html[data-mode="waiverdesk"] {
+  --primary: #14b8a6;
+  --primary-hover: #0f9f8a;
 }
 
 @theme inline {

@@ -692,7 +692,12 @@ export default function DrawingsPage() {
                     </div>
                   }
                 >
-                  <Page pageNumber={pageNumber} scale={scale} />
+                  <Page
+                    pageNumber={pageNumber}
+                    scale={scale}
+                    renderTextLayer={false}
+                    renderAnnotationLayer={false}
+                  />
                 </Document>
               ) : (
                 <div className="flex h-full items-center justify-center text-sm text-[color:var(--muted)]">
