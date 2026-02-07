@@ -2,12 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useContext } from "react";
+import { ModeContext } from "@/components/mode-provider";
 
 type Item = { label: string; href: string };
-
-function isActive(pathname: string, href: string) {
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
 
 export default function ProjectSubnav({
   projectId,
@@ -16,6 +14,7 @@ export default function ProjectSubnav({
   projectId: string;
   projectName?: string;
 }) {
+  const { mode } = useContext(ModeContext);
   const pathname = usePathname();
   const base = `/projects/${projectId}`;
 
@@ -24,6 +23,7 @@ export default function ProjectSubnav({
     { label: "Prime Contract", href: `${base}/contract` },
     { label: "Budget", href: `${base}/budget` },
     { label: "Pay Apps", href: `${base}/pay-apps` },
+    ...(mode === "waiverdesk" ? [{ label: "Lien Waivers", href: `${base}/waivers` }] : []),
     { label: "Change Orders", href: `${base}/change-orders` },
     { label: "RFIs", href: `${base}/rfis` },
     { label: "Submittals", href: `${base}/submittals` },
@@ -44,7 +44,7 @@ export default function ProjectSubnav({
       </div>
       <div className="flex flex-wrap items-center gap-2 px-6 py-3">
         {items.map((item) => {
-          const active = isActive(pathname, item.href);
+          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
           return (
             <Link
               key={item.href}

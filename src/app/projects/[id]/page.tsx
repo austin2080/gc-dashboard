@@ -11,6 +11,21 @@ type PageProps = {
   params: { id: string } | Promise<{ id: string }>;
 };
 
+const currencyFormatter = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+});
+
+const dateFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+});
+
+const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  dateStyle: "short",
+  timeStyle: "short",
+});
+
 export default async function ProjectDetailPage({ params }: PageProps) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getUser();
@@ -197,37 +212,28 @@ export default async function ProjectDetailPage({ params }: PageProps) {
           {approvedOwnerCO !== 0 ? (
             <>
               <div className="text-xl font-semibold mt-1">
-                {revisedContracted.toLocaleString(undefined, {
-                  style: "currency",
-                  currency: "USD",
-                })}
+                {currencyFormatter.format(revisedContracted)}
               </div>
               <div className="text-xs opacity-60 mt-1">
                 Original:{" "}
-                {contracted.toLocaleString(undefined, { style: "currency", currency: "USD" })}
+                {currencyFormatter.format(contracted)}
               </div>
               {pendingOwnerCO !== 0 ? (
                 <div className="text-xs opacity-60 mt-1">
                   Potential Revised Contract Value:{" "}
-                  {potentialRevised.toLocaleString(undefined, {
-                    style: "currency",
-                    currency: "USD",
-                  })}
+                  {currencyFormatter.format(potentialRevised)}
                 </div>
               ) : null}
             </>
           ) : (
             <>
               <div className="text-xl font-semibold mt-1">
-                {contracted.toLocaleString(undefined, { style: "currency", currency: "USD" })}
+                {currencyFormatter.format(contracted)}
               </div>
               {pendingOwnerCO !== 0 ? (
                 <div className="text-xs opacity-60 mt-1">
                   Potential Revised Contract Value:{" "}
-                  {potentialRevised.toLocaleString(undefined, {
-                    style: "currency",
-                    currency: "USD",
-                  })}
+                  {currencyFormatter.format(potentialRevised)}
                 </div>
               ) : null}
             </>
@@ -236,22 +242,19 @@ export default async function ProjectDetailPage({ params }: PageProps) {
         <div className="border rounded-lg p-4">
           <div className="text-sm opacity-70">Est. OH&P</div>
           <div className="text-xl font-semibold mt-1">
-            {profit.toLocaleString(undefined, { style: "currency", currency: "USD" })}
+            {currencyFormatter.format(profit)}
           </div>
           {pendingOhp !== 0 ? (
             <div className="text-xs opacity-60 mt-1">
               Potential Revised OH&amp;P:{" "}
-              {(profit + pendingOhp).toLocaleString(undefined, {
-                style: "currency",
-                currency: "USD",
-              })}
+              {currencyFormatter.format(profit + pendingOhp)}
             </div>
           ) : null}
         </div>
         <div className="border rounded-lg p-4">
           <div className="text-sm opacity-70">Est. Buyout</div>
           <div className="text-xl font-semibold mt-1">
-            {buyout.toLocaleString(undefined, { style: "currency", currency: "USD" })}
+            {currencyFormatter.format(buyout)}
           </div>
         </div>
         <div className="border rounded-lg p-4">
@@ -270,7 +273,7 @@ export default async function ProjectDetailPage({ params }: PageProps) {
                 (co) => co.type === "owner" && co.status === "approved"
               );
               const total = approved.reduce((sum, co) => sum + (co.amount ?? 0), 0);
-              return total.toLocaleString(undefined, { style: "currency", currency: "USD" });
+              return currencyFormatter.format(total);
             })()}
           </div>
           <div className="text-xs opacity-60 mt-1">
@@ -280,7 +283,7 @@ export default async function ProjectDetailPage({ params }: PageProps) {
                 (co) => co.type === "owner" && (co.status === "draft" || co.status === "submitted")
               );
               const total = pending.reduce((sum, co) => sum + (co.amount ?? 0), 0);
-              return total.toLocaleString(undefined, { style: "currency", currency: "USD" });
+              return currencyFormatter.format(total);
             })()}
           </div>
         </div>
@@ -292,7 +295,7 @@ export default async function ProjectDetailPage({ params }: PageProps) {
                 (co) => co.type === "subcontractor" && co.status === "approved"
               );
               const total = approved.reduce((sum, co) => sum + (co.amount ?? 0), 0);
-              return total.toLocaleString(undefined, { style: "currency", currency: "USD" });
+              return currencyFormatter.format(total);
             })()}
           </div>
           <div className="text-xs opacity-60 mt-1">
@@ -304,7 +307,7 @@ export default async function ProjectDetailPage({ params }: PageProps) {
                   (co.status === "draft" || co.status === "submitted")
               );
               const total = pending.reduce((sum, co) => sum + (co.amount ?? 0), 0);
-              return total.toLocaleString(undefined, { style: "currency", currency: "USD" });
+              return currencyFormatter.format(total);
             })()}
           </div>
         </div>
@@ -312,17 +315,11 @@ export default async function ProjectDetailPage({ params }: PageProps) {
           <div className="text-sm opacity-70">Owner Pay App Status</div>
           <div className="text-sm mt-2">
             Pay Apps &gt; 30 days:{" "}
-            {overdueTotals.over30.toLocaleString(undefined, {
-              style: "currency",
-              currency: "USD",
-            })}
+            {currencyFormatter.format(overdueTotals.over30)}
           </div>
           <div className="text-sm mt-1">
             Pay Apps &gt; 60 days:{" "}
-            {overdueTotals.over60.toLocaleString(undefined, {
-              style: "currency",
-              currency: "USD",
-            })}
+            {currencyFormatter.format(overdueTotals.over60)}
           </div>
         </div>
         <div className="border rounded-lg p-4">
@@ -413,13 +410,13 @@ export default async function ProjectDetailPage({ params }: PageProps) {
           <div>
             <div className="opacity-70">Start Date</div>
             <div>
-              {project.start_date ? new Date(project.start_date).toLocaleDateString() : "-"}
+              {project.start_date ? dateFormatter.format(new Date(project.start_date)) : "-"}
             </div>
           </div>
           <div>
             <div className="opacity-70">End Date</div>
             <div>
-              {project.end_date ? new Date(project.end_date).toLocaleDateString() : "-"}
+              {project.end_date ? dateFormatter.format(new Date(project.end_date)) : "-"}
             </div>
           </div>
           <div>
@@ -429,7 +426,7 @@ export default async function ProjectDetailPage({ params }: PageProps) {
           <div>
             <div className="opacity-70">Last Updated</div>
             <div>
-              {project.updated_at ? new Date(project.updated_at).toLocaleString() : "-"}
+              {project.updated_at ? dateTimeFormatter.format(new Date(project.updated_at)) : "-"}
             </div>
           </div>
         </div>
