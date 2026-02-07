@@ -3,14 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-type PayApp = { id: string; vendorId: string; projectId: string; blocked: boolean };
-type Waiver = {
-  id: string;
-  vendorId: string;
-  projectId: string;
-  status: "missing" | "requested" | "received";
-  receivedAt?: string;
-};
+import WaiverRiskBadge from "@/components/waiver-risk-badge";
+import WaiverStatusPill from "@/components/waiver-status-pill";
+import type { WaiverStatus, WaiverSubStatus } from "@/lib/waiver-status";
 
 type Project = { id: string; name: string };
 type Vendor = { id: string; name: string; email: string };
@@ -20,11 +15,12 @@ type ActionItem = {
   projectId: string;
   payAppNumber: string;
   waiverType: string;
-  status: "missing" | "requested" | "received" | "approved" | "rejected";
+  status: WaiverStatus;
+  subStatus?: WaiverSubStatus;
   daysOutstanding: number;
   createdAt: string;
   requestedAt?: string;
-  receivedAt?: string;
+  uploadedAt?: string;
   approvedAt?: string;
   rejectionReason?: string;
 };
@@ -41,31 +37,6 @@ const vendors: Vendor[] = [
   { id: "vendor-1", name: "Summit Concrete", email: "ap@summitconcrete.com" },
   { id: "vendor-2", name: "Prime Steel", email: "billing@primestreel.com" },
   { id: "vendor-3", name: "Delta Electric", email: "ap@deltaelectric.com" },
-];
-
-const payApps: PayApp[] = [
-  { id: "pay-1", vendorId: "vendor-1", projectId: "proj-1", blocked: true },
-  { id: "pay-2", vendorId: "vendor-2", projectId: "proj-1", blocked: false },
-  { id: "pay-3", vendorId: "vendor-3", projectId: "proj-2", blocked: true },
-];
-
-const waivers: Waiver[] = [
-  { id: "wv-1", vendorId: "vendor-1", projectId: "proj-1", status: "missing" },
-  {
-    id: "wv-2",
-    vendorId: "vendor-2",
-    projectId: "proj-1",
-    status: "received",
-    receivedAt: "2026-02-03",
-  },
-  { id: "wv-3", vendorId: "vendor-3", projectId: "proj-2", status: "requested" },
-  {
-    id: "wv-4",
-    vendorId: "vendor-1",
-    projectId: "proj-2",
-    status: "received",
-    receivedAt: "2026-02-01",
-  },
 ];
 
 const initialActivity: Activity[] = [
@@ -152,7 +123,7 @@ const initialActionItems: ActionItem[] = [
     projectId: "proj-1",
     payAppNumber: "PA-099",
     waiverType: "Conditional Final",
-    status: "received",
+    status: "uploaded",
     daysOutstanding: 6,
     createdAt: "2026-01-30",
   },
@@ -172,7 +143,8 @@ const initialActionItems: ActionItem[] = [
     projectId: "proj-1",
     payAppNumber: "PA-106",
     waiverType: "Unconditional Progress",
-    status: "rejected",
+    status: "uploaded",
+    subStatus: "rejected",
     daysOutstanding: 15,
     createdAt: "2026-01-22",
   },
@@ -187,9 +159,9 @@ export default function WaiverDeskDashboardPage() {
   const [requestModal, setRequestModal] = useState<ActionItem | null>(null);
   const [requestEmail, setRequestEmail] = useState("");
   const [requestMessage, setRequestMessage] = useState("");
-  const [receivedModal, setReceivedModal] = useState<ActionItem | null>(null);
-  const [receivedSignedDate, setReceivedSignedDate] = useState("");
-  const [receivedNotes, setReceivedNotes] = useState("");
+  const [uploadedModal, setUploadedModal] = useState<ActionItem | null>(null);
+  const [uploadedSignedDate, setUploadedSignedDate] = useState("");
+  const [uploadedNotes, setUploadedNotes] = useState("");
   const [approveModal, setApproveModal] = useState<ActionItem | null>(null);
   const [rejectModal, setRejectModal] = useState<ActionItem | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -228,7 +200,7 @@ export default function WaiverDeskDashboardPage() {
     (item) => item.status === "missing" || item.status === "requested"
   ).length;
   const waiversReceived7Days = filteredActions.filter((item) => {
-    if (item.status !== "received") return false;
+    if (item.status !== "uploaded") return false;
     return new Date(item.createdAt) >= rangeStart;
   }).length;
   const vendorsOutstandingCount = new Set(
@@ -255,10 +227,10 @@ export default function WaiverDeskDashboardPage() {
     setRequestModal(item);
   };
 
-  const openReceivedModal = (item: ActionItem) => {
-    setReceivedSignedDate("");
-    setReceivedNotes("");
-    setReceivedModal(item);
+  const openUploadedModal = (item: ActionItem) => {
+    setUploadedSignedDate("");
+    setUploadedNotes("");
+    setUploadedModal(item);
   };
 
   const openApproveModal = (item: ActionItem) => {
@@ -371,13 +343,13 @@ export default function WaiverDeskDashboardPage() {
               style={{ borderLeft: "3px solid #16A34A" }}
               onClick={() =>
                 router.push(
-                  `/waiverdesk/waivers?status=received&project=${projectFilter}&range=${dateRange}`
+                  `/waiverdesk/waivers?status=uploaded&project=${projectFilter}&range=${dateRange}`
                 )
               }
             >
               <div className="flex items-center justify-between">
                 <div className="text-sm text-[color:var(--muted)]">
-                  Waivers Received (7 days)
+                  Waivers Uploaded (7 days)
                 </div>
                 <div className="text-lg">✅</div>
               </div>
@@ -445,21 +417,16 @@ export default function WaiverDeskDashboardPage() {
                         <td className="p-3">{item.payAppNumber}</td>
                         <td className="p-3">{item.waiverType}</td>
                         <td className="p-3">
-                          <span
-                            className={`pill ${
-                              item.status === "approved"
-                                ? "pill-approved"
-                                : item.status === "received"
-                                ? "pill-info"
-                                : item.status === "requested"
-                                ? "pill-pending"
-                                : item.status === "missing"
-                                ? "pill-missing"
-                                : "pill-missing"
-                            }`}
-                          >
-                            {item.status.charAt(0).toUpperCase() + item.status.slice(1)}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <WaiverStatusPill
+                              status={item.status}
+                              subStatus={item.subStatus}
+                            />
+                            <WaiverRiskBadge
+                              status={item.status}
+                              showLabel={false}
+                            />
+                          </div>
                         </td>
                         <td className="p-3">{item.daysOutstanding} days</td>
                         <td className="p-3">
@@ -472,11 +439,11 @@ export default function WaiverDeskDashboardPage() {
                             </button>
                             <button
                               className="rounded-full border border-black/10 px-3 py-1 text-xs"
-                              onClick={() => openReceivedModal(item)}
+                              onClick={() => openUploadedModal(item)}
                             >
-                              Mark Received
+                              Mark Uploaded
                             </button>
-                            {item.status === "received" ? (
+                            {item.status === "uploaded" ? (
                               <>
                                 <button
                                   className="rounded-full border border-black/10 px-3 py-1 text-xs"
@@ -552,6 +519,23 @@ export default function WaiverDeskDashboardPage() {
         </div>
       </section>
 
+      <footer className="overflow-hidden rounded-2xl border border-black/10 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-6 text-white shadow-sm">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <div className="text-xs uppercase tracking-[0.2em] text-white/60">WaiverDesk</div>
+            <p className="mt-2 max-w-2xl text-sm text-white/80">
+              Great teams get paid faster when waiver follow-through is systematic. Keep owners,
+              vendors, and accounting aligned by closing today’s highest-risk waiver tasks first.
+            </p>
+          </div>
+          <div className="text-right">
+            <div className="text-xs uppercase tracking-wide text-white/60">Portfolio health</div>
+            <div className="mt-1 text-2xl font-semibold">{Math.max(0, 100 - waiversMissingCount * 6)}%</div>
+            <div className="text-xs text-white/70">Based on missing + requested waivers</div>
+          </div>
+        </div>
+      </footer>
+
       {requestModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
@@ -621,15 +605,15 @@ export default function WaiverDeskDashboardPage() {
         </div>
       ) : null}
 
-      {receivedModal ? (
+      {uploadedModal ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-            <div className="text-lg font-semibold">Mark Waiver Received</div>
+            <div className="text-lg font-semibold">Mark Waiver Uploaded</div>
             <div className="mt-4 space-y-3 text-sm text-[color:var(--muted)]">
-              <div>Vendor: {vendorMap.get(receivedModal.vendorId) ?? "Unknown"}</div>
-              <div>Project: {projectMap.get(receivedModal.projectId) ?? "Unknown"}</div>
-              <div>Pay App: {receivedModal.payAppNumber}</div>
-              <div>Waiver Type: {receivedModal.waiverType}</div>
+              <div>Vendor: {vendorMap.get(uploadedModal.vendorId) ?? "Unknown"}</div>
+              <div>Project: {projectMap.get(uploadedModal.projectId) ?? "Unknown"}</div>
+              <div>Pay App: {uploadedModal.payAppNumber}</div>
+              <div>Waiver Type: {uploadedModal.waiverType}</div>
             </div>
             <div className="mt-4 space-y-3">
               <label className="block text-xs uppercase tracking-wide text-[color:var(--muted)]">
@@ -645,16 +629,16 @@ export default function WaiverDeskDashboardPage() {
                 <input
                   className="mt-2 w-full rounded-lg border border-black/10 px-3 py-2 text-sm"
                   type="date"
-                  value={receivedSignedDate}
-                  onChange={(event) => setReceivedSignedDate(event.target.value)}
+                  value={uploadedSignedDate}
+                  onChange={(event) => setUploadedSignedDate(event.target.value)}
                 />
               </label>
               <label className="block text-xs uppercase tracking-wide text-[color:var(--muted)]">
                 Notes
                 <textarea
                   className="mt-2 min-h-[100px] w-full resize-none rounded-lg border border-black/10 px-3 py-2 text-sm"
-                  value={receivedNotes}
-                  onChange={(event) => setReceivedNotes(event.target.value)}
+                  value={uploadedNotes}
+                  onChange={(event) => setUploadedNotes(event.target.value)}
                 />
               </label>
             </div>
@@ -662,7 +646,7 @@ export default function WaiverDeskDashboardPage() {
               <button
                 className="rounded-full border border-black/10 px-4 py-2 text-xs"
                 type="button"
-                onClick={() => setReceivedModal(null)}
+                onClick={() => setUploadedModal(null)}
               >
                 Cancel
               </button>
@@ -673,26 +657,26 @@ export default function WaiverDeskDashboardPage() {
                   const now = new Date().toISOString();
                   setActions((prev) =>
                     prev.map((entry) =>
-                      entry.id === receivedModal.id
-                        ? { ...entry, status: "received", createdAt: now, receivedAt: now }
+                      entry.id === uploadedModal.id
+                        ? { ...entry, status: "uploaded", subStatus: "needs_review", createdAt: now, uploadedAt: now }
                         : entry
                     )
                   );
                   setActivity((prev) => [
                     {
                       id: `act-${Date.now()}`,
-                      projectId: receivedModal.projectId,
-                      label: `Received ${receivedModal.waiverType} — ${vendorMap.get(
-                        receivedModal.vendorId
-                      )} — Pay App ${receivedModal.payAppNumber}`,
+                      projectId: uploadedModal.projectId,
+                      label: `Uploaded ${uploadedModal.waiverType} — ${vendorMap.get(
+                        uploadedModal.vendorId
+                      )} — Pay App ${uploadedModal.payAppNumber}`,
                       occurredAt: now,
                     },
                     ...prev,
                   ]);
-                  setReceivedModal(null);
+                  setUploadedModal(null);
                 }}
               >
-                Mark Received
+                Mark Uploaded
               </button>
             </div>
           </div>
@@ -704,7 +688,7 @@ export default function WaiverDeskDashboardPage() {
           <div className="w-full max-w-sm rounded-lg bg-white p-6 shadow-xl">
             <div className="text-lg font-semibold">Approve Waiver?</div>
             <p className="mt-2 text-sm text-[color:var(--muted)]">
-              This will mark the waiver as approved.
+              This will mark the lien waiver as approved.
             </p>
             <div className="mt-4 flex items-center justify-end gap-2">
               <button
@@ -722,7 +706,7 @@ export default function WaiverDeskDashboardPage() {
                   setActions((prev) =>
                     prev.map((entry) =>
                       entry.id === approveModal.id
-                        ? { ...entry, status: "approved", approvedAt: now }
+                        ? { ...entry, status: "approved", subStatus: undefined, approvedAt: now }
                         : entry
                     )
                   );
@@ -780,7 +764,8 @@ export default function WaiverDeskDashboardPage() {
                       entry.id === rejectModal.id
                         ? {
                             ...entry,
-                            status: "rejected",
+                            status: "uploaded",
+                            subStatus: "rejected",
                             rejectionReason: rejectReason.trim(),
                           }
                         : entry
