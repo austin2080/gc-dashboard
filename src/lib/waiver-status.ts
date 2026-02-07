@@ -61,3 +61,47 @@ export const waiverSubStatusMeta: Record<WaiverSubStatus, { label: string }> = {
   needs_review: { label: "Needs Review" },
 };
 
+// ---- Suggested shared types & helpers (add below your existing exports) ----
+
+export type WaiverType =
+  | "conditional_progress"
+  | "unconditional_progress"
+  | "conditional_final"
+  | "unconditional_final";
+
+export const WAIVER_TYPE_META: Record<WaiverType, { label: string }> = {
+  conditional_progress: { label: "Conditional Progress" },
+  unconditional_progress: { label: "Unconditional Progress" },
+  conditional_final: { label: "Conditional Final" },
+  unconditional_final: { label: "Unconditional Final" },
+};
+
+export type WaiverRecord = {
+  id: string;
+  projectId: string;
+  projectName: string;
+  contractorId: string;
+  contractorName: string;
+  payAppNumber: number;
+  waiverType: WaiverType;
+  amount: number; // store as number; format in UI
+  status: WaiverStatus;
+  subStatus?: WaiverSubStatus;
+  updatedAt: string; // ISO date string
+};
+
+export function getWaiverStatusLabel(status: WaiverStatus) {
+  return waiverStatusMeta[status].label;
+}
+
+export function getWaiverStatusClass(status: WaiverStatus) {
+  return waiverStatusMeta[status].className;
+}
+
+export function getWaiverRiskLevel(status: WaiverStatus) {
+  return waiverStatusMeta[status].riskLevel;
+}
+
+export function getWaiverTypeLabel(type: WaiverType) {
+  return WAIVER_TYPE_META[type].label;
+}

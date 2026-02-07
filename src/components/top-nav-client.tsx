@@ -84,6 +84,7 @@ const PROJECT_TOOL_GROUPS = [
 
 const WAIVER_NAV_ITEMS = [
   { label: "Dashboard", href: "/dashboard" },
+  { label: "Waiver Center", href: "/waiver-center" },
   { label: "Missing waivers", href: "/waivers/missing", count: 12 },
   { label: "Waivers received today", href: "/waivers/received-today", count: 3 },
   { label: "Pay apps blocked", href: "/pay-apps/blocked", count: 5 },
@@ -198,10 +199,17 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                 </button>
                 {toolsOpen ? (
                   <div className="absolute left-0 top-full z-30 min-w-[260px] rounded-xl border border-[#E5E7EB] bg-white p-2 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
-                    {WAIVER_NAV_ITEMS.map((item) => (
+                    {WAIVER_NAV_ITEMS.map((item) => {
+                      const href =
+                        item.label === "Pay Apps"
+                          ? activeProject
+                            ? `/projects/${activeProject.id}/pay-apps`
+                            : "/projects"
+                          : item.href;
+                      return (
                       <Link
                         key={item.label}
-                        href={withMode(item.href)}
+                        href={withMode(href)}
                         onClick={closeAllMenus}
                         className="flex items-center justify-between rounded px-2 py-2 text-sm text-black/80 hover:bg-black/[0.03]"
                       >
@@ -212,7 +220,8 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                           </span>
                         ) : null}
                       </Link>
-                    ))}
+                    );
+                    })}
                   </div>
                 ) : null}
               </div>

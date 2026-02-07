@@ -7,7 +7,11 @@ export function middleware(request: NextRequest) {
   requestHeaders.set("x-pathname", pathname);
 
   if (pathname.startsWith("/waiverdesk")) {
-    if (pathname === "/waiverdesk" || pathname.startsWith("/waiverdesk/dashboard")) {
+    if (
+      pathname === "/waiverdesk" ||
+      pathname.startsWith("/waiverdesk/dashboard") ||
+      pathname.startsWith("/waiverdesk/waiver-center")
+    ) {
       return NextResponse.next({ request: { headers: requestHeaders } });
     }
     const url = request.nextUrl.clone();
