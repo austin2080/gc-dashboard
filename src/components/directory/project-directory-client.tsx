@@ -1,21 +1,17 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { assignCompanyToProject, getDirectoryData, upsertCompany } from "@/lib/directory/local-store";
 import { Company } from "@/lib/directory/types";
+import { useDirectoryData } from "@/components/directory/use-directory-data";
 
 export default function ProjectDirectoryClient({ projectId }: { projectId: string }) {
-  const [store, setStore] = useState(() => getDirectoryData());
+  const { data, loading, error, refresh } = useDirectoryData();
   const [newCompany, setNewCompany] = useState("");
 
-  const companies = store.companies;
-  const projectCompanies = store.projectCompanies
+  const companies = data?.companies ?? [];
+  const projectCompanies = (data?.projectCompanies ?? [])
     .filter((entry) => entry.projectId === projectId)
     .map((entry) => entry.companyId);
-
-  function refresh() {
-    setStore(getDirectoryData());
-  }
 
   const assigned = useMemo(
     () => companies.filter((company) => projectCompanies.includes(company.id)),
@@ -34,9 +30,13 @@ export default function ProjectDirectoryClient({ projectId }: { projectId: strin
           <button
             key={company.id}
             className="rounded border px-3 py-1 text-sm"
-            onClick={() => {
-              assignCompanyToProject(projectId, company.id);
-              refresh();
+            onClick={async () => {
+              await fetch("/api/directory/assignments", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ projectId, companyId: company.id }),
+              });
+              await refresh();
             }}
           >
             {company.name}
@@ -53,12 +53,43 @@ export default function ProjectDirectoryClient({ projectId }: { projectId: strin
         />
         <button
           className="rounded border border-black bg-black px-3 py-2 text-sm text-white"
-          onClick={() => {
+          onClick={async () => {
             if (!newCompany.trim()) return;
-            const company = upsertCompany({ name: newCompany.trim(), isActive: true });
-            assignCompanyToProject(projectId, company.id);
+            const payload = {
+              companies: [
+                {
+                  name: newCompany.trim(),
+                  isActive: true,
+                },
+              ],
+            };
+
+            const res = await fetch("/api/directory/companies", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            });
+
+            if (!res.ok) {
+              return;
+            }
+
+            const response = await res.json().catch(() => ({}));
+            const created =
+              response?.companies?.find(
+                (company: { name?: string }) =>
+                  company?.name?.toLowerCase() === newCompany.trim().toLowerCase()
+              ) ?? null;
+
+            if (created?.id) {
+              await fetch("/api/directory/assignments", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ projectId, companyId: created.id }),
+              });
+            }
             setNewCompany("");
-            refresh();
+            await refresh();
           }}
         >
           Add
@@ -76,7 +107,13 @@ export default function ProjectDirectoryClient({ projectId }: { projectId: strin
             </tr>
           </thead>
           <tbody>
-            {assigned.length === 0 ? (
+            {loading ? (
+              <tr>
+                <td colSpan={4} className="p-4 opacity-70">
+                  Loading directory...
+                </td>
+              </tr>
+            ) : assigned.length === 0 ? (
               <tr>
                 <td colSpan={4} className="p-4 opacity-70">
                   No contractors assigned yet.
@@ -95,6 +132,7 @@ export default function ProjectDirectoryClient({ projectId }: { projectId: strin
           </tbody>
         </table>
       </div>
+      {error ? <div className="text-sm text-red-600">{error}</div> : null}
     </section>
   );
 }

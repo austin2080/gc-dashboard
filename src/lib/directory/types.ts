@@ -14,6 +14,16 @@ export type Company = {
   primaryContact?: string;
   email?: string;
   phone?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  country?: string;
+  website?: string;
+  licenseNumber?: string;
+  taxId?: string;
+  vendorType?: string;
+  procoreCompanyId?: string;
   notes?: string;
   isActive: boolean;
   lastUpdated: string;

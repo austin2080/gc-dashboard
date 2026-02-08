@@ -1,16 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import {
-  assignCompanyToProject,
-  getDirectoryData,
-  removeCompany,
-  setCompanyActive,
-  upsertCompany,
-} from "@/lib/directory/local-store";
+import { useMemo, useRef, useState } from "react";
 import { Company } from "@/lib/directory/types";
 import CompanyFormModal from "@/components/directory/company-form-modal";
 import CompanyDetailPanel from "@/components/directory/company-detail-panel";
+import { useDirectoryData } from "@/components/directory/use-directory-data";
 
 type CompanyDraft = {
   companyName: string;
@@ -46,10 +40,10 @@ function toDraft(company?: Company): CompanyDraft {
 }
 
 export default function DirectoryPageClient() {
-  const [store, setStore] = useState(() => getDirectoryData());
-  const companies = store.companies;
-  const projects = store.projects;
-  const relations = store.projectCompanies;
+  const { data, loading, error, refresh } = useDirectoryData();
+  const companies = data?.companies ?? [];
+  const projects = data?.projects ?? [];
+  const relations = data?.projectCompanies ?? [];
 
   const [query, setQuery] = useState("");
   const [tradeFilter, setTradeFilter] = useState("all");
@@ -63,9 +57,9 @@ export default function DirectoryPageClient() {
   const [detailCompanyId, setDetailCompanyId] = useState<string | null>(null);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
 
-  function refresh() {
-    setStore(getDirectoryData());
-  }
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importError, setImportError] = useState("");
+  const [importing, setImporting] = useState(false);
 
   const tradeOptions = useMemo(() => {
     const set = new Set(companies.map((c) => c.trade).filter(Boolean));
@@ -101,25 +95,41 @@ export default function DirectoryPageClient() {
     setModalOpen(true);
   }
 
-  function saveCompany() {
+  async function saveCompany() {
     if (!draft.companyName.trim()) {
       setFormError("Company name is required.");
       return;
     }
+    setFormError("");
+    const payload = {
+      companies: [
+        {
+          id: editingCompanyId ?? undefined,
+          name: draft.companyName.trim(),
+          trade: draft.trade.trim() || undefined,
+          primaryContact: draft.primaryContact.trim() || undefined,
+          email: draft.email.trim() || undefined,
+          phone: draft.phone.trim() || undefined,
+          notes: draft.notes.trim() || undefined,
+          isActive: draft.isActive,
+        },
+      ],
+    };
 
-    upsertCompany({
-      id: editingCompanyId ?? undefined,
-      name: draft.companyName.trim(),
-      trade: draft.trade.trim() || undefined,
-      primaryContact: draft.primaryContact.trim() || undefined,
-      email: draft.email.trim() || undefined,
-      phone: draft.phone.trim() || undefined,
-      notes: draft.notes.trim() || undefined,
-      isActive: draft.isActive,
+    const res = await fetch("/api/directory/companies", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
 
+    if (!res.ok) {
+      const payload = await res.json().catch(() => ({}));
+      setFormError(payload?.error ?? "Failed to save company.");
+      return;
+    }
+
     setModalOpen(false);
-    refresh();
+    await refresh();
   }
 
   const selectedCompany = companies.find((company) => company.id === detailCompanyId) ?? null;
@@ -130,6 +140,202 @@ export default function DirectoryPageClient() {
       .map((entry) => entry.projectId);
     return projects.filter((project) => projectIds.includes(project.id));
   }, [projects, relations, selectedCompany]);
+
+  function normalizeHeader(value: string) {
+    return value
+      .replace(/\uFEFF/g, "")
+      .replace(/\u00A0/g, " ")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, "_");
+  }
+
+  function parseCsvRow(line: string, delimiter: string) {
+    const output: string[] = [];
+    let current = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i += 1) {
+      const char = line[i];
+      const next = line[i + 1];
+      if (char === '"' && inQuotes && next === '"') {
+        current += '"';
+        i += 1;
+        continue;
+      }
+      if (char === '"') {
+        inQuotes = !inQuotes;
+        continue;
+      }
+      if (char === delimiter && !inQuotes) {
+        output.push(current);
+        current = "";
+        continue;
+      }
+      current += char;
+    }
+    output.push(current);
+    return output.map((value) => value.trim());
+  }
+
+  function parseCsv(text: string) {
+    const rows = text
+      .replace(/\r\n/g, "\n")
+      .replace(/\r/g, "\n")
+      .split("\n")
+      .filter((line) => line.trim().length > 0);
+    if (rows.length === 0) return { headers: [], entries: [] };
+
+    const firstLine = rows[0].trim().toLowerCase();
+    const cleanedRows =
+      firstLine === "directory-template" || firstLine === "directory template" ? rows.slice(1) : rows;
+
+    if (cleanedRows.length === 0) return { headers: [], entries: [] };
+
+    const headerLine = cleanedRows[0];
+    const commaCount = (headerLine.match(/,/g) ?? []).length;
+    const tabCount = (headerLine.match(/\t/g) ?? []).length;
+    const semiCount = (headerLine.match(/;/g) ?? []).length;
+    const delimiter =
+      tabCount >= commaCount && tabCount >= semiCount ? "\t" : semiCount > commaCount ? ";" : ",";
+    const headers = parseCsvRow(cleanedRows[0], delimiter).map(normalizeHeader);
+    const entries = cleanedRows.slice(1).map((line) => {
+      const values = parseCsvRow(line, delimiter);
+      const record: Record<string, string> = {};
+      headers.forEach((header, idx) => {
+        record[header] = values[idx] ?? "";
+      });
+      return record;
+    });
+    return { headers, entries };
+  }
+
+  function toBoolean(value: string) {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized) return undefined;
+    if (["true", "1", "yes", "y", "active"].includes(normalized)) return true;
+    if (["false", "0", "no", "n", "inactive"].includes(normalized)) return false;
+    return undefined;
+  }
+
+  async function handleImport(file?: File | null) {
+    if (!file) return;
+    setImportError("");
+    setImporting(true);
+    try {
+      const text = await file.text();
+      const { entries } = parseCsv(text);
+      if (entries.length === 0) {
+        throw new Error("CSV is empty.");
+      }
+
+      const mapped = entries
+        .map((row) => ({
+          name: row.name || row.company_name || row.company || "",
+          trade: row.trade || "",
+          primaryContact: row.primary_contact || row.primarycontact || row.contact || "",
+          email: row.email || "",
+          phone: row.phone || "",
+          address: row.address || "",
+          city: row.city || "",
+          state: row.state || "",
+          zip: row.zip || row.postal_code || "",
+          country: row.country || "",
+          website: row.website || "",
+          licenseNumber: row.license_number || "",
+          taxId: row.tax_id || "",
+          vendorType: row.vendor_type || "",
+          procoreCompanyId: row.procore_company_id || "",
+          notes: row.notes || "",
+          isActive: toBoolean(row.is_active ?? row.active ?? ""),
+        }))
+        .filter((row) => row.name && row.name.trim().length > 0);
+
+      if (mapped.length === 0) {
+        throw new Error("No valid company rows found.");
+      }
+
+      const res = await fetch("/api/directory/companies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ companies: mapped }),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        throw new Error(payload?.error ?? "Import failed.");
+      }
+
+      await refresh();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Import failed.");
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
+
+  function escapeCsv(value: string) {
+    if (value.includes('"')) {
+      return `"${value.replace(/"/g, '""')}"`;
+    }
+    if (value.includes(",") || value.includes("\n") || value.includes("\r")) {
+      return `"${value}"`;
+    }
+    return value;
+  }
+
+  function buildCsv(rows: Company[]) {
+    const headers = [
+      "name",
+      "trade",
+      "primary_contact",
+      "email",
+      "phone",
+      "address",
+      "city",
+      "state",
+      "zip",
+      "country",
+      "website",
+      "license_number",
+      "tax_id",
+      "vendor_type",
+      "procore_company_id",
+      "notes",
+      "is_active",
+    ];
+    const dataRows = rows.map((company) => [
+      company.name,
+      company.trade ?? "",
+      company.primaryContact ?? "",
+      company.email ?? "",
+      company.phone ?? "",
+      company.address ?? "",
+      company.city ?? "",
+      company.state ?? "",
+      company.zip ?? "",
+      company.country ?? "",
+      company.website ?? "",
+      company.licenseNumber ?? "",
+      company.taxId ?? "",
+      company.vendorType ?? "",
+      company.procoreCompanyId ?? "",
+      company.notes ?? "",
+      company.isActive ? "true" : "false",
+    ]);
+
+    return [headers.join(","), ...dataRows.map((row) => row.map(escapeCsv).join(","))].join("\n");
+  }
+
+  function downloadCsv(filename: string, contents: string) {
+    const blob = new Blob([contents], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
 
   return (
     <div className="space-y-4">
@@ -149,8 +355,39 @@ export default function DirectoryPageClient() {
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
-          <button onClick={openAddModal} className="rounded border border-black bg-black px-4 py-2 text-sm text-white">Add Company</button>
+          <button onClick={openAddModal} className="rounded border border-black bg-black px-4 py-2 text-sm text-white">
+            Add Company
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="rounded border px-4 py-2 text-sm"
+            disabled={importing}
+          >
+            {importing ? "Importing..." : "Import CSV"}
+          </button>
+          <button
+            onClick={() => downloadCsv("directory-export.csv", buildCsv(companies))}
+            className="rounded border px-4 py-2 text-sm"
+            disabled={companies.length === 0}
+          >
+            Export CSV
+          </button>
+          <button
+            onClick={() => downloadCsv("directory-template.csv", buildCsv([]))}
+            className="rounded border px-4 py-2 text-sm"
+          >
+            Download Template
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={(event) => handleImport(event.target.files?.[0])}
+          />
         </div>
+        {error ? <div className="border-b px-4 py-2 text-sm text-red-600">{error}</div> : null}
+        {importError ? <div className="border-b px-4 py-2 text-sm text-red-600">{importError}</div> : null}
 
         <div className="overflow-auto">
           <table className="w-full text-sm">
@@ -160,7 +397,13 @@ export default function DirectoryPageClient() {
               </tr>
             </thead>
             <tbody>
-              {filteredCompanies.length === 0 ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={9} className="p-8 text-center text-sm opacity-70">
+                    Loading directory...
+                  </td>
+                </tr>
+              ) : filteredCompanies.length === 0 ? (
                 <tr><td colSpan={9} className="p-8 text-center text-sm opacity-70">No companies found. Add your first company to start linking waiver records.</td></tr>
               ) : (
                 filteredCompanies.map((company) => {
@@ -170,7 +413,48 @@ export default function DirectoryPageClient() {
                       <td className="p-3 font-medium">{company.name}</td><td className="p-3">{company.trade ?? "-"}</td><td className="p-3">{company.primaryContact ?? "-"}</td><td className="p-3">{company.email ?? "-"}</td><td className="p-3">{company.phone ?? "-"}</td>
                       <td className="p-3"><span className={`rounded-full px-2 py-1 text-xs ${company.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-700"}`}>{company.isActive ? "Active" : "Inactive"}</span></td>
                       <td className="p-3">{projectCount}</td><td className="p-3">{new Date(company.lastUpdated).toLocaleDateString()}</td>
-                      <td className="p-3"><div className="flex justify-end gap-2 text-xs"><button onClick={() => setDetailCompanyId(company.id)} className="underline">View</button><button onClick={() => openEditModal(company)} className="underline">Edit</button><button onClick={() => { setCompanyActive(company.id, !company.isActive); refresh(); }} className="underline">{company.isActive ? "Deactivate" : "Activate"}</button><button onClick={() => { removeCompany(company.id); if (detailCompanyId === company.id) setDetailCompanyId(null); refresh(); }} className="underline text-red-600">Remove</button></div></td>
+                      <td className="p-3">
+                        <div className="flex justify-end gap-2 text-xs">
+                          <button onClick={() => setDetailCompanyId(company.id)} className="underline">View</button>
+                          <button onClick={() => openEditModal(company)} className="underline">Edit</button>
+                          <button
+                            onClick={async () => {
+                              await fetch("/api/directory/companies", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                  companies: [
+                                    {
+                                      id: company.id,
+                                      name: company.name,
+                                      trade: company.trade,
+                                      primaryContact: company.primaryContact,
+                                      email: company.email,
+                                      phone: company.phone,
+                                      notes: company.notes,
+                                      isActive: !company.isActive,
+                                    },
+                                  ],
+                                }),
+                              });
+                              await refresh();
+                            }}
+                            className="underline"
+                          >
+                            {company.isActive ? "Deactivate" : "Activate"}
+                          </button>
+                          <button
+                            onClick={async () => {
+                              await fetch(`/api/directory/companies/${company.id}`, { method: "DELETE" });
+                              if (detailCompanyId === company.id) setDetailCompanyId(null);
+                              await refresh();
+                            }}
+                            className="underline text-red-600"
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })
@@ -197,10 +481,14 @@ export default function DirectoryPageClient() {
         projectPickerOpen={projectPickerOpen}
         onClose={() => setDetailCompanyId(null)}
         onOpenProjectPicker={() => setProjectPickerOpen(true)}
-        onAssignProject={(projectId) => {
+        onAssignProject={async (projectId) => {
           if (!selectedCompany) return;
-          assignCompanyToProject(projectId, selectedCompany.id);
-          refresh();
+          await fetch("/api/directory/assignments", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ projectId, companyId: selectedCompany.id }),
+          });
+          await refresh();
           setProjectPickerOpen(false);
         }}
       />

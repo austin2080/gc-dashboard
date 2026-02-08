@@ -14,6 +14,8 @@ type Props = {
 
 export default function CompanyDetailPanel({ company, assignedProjects, allProjects, projectPickerOpen, onClose, onOpenProjectPicker, onAssignProject }: Props) {
   if (!company) return null;
+  const addressParts = [company.address, company.city, company.state, company.zip, company.country].filter(Boolean);
+  const addressLabel = addressParts.length > 0 ? addressParts.join(", ") : "-";
 
   return (
     <section className="rounded-lg border p-4">
@@ -29,6 +31,12 @@ export default function CompanyDetailPanel({ company, assignedProjects, allProje
         <div><span className="opacity-60">Primary contact:</span> {company.primaryContact ?? "-"}</div>
         <div><span className="opacity-60">Email:</span> {company.email ?? "-"}</div>
         <div><span className="opacity-60">Phone:</span> {company.phone ?? "-"}</div>
+        <div className="md:col-span-2"><span className="opacity-60">Address:</span> {addressLabel}</div>
+        <div><span className="opacity-60">Website:</span> {company.website ?? "-"}</div>
+        <div><span className="opacity-60">Vendor type:</span> {company.vendorType ?? "-"}</div>
+        <div><span className="opacity-60">License #:</span> {company.licenseNumber ?? "-"}</div>
+        <div><span className="opacity-60">Tax ID:</span> {company.taxId ?? "-"}</div>
+        <div><span className="opacity-60">Procore ID:</span> {company.procoreCompanyId ?? "-"}</div>
         <div className="md:col-span-2"><span className="opacity-60">Notes:</span> {company.notes ?? "-"}</div>
       </div>
 
