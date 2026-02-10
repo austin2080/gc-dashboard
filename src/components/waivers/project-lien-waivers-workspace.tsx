@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import StatusPill from "@/components/waivers/StatusPill";
 import { getProjectPayAppsData, upsertWaiverRecord } from "@/lib/pay-apps/store";
@@ -55,7 +55,7 @@ function SummaryCard({ label, value }: { label: string; value: string | number }
 }
 
 export default function ProjectLienWaiversWorkspace({ projectId }: { projectId: string }) {
-  const [state, setState] = useState(() => getProjectPayAppsData(projectId));
+  const [state, setState] = useState<ReturnType<typeof getProjectPayAppsData> | null>(null);
   const [vendorFilter, setVendorFilter] = useState("all");
   const [payAppFilter, setPayAppFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<WaiverStatus | "all">("all");
@@ -63,10 +63,22 @@ export default function ProjectLienWaiversWorkspace({ projectId }: { projectId: 
   const [sortKey, setSortKey] = useState<SortKey>("lastUpdated");
   const [isSortDescending, setIsSortDescending] = useState(true);
   const [isGroupedView, setIsGroupedView] = useState(false);
-  const [generatePayAppId, setGeneratePayAppId] = useState(state.payApps[0]?.id ?? "");
+  const [generatePayAppId, setGeneratePayAppId] = useState("");
   const [selectedWaiverTypes, setSelectedWaiverTypes] = useState<WaiverType[]>(waiverTypes);
 
+  useEffect(() => {
+    setState(getProjectPayAppsData(projectId));
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!state) return;
+    if (!generatePayAppId && state.payApps.length > 0) {
+      setGeneratePayAppId(state.payApps[0].id);
+    }
+  }, [generatePayAppId, state]);
+
   const rows = useMemo(() => {
+    if (!state) return [];
     return state.waiverRecords.map((record) => {
       const vendor = state.contractors.find((item) => item.id === record.contractorId);
       const payApp = state.payApps.find((item) => item.id === record.payAppId);
@@ -158,7 +170,7 @@ export default function ProjectLienWaiversWorkspace({ projectId }: { projectId: 
   const refreshState = () => setState(getProjectPayAppsData(projectId));
 
   const generateExpectedWaivers = () => {
-    if (!generatePayAppId || selectedWaiverTypes.length === 0) return;
+    if (!state || !generatePayAppId || selectedWaiverTypes.length === 0) return;
 
     state.contractors.forEach((contractor) => {
       selectedWaiverTypes.forEach((waiverType) => {
@@ -220,6 +232,18 @@ export default function ProjectLienWaiversWorkspace({ projectId }: { projectId: 
       </td>
     </tr>
   );
+
+  if (!state) {
+    return (
+      <main className="space-y-6 p-6">
+        <header>
+          <p className="text-xs uppercase tracking-wide text-black/50">Project Workspace</p>
+          <h1 className="text-2xl font-semibold">Lien Waivers</h1>
+          <p className="text-sm text-black/60">Loading waiver data...</p>
+        </header>
+      </main>
+    );
+  }
 
   return (
     <main className="space-y-6 p-6">

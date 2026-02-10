@@ -23,10 +23,11 @@ export default function ProjectSubnav({
     { label: "Prime Contract", href: `${base}/contract` },
     { label: "Budget", href: `${base}/budget` },
     { label: "Pay Apps", href: `${base}/pay-apps` },
-    ...(mode === "waiverdesk" ? [{ label: "Lien Waivers", href: `${base}/waivers` }] : []),
+    ...(mode === "waiverdesk" ? [{ label: "Lien Waivers", href: `${base}/lien-waivers` }] : []),
     { label: "Change Orders", href: `${base}/change-orders` },
     { label: "RFIs", href: `${base}/rfis` },
     { label: "Submittals", href: `${base}/submittals` },
+    { label: "Procurement", href: `${base}/procurement` },
     { label: "Schedule", href: `${base}/schedule` },
     { label: "Directory", href: `${base}/directory` },
   ];
