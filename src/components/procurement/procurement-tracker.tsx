@@ -165,6 +165,8 @@ export default function ProcurementTracker({ projectId }: Props) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingItem, setEditingItem] = useState<ProcurementItem | null>(null);
   const [draft, setDraft] = useState<Draft>(emptyDraft());
+  const [initialDraft, setInitialDraft] = useState<Draft>(emptyDraft());
+  const [initialNotesHistory, setInitialNotesHistory] = useState<ProcurementNoteEntry[]>([]);
   const [newNote, setNewNote] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -275,7 +277,10 @@ export default function ProcurementTracker({ projectId }: Props) {
   }, [items]);
 
   const openNewModal = () => {
-    setDraft(emptyDraft());
+    const nextDraft = emptyDraft();
+    setDraft(nextDraft);
+    setInitialDraft(nextDraft);
+    setInitialNotesHistory([]);
     setEditingId(null);
     setEditingItem(null);
     setNewNote("");
@@ -308,7 +313,10 @@ export default function ProcurementTracker({ projectId }: Props) {
   };
 
   const openEditModal = (item: ProcurementItem) => {
-    setDraft(draftFromItem(item));
+    const nextDraft = draftFromItem(item);
+    setDraft(nextDraft);
+    setInitialDraft(nextDraft);
+    setInitialNotesHistory(item.notes_history ? [...item.notes_history] : []);
     setEditingId(item.id);
     setEditingItem(item);
     setNewNote("");
@@ -320,8 +328,26 @@ export default function ProcurementTracker({ projectId }: Props) {
     setModalOpen(false);
     setEditingId(null);
     setEditingItem(null);
+    setInitialDraft(emptyDraft());
+    setInitialNotesHistory([]);
     setNewNote("");
     setError(null);
+  };
+
+  const hasUnsavedChanges = () => {
+    const draftChanged = JSON.stringify(draft) !== JSON.stringify(initialDraft);
+    const historyChanged =
+      JSON.stringify(editingItem?.notes_history ?? []) !== JSON.stringify(initialNotesHistory);
+    const newNotePending = Boolean(newNote.trim());
+    return draftChanged || historyChanged || newNotePending;
+  };
+
+  const handleCloseRequest = () => {
+    if (hasUnsavedChanges()) {
+      const confirmed = window.confirm("You have unsaved changes. Discard them?");
+      if (!confirmed) return;
+    }
+    closeModal();
   };
 
   const buildNoteHistory = (item: ProcurementItem | null, nextNote: string | null) => {
@@ -726,8 +752,15 @@ export default function ProcurementTracker({ projectId }: Props) {
       </section>
 
       {modalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4">
-          <div className="w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-lg border bg-white p-6 pb-8">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+          onClick={handleCloseRequest}
+          role="presentation"
+        >
+          <div
+            className="w-full max-w-3xl max-h-[85vh] overflow-y-auto rounded-lg border bg-white p-6 pb-8"
+            onClick={(event) => event.stopPropagation()}
+          >
             <h2 className="text-lg font-semibold">
               {editingId ? "Edit Procurement Item" : "New Procurement Item"}
             </h2>
@@ -958,7 +991,7 @@ export default function ProcurementTracker({ projectId }: Props) {
             </div>
             {error ? <div className="mt-3 text-sm text-red-600">{error}</div> : null}
             <div className="mt-4 flex justify-end gap-2 pb-8 mb-4">
-              <button className="rounded border px-3 py-2 text-sm" onClick={closeModal}>
+              <button className="rounded border px-3 py-2 text-sm" onClick={handleCloseRequest}>
                 Cancel
               </button>
               <button
