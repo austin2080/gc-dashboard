@@ -31,16 +31,14 @@ export default function ModeProvider({
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [mounted, setMounted] = useState(false);
   const [storedMode, setStoredMode] = useState<AppMode>(initialMode);
 
   const mode = useMemo(() => {
-    if (!mounted) return storedMode;
     const queryMode = coerceMode(searchParams.get("mode"));
     if (queryMode) return queryMode;
     if (pathname.startsWith("/waiverdesk")) return "waiverdesk";
     return storedMode;
-  }, [mounted, pathname, searchParams, storedMode]);
+  }, [pathname, searchParams, storedMode]);
 
   const setMode = async (next: AppMode) => {
     setStoredMode(next);
@@ -56,10 +54,6 @@ export default function ModeProvider({
   useEffect(() => {
     document.documentElement.dataset.mode = mode;
   }, [mode]);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   return (
     <ModeContext.Provider value={{ mode, setMode }}>

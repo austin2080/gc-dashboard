@@ -2,9 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getMyCompanyId } from "@/lib/db/company";
 
-type FormState = { error?: string };
-
-async function createCostCode(_: FormState, formData: FormData): Promise<FormState> {
+async function createCostCode(formData: FormData) {
   "use server";
 
   const supabase = await createClient();
@@ -14,7 +12,7 @@ async function createCostCode(_: FormState, formData: FormData): Promise<FormSta
   const companyId = await getMyCompanyId();
 
   const code = String(formData.get("code") ?? "").trim();
-  if (!code) return { error: "Cost code is required." };
+  if (!code) return;
 
   const description = String(formData.get("description") ?? "").trim() || null;
   const division = String(formData.get("division") ?? "").trim() || null;
@@ -30,9 +28,7 @@ async function createCostCode(_: FormState, formData: FormData): Promise<FormSta
       is_active,
     });
 
-  if (error) return { error: error.message };
-
-  return {};
+  if (error) return;
 }
 
 export default async function CostCodesPage() {

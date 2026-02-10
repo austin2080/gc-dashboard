@@ -206,7 +206,7 @@ export default function ProjectPhotosPage() {
     allVisibleIds.length > 0 && allVisibleIds.every((id) => selectedIds.has(id));
 
   const toggleSelectAll = () => {
-    setSelectedIds((prev) => {
+    setSelectedIds(() => {
       if (allSelected) return new Set();
       return new Set(allVisibleIds);
     });

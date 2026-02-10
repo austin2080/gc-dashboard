@@ -3,17 +3,11 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 
-type FormState = { error?: string };
-
 type PageProps = {
   params: { companyId: string } | Promise<{ companyId: string }>;
 };
 
-async function updateCompany(
-  companyId: string,
-  _: FormState,
-  formData: FormData
-): Promise<FormState> {
+async function updateCompany(companyId: string, formData: FormData) {
   "use server";
 
   const supabase = await createClient();
@@ -22,14 +16,14 @@ async function updateCompany(
 
   const name = String(formData.get("name") ?? "").trim();
   const mode = String(formData.get("mode") ?? "company");
-  if (!name) return { error: "Company name is required." };
+  if (!name) return;
 
   const { error } = await supabase
     .from("companies")
     .update({ name, mode })
     .eq("id", companyId);
 
-  if (error) return { error: error.message };
+  if (error) return;
 
   revalidatePath("/directory");
   revalidatePath(`/directory/${companyId}`);

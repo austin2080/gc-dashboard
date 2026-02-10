@@ -8,10 +8,14 @@ export default function ProjectDirectoryClient({ projectId }: { projectId: strin
   const { data, loading, error, refresh } = useDirectoryData();
   const [newCompany, setNewCompany] = useState("");
 
-  const companies = data?.companies ?? [];
-  const projectCompanies = (data?.projectCompanies ?? [])
-    .filter((entry) => entry.projectId === projectId)
-    .map((entry) => entry.companyId);
+  const companies = useMemo(() => data?.companies ?? [], [data?.companies]);
+  const projectCompanies = useMemo(
+    () =>
+      (data?.projectCompanies ?? [])
+        .filter((entry) => entry.projectId === projectId)
+        .map((entry) => entry.companyId),
+    [data?.projectCompanies, projectId]
+  );
 
   const assigned = useMemo(
     () => companies.filter((company) => projectCompanies.includes(company.id)),

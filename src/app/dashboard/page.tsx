@@ -5,16 +5,14 @@ import { getMyCompanyId } from "@/lib/db/company";
 import { listProjects } from "@/lib/db/projects";
 import DashboardProjectsTable from "@/components/dashboard-projects-table";
 
+type ScheduleOfValuesItem = {
+  amount?: string | number | null;
+  cost_code?: string | null;
+  description?: string | null;
+};
+
 function money(n: number) {
   return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
-}
-
-function healthLabel(h: string) {
-  if (h === "on_track") return "Active";
-  if (h === "at_risk") return "At Risk";
-  if (h === "on_hold") return "On Hold";
-  if (h === "complete") return "Inactive";
-  return h;
 }
 
 function marginAccent(margin: number) {
@@ -39,12 +37,14 @@ export default async function DashboardPage() {
 
   const aggregates = (primeContracts ?? []).reduce<Record<string, { contract: number; ohp: number; buyout: number }>>(
     (acc, c) => {
-      const items = Array.isArray(c.schedule_of_values) ? c.schedule_of_values : [];
-      const contractTotal = items.reduce((sum: number, item: any) => {
+      const items = Array.isArray(c.schedule_of_values)
+        ? (c.schedule_of_values as ScheduleOfValuesItem[])
+        : [];
+      const contractTotal = items.reduce((sum: number, item) => {
         const val = Number(String(item?.amount ?? "").replace(/[^\d.]/g, ""));
         return sum + (Number.isNaN(val) ? 0 : val);
       }, 0);
-      const ohpTotal = items.reduce((sum: number, item: any) => {
+      const ohpTotal = items.reduce((sum: number, item) => {
         const label = `${item?.cost_code ?? ""} ${item?.description ?? ""}`.toLowerCase();
         const isOhp =
           label.includes("oh&p") ||

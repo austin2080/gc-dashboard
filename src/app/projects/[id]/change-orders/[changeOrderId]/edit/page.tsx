@@ -4,7 +4,16 @@ import { createClient } from "@/lib/supabase/server";
 import { getMyCompanyId } from "@/lib/db/company";
 import ChangeOrderLineItems from "@/components/change-order-line-items";
 
-type FormState = { error?: string };
+type ChangeOrderItemInput = {
+  cost_code?: string | null;
+  description?: string | null;
+  amount?: string | number | null;
+};
+
+type ScheduleOfValuesItem = {
+  cost_code?: string | null;
+  description?: string | null;
+};
 
 type PageProps = {
   params:
@@ -16,7 +25,7 @@ async function updateChangeOrder(
   projectId: string,
   changeOrderId: string,
   formData: FormData
-): Promise<FormState> {
+): Promise<void> {
   "use server";
 
   const supabase = await createClient();
@@ -31,7 +40,7 @@ async function updateChangeOrder(
     .eq("company_id", companyId)
     .single();
 
-  if (!project) return { error: "Project not found." };
+  if (!project) return;
 
   const contractId = String(formData.get("contract_id") ?? "").trim() || null;
   const type = String(formData.get("type") ?? "owner");
@@ -43,13 +52,13 @@ async function updateChangeOrder(
   const itemsJson = String(formData.get("items_json") ?? "[]");
   const items = (() => {
     try {
-      const parsed = JSON.parse(itemsJson);
+      const parsed = JSON.parse(itemsJson) as ChangeOrderItemInput[];
       return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
     }
   })();
-  const amount = items.reduce((sum: number, item: any) => {
+  const amount = items.reduce((sum: number, item) => {
     const val = Number(item?.amount ?? 0);
     return sum + (Number.isNaN(val) ? 0 : val);
   }, 0);
@@ -69,7 +78,7 @@ async function updateChangeOrder(
     .eq("id", changeOrderId)
     .eq("project_id", projectId);
 
-  if (error) return { error: error.message };
+  if (error) return;
 
   const { error: deleteError } = await supabase
     .from("change_order_items")
@@ -77,11 +86,11 @@ async function updateChangeOrder(
     .eq("change_order_id", changeOrderId)
     .eq("project_id", projectId);
 
-  if (deleteError) return { error: deleteError.message };
+  if (deleteError) return;
 
   if (items.length > 0) {
     const { error: itemError } = await supabase.from("change_order_items").insert(
-      items.map((item: any) => ({
+      items.map((item) => ({
         change_order_id: changeOrderId,
         project_id: projectId,
         contract_id: contractId,
@@ -91,10 +100,10 @@ async function updateChangeOrder(
       }))
     );
 
-    if (itemError) return { error: itemError.message };
+    if (itemError) return;
   }
 
-  return {};
+  return;
 }
 
 export default async function ChangeOrderEditPage({ params }: PageProps) {
@@ -133,8 +142,10 @@ export default async function ChangeOrderEditPage({ params }: PageProps) {
 
   const sovOptions = (contracts ?? [])
     .flatMap((contract) => {
-      const items = Array.isArray(contract.schedule_of_values) ? contract.schedule_of_values : [];
-      return items.map((item: any) => ({
+      const items = Array.isArray(contract.schedule_of_values)
+        ? (contract.schedule_of_values as ScheduleOfValuesItem[])
+        : [];
+      return items.map((item) => ({
         code: String(item?.cost_code ?? "").trim(),
         description: String(item?.description ?? "").trim(),
       }));

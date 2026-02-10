@@ -41,9 +41,9 @@ function toDraft(company?: Company): CompanyDraft {
 
 export default function DirectoryPageClient() {
   const { data, loading, error, refresh } = useDirectoryData();
-  const companies = data?.companies ?? [];
-  const projects = data?.projects ?? [];
-  const relations = data?.projectCompanies ?? [];
+  const companies = useMemo(() => data?.companies ?? [], [data?.companies]);
+  const projects = useMemo(() => data?.projects ?? [], [data?.projects]);
+  const relations = useMemo(() => data?.projectCompanies ?? [], [data?.projectCompanies]);
 
   const [query, setQuery] = useState("");
   const [tradeFilter, setTradeFilter] = useState("all");

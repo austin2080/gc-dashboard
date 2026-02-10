@@ -128,7 +128,7 @@ export default function DrawingsPage() {
     visibleIds.length > 0 && visibleIds.every((id) => selectedIds.has(id));
 
   const toggleSelectAll = () => {
-    setSelectedIds((prev) => {
+    setSelectedIds(() => {
       if (allVisibleSelected) return new Set();
       return new Set(visibleIds);
     });

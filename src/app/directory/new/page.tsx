@@ -6,8 +6,10 @@ import NewCompanyForm from "@/components/new-company-form";
 
 type FormState = { error?: string };
 
-async function createCompany(_: FormState, formData: FormData): Promise<FormState> {
+async function createCompany(prevState: FormState, formData: FormData): Promise<FormState> {
   "use server";
+
+  void prevState;
 
   const supabase = await createClient();
   const { data } = await supabase.auth.getUser();
@@ -28,6 +30,11 @@ async function createCompany(_: FormState, formData: FormData): Promise<FormStat
     .insert({
       name,
       mode,
+      trade,
+      address,
+      city,
+      state,
+      zip,
       created_by: data.user.id,
     })
     .select("id")

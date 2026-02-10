@@ -7,13 +7,10 @@ type PageProps = {
   params: { id: string } | Promise<{ id: string }>;
 };
 
-type FormState = { error?: string };
-
 async function createSubmittal(
   projectId: string,
-  _: FormState,
   formData: FormData
-): Promise<FormState> {
+): Promise<void> {
   "use server";
 
   const supabase = await createClient();
@@ -28,7 +25,7 @@ async function createSubmittal(
     .eq("company_id", companyId)
     .single();
 
-  if (!project) return { error: "Project not found." };
+  if (!project) return;
 
   const submittal_number = String(formData.get("submittal_number") ?? "").trim() || null;
   const title = String(formData.get("title") ?? "").trim() || null;
@@ -69,7 +66,7 @@ async function createSubmittal(
     created_by: data.user.id,
   });
 
-  if (error) return { error: error.message };
+  if (error) return;
 
   redirect(`/projects/${projectId}/submittals`);
 }
@@ -197,7 +194,7 @@ export default async function NewSubmittalPage({ params }: PageProps) {
               <option value="">Select user</option>
               {members?.map((member) => (
                 <option key={member.user_id} value={member.user_id}>
-                  {member.profiles?.full_name ?? member.user_id}
+                  {member.profiles?.[0]?.full_name ?? member.user_id}
                 </option>
               ))}
             </select>
@@ -211,7 +208,7 @@ export default async function NewSubmittalPage({ params }: PageProps) {
             >
               {members?.map((member) => (
                 <option key={`dist-${member.user_id}`} value={member.user_id}>
-                  {member.profiles?.full_name ?? member.user_id}
+                  {member.profiles?.[0]?.full_name ?? member.user_id}
                 </option>
               ))}
             </select>

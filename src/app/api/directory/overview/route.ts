@@ -1,7 +1,30 @@
 import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/db/tenant";
 
-function mapCompany(row: any) {
+type DirectoryCompanyRow = {
+  id: string;
+  name: string;
+  trade?: string | null;
+  primary_contact?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zip?: string | null;
+  country?: string | null;
+  website?: string | null;
+  license_number?: string | null;
+  tax_id?: string | null;
+  vendor_type?: string | null;
+  procore_company_id?: string | null;
+  notes?: string | null;
+  is_active?: boolean | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+};
+
+function mapCompany(row: DirectoryCompanyRow) {
   return {
     id: row.id,
     name: row.name,

@@ -129,8 +129,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
     return `/waiverdesk${href}`;
   };
 
-  const hasActiveProject = Boolean(activeProject);
-  const projectContextLabel = hasActiveProject
+  const projectContextLabel = activeProject
     ? activeProject.project_number
       ? `${activeProject.project_number} - ${activeProject.name}`
       : activeProject.name
@@ -230,7 +229,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                 <div className="relative" ref={projectsRef}>
                   <button
                     className={`rounded-full px-3 py-1 text-base cursor-pointer flex items-center gap-2 ${
-                      hasActiveProject
+                      activeProject
                         ? "border border-white/20"
                         : "border border-white/15 bg-white/[0.04] text-white/70"
                     }`}

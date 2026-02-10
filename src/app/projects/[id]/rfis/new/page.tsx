@@ -7,13 +7,10 @@ type PageProps = {
   params: { id: string } | Promise<{ id: string }>;
 };
 
-type FormState = { error?: string };
-
 async function createRfi(
   projectId: string,
-  _: FormState,
   formData: FormData
-): Promise<FormState> {
+): Promise<void> {
   "use server";
 
   const supabase = await createClient();
@@ -28,7 +25,7 @@ async function createRfi(
     .eq("company_id", companyId)
     .single();
 
-  if (!project) return { error: "Project not found." };
+  if (!project) return;
 
   const rfi_number = String(formData.get("rfi_number") ?? "").trim() || null;
   const subject = String(formData.get("subject") ?? "").trim() || null;
@@ -79,7 +76,7 @@ async function createRfi(
     created_by: data.user.id,
   });
 
-  if (error) return { error: error.message };
+  if (error) return;
 
   redirect(`/projects/${projectId}/rfis`);
 }
@@ -196,7 +193,7 @@ export default async function NewRfiPage({ params }: PageProps) {
               <option value="">Select user</option>
               {members?.map((member) => (
                 <option key={member.user_id} value={member.user_id}>
-                  {member.profiles?.full_name ?? member.user_id}
+                  {member.profiles?.[0]?.full_name ?? member.user_id}
                 </option>
               ))}
             </select>
@@ -210,7 +207,7 @@ export default async function NewRfiPage({ params }: PageProps) {
             >
               {members?.map((member) => (
                 <option key={`dist-${member.user_id}`} value={member.user_id}>
-                  {member.profiles?.full_name ?? member.user_id}
+                  {member.profiles?.[0]?.full_name ?? member.user_id}
                 </option>
               ))}
             </select>

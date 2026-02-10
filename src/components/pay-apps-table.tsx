@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 export type PayAppRow = {
@@ -37,13 +37,14 @@ export default function PayAppsTable({ projectId, projectName, payApps, retentio
   const [query, setQuery] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const now = useMemo(() => new Date(), []);
 
-  const paymentStatus = (row: PayAppRow) => {
+  const paymentStatus = useCallback((row: PayAppRow) => {
     if (row.status === "paid") return "paid";
     const due = row.due_date ? new Date(row.due_date) : null;
-    if (due && due.getTime() < Date.now()) return "overdue";
+    if (due && due.getTime() < now.getTime()) return "overdue";
     return "unpaid";
-  };
+  }, [now]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -71,7 +72,7 @@ export default function PayAppsTable({ projectId, projectName, payApps, retentio
       if (endDate && date > new Date(endDate).getTime()) return false;
       return true;
     });
-  }, [payApps, projectName, query, statusFilter, paymentFilter, startDate, endDate]);
+  }, [payApps, projectName, query, statusFilter, paymentFilter, startDate, endDate, paymentStatus]);
 
   const sortedForTotals = useMemo(() => {
     return [...filtered].sort((a, b) => {
@@ -99,7 +100,7 @@ export default function PayAppsTable({ projectId, projectName, payApps, retentio
   const daysOpen = (created?: string | null) => {
     if (!created) return "-";
     const start = new Date(created);
-    const diff = Math.floor((Date.now() - start.getTime()) / (1000 * 60 * 60 * 24));
+    const diff = Math.floor((now.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
     return diff >= 0 ? `${diff}d` : "—";
   };
 

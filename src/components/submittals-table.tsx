@@ -23,7 +23,7 @@ type SubmittalRow = {
 
 type MemberRow = {
   user_id: string;
-  profiles: { full_name: string | null } | null;
+  profiles: { full_name: string | null }[] | null;
 };
 
 type Props = {
@@ -65,7 +65,7 @@ export default function SubmittalsTable({
   const memberMap = useMemo(() => {
     const map = new Map<string, string>();
     members.forEach((m) => {
-      map.set(m.user_id, m.profiles?.full_name ?? m.user_id);
+      map.set(m.user_id, m.profiles?.[0]?.full_name ?? m.user_id);
     });
     return map;
   }, [members]);

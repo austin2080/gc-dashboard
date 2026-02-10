@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   PROCUREMENT_STATUS_LABELS,
@@ -170,7 +170,7 @@ export default function ProcurementTracker({ projectId }: Props) {
   const [newNote, setNewNote] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const refreshItems = async () => {
+  const refreshItems = useCallback(async () => {
     setLoading(true);
     if (!effectiveProjectId) {
       setItems([]);
@@ -180,11 +180,12 @@ export default function ProcurementTracker({ projectId }: Props) {
     const data = await listItems(effectiveProjectId);
     setItems(data);
     setLoading(false);
-  };
+  }, [effectiveProjectId]);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshItems();
-  }, [effectiveProjectId]);
+  }, [refreshItems]);
 
   useEffect(() => {
     if (!modalOpen) return;

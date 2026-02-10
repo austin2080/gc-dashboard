@@ -11,6 +11,12 @@ type PageProps = {
   params: { id: string } | Promise<{ id: string }>;
 };
 
+type ScheduleOfValuesItem = {
+  cost_code?: string | null;
+  description?: string | null;
+  amount?: string | number | null;
+};
+
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -73,8 +79,10 @@ export default async function ProjectDetailPage({ params }: PageProps) {
     .eq("project_id", project.id);
 
   const sovTotalsByContract = (primeContracts ?? []).map((c) => {
-    const items = Array.isArray(c.schedule_of_values) ? c.schedule_of_values : [];
-    return items.reduce((sum: number, item: any) => {
+    const items = Array.isArray(c.schedule_of_values)
+      ? (c.schedule_of_values as ScheduleOfValuesItem[])
+      : [];
+    return items.reduce((sum: number, item) => {
       const val = Number(String(item?.amount ?? "").replace(/[^\d.]/g, ""));
       return sum + (Number.isNaN(val) ? 0 : val);
     }, 0);
@@ -98,8 +106,10 @@ export default async function ProjectDetailPage({ params }: PageProps) {
   );
 
   const baseOhp = (primeContracts ?? []).reduce((sum, c) => {
-    const items = Array.isArray(c.schedule_of_values) ? c.schedule_of_values : [];
-    const ohp = items.reduce((inner: number, item: any) => {
+    const items = Array.isArray(c.schedule_of_values)
+      ? (c.schedule_of_values as ScheduleOfValuesItem[])
+      : [];
+    const ohp = items.reduce((inner: number, item) => {
       const label = `${item?.cost_code ?? ""} ${item?.description ?? ""}`.toLowerCase();
       const isOhp =
         label.includes("oh&p") ||
@@ -177,7 +187,7 @@ export default async function ProjectDetailPage({ params }: PageProps) {
       detail: "Submittal-22 pending approval (5 days)",
       severity: "warning",
     },
-  ] as const;
+  ];
 
   return (
     <main className="p-6 space-y-6">

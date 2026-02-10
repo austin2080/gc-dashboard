@@ -13,6 +13,7 @@ export default async function TopNav() {
     return <TopNavClient projects={[]} />;
   }
 
+  let activeProjects = [] as Awaited<ReturnType<typeof listProjects>>;
   try {
     const member = await getMyCompanyMember();
     const companyId = member.company_id;
@@ -20,9 +21,10 @@ export default async function TopNav() {
     const projects = await listProjects(companyId, {
       createdBy: canViewAll ? undefined : data.user.id,
     });
-    const activeProjects = projects.filter((p) => p.health !== "complete");
-    return <TopNavClient projects={activeProjects} />;
+    activeProjects = projects.filter((p) => p.health !== "complete");
   } catch {
-    return <TopNavClient projects={[]} />;
+    activeProjects = [];
   }
+
+  return <TopNavClient projects={activeProjects} />;
 }

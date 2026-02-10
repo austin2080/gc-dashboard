@@ -12,18 +12,18 @@ type PageProps = {
 async function inviteCompanyUser(
   companyId: string,
   formData: FormData
-): Promise<{ error?: string }> {
+) {
   "use server";
 
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
-  if (!email) return { error: "Email is required." };
+  if (!email) return;
 
   const role = "pm";
   const canViewAll = String(formData.get("can_view_all_projects") ?? "") === "on";
 
   const admin = createAdminClient();
   const { data, error } = await admin.auth.admin.inviteUserByEmail(email);
-  if (error || !data.user) return { error: error?.message ?? "Failed to invite user." };
+  if (error || !data.user) return;
 
   const { error: memberError } = await admin
     .from("company_members")
@@ -35,17 +35,18 @@ async function inviteCompanyUser(
       can_view_all_projects: canViewAll,
     });
 
-  if (memberError) return { error: memberError.message };
-
-  return {};
+  if (memberError) return;
 }
 
 async function deleteCompany(
   companyId: string,
-  _: { error?: string },
-  __: FormData
+  prevState: { error?: string },
+  formData: FormData
 ): Promise<{ error?: string }> {
   "use server";
+
+  void prevState;
+  void formData;
 
   const supabase = await createClient();
   const { data } = await supabase.auth.getUser();
@@ -181,7 +182,7 @@ export default async function CompanyDirectoryPage({ params }: PageProps) {
               {members && members.length > 0 ? (
                 members.map((member) => (
                   <tr key={member.user_id} className="border-b last:border-b-0">
-                    <td className="p-3">{member.profiles?.full_name ?? member.user_id}</td>
+                    <td className="p-3">{member.profiles?.[0]?.full_name ?? member.user_id}</td>
                     <td className="p-3 capitalize">{member.role}</td>
                     <td className="p-3">{emailByUserId.get(member.user_id) ?? "-"}</td>
                     <td className="p-3">{member.is_active ? "Active" : "Inactive"}</td>

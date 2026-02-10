@@ -28,6 +28,12 @@ type TransferRow = {
   created_at: string;
 };
 
+type ScheduleOfValuesItem = {
+  cost_code?: string | null;
+  description?: string | null;
+  amount?: string | number | null;
+};
+
 async function createTransfer(
   projectId: string,
   _: { error?: string },
@@ -105,8 +111,10 @@ export default async function ProjectBudgetPage({ params, searchParams }: PagePr
   const rowsByCode = new Map<string, BudgetRow>();
 
   (contracts ?? []).forEach((contract) => {
-    const items = Array.isArray(contract.schedule_of_values) ? contract.schedule_of_values : [];
-    items.forEach((item: any) => {
+    const items = Array.isArray(contract.schedule_of_values)
+      ? (contract.schedule_of_values as ScheduleOfValuesItem[])
+      : [];
+    items.forEach((item) => {
       const costCode = String(item?.cost_code ?? "").trim();
       if (!costCode) return;
       const description = String(item?.description ?? "").trim();

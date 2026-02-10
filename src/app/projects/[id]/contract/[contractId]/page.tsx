@@ -6,6 +6,15 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getMyCompanyId } from "@/lib/db/company";
 
+type ScheduleOfValuesItem = {
+  cost_code?: string | null;
+  description?: string | null;
+  amount?: string | number | null;
+  unit?: string | null;
+  quantity?: number | string | null;
+  unit_price?: number | string | null;
+};
+
 type PageProps = {
   params: { id: string; contractId: string } | Promise<{ id: string; contractId: string }>;
 };
@@ -52,14 +61,14 @@ export default async function ContractDetailPage({ params }: PageProps) {
   }
 
   const sovItems = Array.isArray(contract.schedule_of_values)
-    ? contract.schedule_of_values
+    ? (contract.schedule_of_values as ScheduleOfValuesItem[])
     : [];
-  const sovTotal = sovItems.reduce((sum: number, item: any) => {
+  const sovTotal = sovItems.reduce((sum: number, item) => {
     const val = Number(String(item?.amount ?? "").replace(/[^\d.]/g, ""));
     return sum + (Number.isNaN(val) ? 0 : val);
   }, 0);
   const changeOrdersAmount = contract.change_orders_amount ?? 0;
-  const estOHP = sovItems.reduce((sum: number, item: any) => {
+  const estOHP = sovItems.reduce((sum: number, item) => {
     const label = `${item?.cost_code ?? ""} ${item?.description ?? ""}`.toLowerCase();
     const isOhp =
       label.includes("oh&p") ||
@@ -233,7 +242,7 @@ export default async function ContractDetailPage({ params }: PageProps) {
             </thead>
             <tbody>
               {sovItems.length ? (
-                sovItems.map((item: any, idx: number) => (
+                sovItems.map((item, idx) => (
                   <tr key={`sov-${idx}`} className="border-b last:border-b-0">
                     <td className="p-3 font-medium">{item.cost_code || "-"}</td>
                     <td className="p-3">{item.description || "-"}</td>
