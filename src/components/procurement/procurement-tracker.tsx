@@ -163,10 +163,10 @@ export default function ProcurementTracker({ projectId }: Props) {
   const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingItem, setEditingItem] = useState<ProcurementItem | null>(null);
   const [draft, setDraft] = useState<Draft>(emptyDraft());
   const [initialDraft, setInitialDraft] = useState<Draft>(emptyDraft());
   const [initialNotesHistory, setInitialNotesHistory] = useState<ProcurementNoteEntry[]>([]);
+  const [notesHistoryDraft, setNotesHistoryDraft] = useState<ProcurementNoteEntry[]>([]);
   const [newNote, setNewNote] = useState("");
   const [error, setError] = useState<string | null>(null);
 
@@ -281,8 +281,8 @@ export default function ProcurementTracker({ projectId }: Props) {
     setDraft(nextDraft);
     setInitialDraft(nextDraft);
     setInitialNotesHistory([]);
+    setNotesHistoryDraft([]);
     setEditingId(null);
-    setEditingItem(null);
     setNewNote("");
     setError(null);
     setModalOpen(true);
@@ -316,9 +316,10 @@ export default function ProcurementTracker({ projectId }: Props) {
     const nextDraft = draftFromItem(item);
     setDraft(nextDraft);
     setInitialDraft(nextDraft);
-    setInitialNotesHistory(item.notes_history ? [...item.notes_history] : []);
+    const nextNotesHistory = item.notes_history ? [...item.notes_history] : [];
+    setInitialNotesHistory(nextNotesHistory);
+    setNotesHistoryDraft(nextNotesHistory);
     setEditingId(item.id);
-    setEditingItem(item);
     setNewNote("");
     setError(null);
     setModalOpen(true);
@@ -327,17 +328,16 @@ export default function ProcurementTracker({ projectId }: Props) {
   const closeModal = () => {
     setModalOpen(false);
     setEditingId(null);
-    setEditingItem(null);
     setInitialDraft(emptyDraft());
     setInitialNotesHistory([]);
+    setNotesHistoryDraft([]);
     setNewNote("");
     setError(null);
   };
 
   const hasUnsavedChanges = () => {
     const draftChanged = JSON.stringify(draft) !== JSON.stringify(initialDraft);
-    const historyChanged =
-      JSON.stringify(editingItem?.notes_history ?? []) !== JSON.stringify(initialNotesHistory);
+    const historyChanged = JSON.stringify(notesHistoryDraft) !== JSON.stringify(initialNotesHistory);
     const newNotePending = Boolean(newNote.trim());
     return draftChanged || historyChanged || newNotePending;
   };
@@ -350,38 +350,20 @@ export default function ProcurementTracker({ projectId }: Props) {
     closeModal();
   };
 
-  const buildNoteHistory = (item: ProcurementItem | null, nextNote: string | null) => {
-    const history = item?.notes_history ? [...item.notes_history] : [];
-    if (nextNote && nextNote.trim()) {
-      const previous = item?.notes ?? "";
-      if (nextNote.trim() !== previous.trim()) {
-        const entry: ProcurementNoteEntry = {
-          note: nextNote.trim(),
-          created_at: new Date().toISOString(),
-        };
-        history.unshift(entry);
-      }
-    }
-    return history;
-  };
-
   const handleAddNote = () => {
     if (!newNote.trim()) return;
     const noteEntry: ProcurementNoteEntry = {
       note: newNote.trim(),
       created_at: new Date().toISOString(),
     };
-    const existingHistory = editingItem?.notes_history ? [...editingItem.notes_history] : [];
-    const nextHistory = [noteEntry, ...existingHistory];
-    setEditingItem((prev) => (prev ? { ...prev, notes_history: nextHistory } : prev));
-    setDraft((prev) => ({ ...prev, notes: newNote.trim() }));
+    setNotesHistoryDraft((prev) => [noteEntry, ...prev]);
+    setDraft((prev) => ({ ...prev, notes: noteEntry.note }));
     setNewNote("");
   };
 
   const handleDeleteNote = (index: number) => {
-    if (!editingItem?.notes_history) return;
-    const nextHistory = editingItem.notes_history.filter((_, entryIndex) => entryIndex !== index);
-    setEditingItem((prev) => (prev ? { ...prev, notes_history: nextHistory } : prev));
+    const nextHistory = notesHistoryDraft.filter((_, entryIndex) => entryIndex !== index);
+    setNotesHistoryDraft(nextHistory);
     const nextLatest = nextHistory[0]?.note ?? "";
     setDraft((prev) => ({ ...prev, notes: nextLatest }));
   };
@@ -395,15 +377,13 @@ export default function ProcurementTracker({ projectId }: Props) {
     const payload = payloadFromDraft(draft);
 
     if (editingId) {
-      const notesHistory = buildNoteHistory(editingItem, payload.notes ?? null);
-      await updateItem(editingId, { ...payload, notes_history: notesHistory });
+      await updateItem(editingId, { ...payload, notes_history: notesHistoryDraft });
     } else {
       if (!effectiveProjectId) {
         setError("Project context is missing. Open this page from a project.");
         return;
       }
-      const notesHistory = buildNoteHistory(null, payload.notes ?? null);
-      await createItem(effectiveProjectId, { ...payload, notes_history: notesHistory });
+      await createItem(effectiveProjectId, { ...payload, notes_history: notesHistoryDraft });
     }
 
     await refreshItems();
@@ -950,8 +930,8 @@ export default function ProcurementTracker({ projectId }: Props) {
                   </button>
                 </div>
                 <div className="mt-2 space-y-2 text-sm">
-                {editingItem?.notes_history && editingItem.notes_history.length > 0 ? (
-                  editingItem.notes_history.map((entry, index) => (
+                {notesHistoryDraft.length > 0 ? (
+                  notesHistoryDraft.map((entry, index) => (
                     <div
                       key={`${entry.created_at}-${index}`}
                       className="rounded border border-black/10 p-2"
