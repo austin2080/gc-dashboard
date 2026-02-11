@@ -631,19 +631,19 @@ export default function ProcurementTracker({ projectId }: Props) {
   const timelineIndex = statusTimelineIndex(draft.status);
 
   return (
-    <main className="space-y-8 px-12 py-8 font-[var(--font-inter)]">
-      <header className="flex flex-wrap items-start justify-between gap-6">
+    <main className="space-y-6 px-4 py-4 font-[var(--font-inter)] sm:px-6 md:space-y-8 md:px-8 md:py-6 lg:px-12 lg:py-8">
+      <header className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between sm:gap-6">
         <div className="space-y-2">
-          <h1 className="text-[32px] font-semibold tracking-tight text-slate-900">
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-900 sm:text-3xl">
             Procurement Tracking
           </h1>
-          <p className="text-lg text-slate-500">
+          <p className="text-sm text-slate-500 sm:text-base md:text-lg">
             Track and manage procurement items across your project.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:flex sm:items-center">
           <button
-            className="inline-flex items-center gap-3 rounded-xl border border-[hsl(var(--ds-border))] bg-white px-5 py-3 text-base font-semibold text-slate-800 shadow-sm"
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-[hsl(var(--ds-border))] bg-white px-4 py-2.5 text-sm font-semibold text-slate-800 shadow-sm sm:gap-3 sm:px-5 sm:py-3 sm:text-base"
             onClick={handleExport}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -654,7 +654,7 @@ export default function ProcurementTracker({ projectId }: Props) {
             Export CSV
           </button>
           <button
-            className="inline-flex items-center gap-3 rounded-xl bg-slate-900 px-6 py-3 text-base font-semibold text-white shadow"
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white shadow sm:gap-3 sm:px-6 sm:py-3 sm:text-base"
             onClick={openNewModal}
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -666,12 +666,12 @@ export default function ProcurementTracker({ projectId }: Props) {
         </div>
       </header>
 
-      <section className="grid grid-cols-1 gap-5 md:grid-cols-5">
+      <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:gap-4 xl:grid-cols-5">
         {loading ? (
           Array.from({ length: 5 }).map((_, index) => (
             <div
               key={`card-skel-${index}`}
-              className="rounded-2xl border border-[hsl(var(--ds-border)/0.6)] bg-white p-1 shadow-[0_1px_0_rgba(15,23,42,0.04)]"
+              className="rounded-2xl border border-[hsl(var(--ds-border)/0.6)] bg-white p-4 shadow-[0_1px_0_rgba(15,23,42,0.04)]"
             >
               <div className="h-4 w-24 animate-pulse rounded bg-slate-200" />
               <div className="mt-3 h-7 w-16 animate-pulse rounded bg-slate-200" />
@@ -680,7 +680,7 @@ export default function ProcurementTracker({ projectId }: Props) {
           ))
         ) : (
           <>
-            <div className="rounded-2xl border border-[hsl(var(--ds-border)/0.6)] bg-white p-1 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
+            <div className="rounded-2xl border border-[hsl(var(--ds-border)/0.6)] bg-white p-4 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
               <div className="flex items-center justify-between text-base text-slate-500">
                 <span className="font-medium">Total Items</span>
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[hsl(var(--metric-total-bg))] text-[hsl(var(--metric-total))]">
@@ -696,7 +696,7 @@ export default function ProcurementTracker({ projectId }: Props) {
                 <span className="text-slate-500">vs last week</span>
               </div>
             </div>
-            <div className="rounded-2xl border border-[hsl(var(--ds-border)/0.6)] bg-white p-1 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
+            <div className="rounded-2xl border border-[hsl(var(--ds-border)/0.6)] bg-white p-4 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
               <div className="flex items-center justify-between text-base text-slate-500">
                 <span className="font-medium">Approved</span>
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[hsl(var(--status-approved-bg))] text-[hsl(var(--status-approved))]">
@@ -712,7 +712,7 @@ export default function ProcurementTracker({ projectId }: Props) {
                 <span className="text-slate-500">vs last week</span>
               </div>
             </div>
-            <div className="rounded-2xl border border-[hsl(var(--ds-border)/0.6)] bg-white p-1 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
+            <div className="rounded-2xl border border-[hsl(var(--ds-border)/0.6)] bg-white p-4 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
               <div className="flex items-center justify-between text-base text-slate-500">
                 <span className="font-medium">Ordered</span>
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[hsl(var(--status-ordered-bg))] text-[hsl(var(--status-ordered))]">
@@ -730,7 +730,7 @@ export default function ProcurementTracker({ projectId }: Props) {
                 <span className="text-slate-500">vs last week</span>
               </div>
             </div>
-            <div className="rounded-2xl border border-[hsl(var(--status-risk)/0.6)] bg-white p-1 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
+            <div className="rounded-2xl border border-[hsl(var(--status-risk)/0.6)] bg-white p-4 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
               <div className="flex items-center justify-between text-base text-slate-500">
                 <span className="font-medium">At Risk</span>
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[hsl(var(--status-risk-bg))] text-[hsl(var(--status-risk))]">
@@ -747,7 +747,7 @@ export default function ProcurementTracker({ projectId }: Props) {
                 <span className="text-slate-500">vs last week</span>
               </div>
             </div>
-            <div className="rounded-2xl border border-[hsl(var(--ds-border)/0.6)] bg-white p-1 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
+            <div className="rounded-2xl border border-[hsl(var(--ds-border)/0.6)] bg-white p-4 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
               <div className="flex items-center justify-between text-base text-slate-500">
                 <span className="font-medium">Longest Lead</span>
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
@@ -769,8 +769,8 @@ export default function ProcurementTracker({ projectId }: Props) {
         )}
       </section>
 
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
-        <div className="relative flex-1 min-w-[240px] max-w-2xl">
+      <div className="mt-1 flex flex-col gap-3 sm:mt-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <div className="relative w-full sm:max-w-2xl sm:flex-1">
           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <circle cx="11" cy="11" r="8" />
@@ -785,7 +785,7 @@ export default function ProcurementTracker({ projectId }: Props) {
           />
         </div>
         <select
-          className="min-w-[200px] rounded-lg border border-[hsl(var(--ds-border))] bg-white px-3 py-2.5 text-base text-slate-700"
+          className="w-full rounded-lg border border-[hsl(var(--ds-border))] bg-white px-3 py-2.5 text-base text-slate-700 sm:w-auto sm:min-w-[200px]"
           value={statusFilter}
           onChange={(event) => setStatusFilter(event.target.value as "all" | ProcurementStatus)}
         >
@@ -798,11 +798,11 @@ export default function ProcurementTracker({ projectId }: Props) {
         </select>
       </div>
 
-      <section className="space-y-4 rounded-xl border border-[hsl(var(--ds-border))] bg-white p-4 shadow-sm">
+      <section className="space-y-4 rounded-xl border border-[hsl(var(--ds-border))] bg-white p-3 shadow-sm sm:p-4">
         <div className="flex flex-wrap items-center justify-end gap-2" />
 
         {selectedIds.size > 0 ? (
-          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[hsl(var(--ds-border))] bg-[hsl(var(--status-delivered-bg))] px-3 py-2 text-base">
+          <div className="flex flex-col gap-2 rounded-lg border border-[hsl(var(--ds-border))] bg-[hsl(var(--status-delivered-bg))] px-3 py-2 text-base sm:flex-row sm:flex-wrap sm:items-center">
             <span className="font-medium text-slate-700">{selectedIds.size} selected</span>
             <button
               className="rounded border border-[hsl(var(--status-approved))] bg-white px-2.5 py-1 text-base text-[hsl(var(--status-approved-foreground))]"
@@ -817,7 +817,7 @@ export default function ProcurementTracker({ projectId }: Props) {
               Bulk Ordered
             </button>
             <select
-              className="rounded border border-[hsl(var(--ds-border))] bg-white px-2.5 py-1 text-base"
+              className="rounded border border-[hsl(var(--ds-border))] bg-white px-2.5 py-1 text-base sm:min-w-[180px]"
               value={bulkStatus}
               onChange={(event) => {
                 const value = event.target.value as ProcurementStatus;
@@ -835,7 +835,7 @@ export default function ProcurementTracker({ projectId }: Props) {
               ))}
             </select>
             <button
-              className="ml-auto rounded border border-[hsl(var(--status-risk))] bg-white px-2.5 py-1 text-base text-[hsl(var(--status-risk-foreground))]"
+              className="rounded border border-[hsl(var(--status-risk))] bg-white px-2.5 py-1 text-base text-[hsl(var(--status-risk-foreground))] sm:ml-auto"
               onClick={handleBulkArchive}
             >
               Archive Selected
@@ -843,7 +843,146 @@ export default function ProcurementTracker({ projectId }: Props) {
           </div>
         ) : null}
 
-        <div className="overflow-x-auto">
+        <div className="space-y-3 md:hidden">
+          {loading ? (
+            Array.from({ length: 4 }).map((_, index) => (
+              <div key={`mobile-row-skel-${index}`} className="rounded-xl border border-[hsl(var(--ds-border))] p-4">
+                <div className="h-4 w-40 animate-pulse rounded bg-slate-100" />
+                <div className="mt-3 h-3 w-24 animate-pulse rounded bg-slate-100" />
+                <div className="mt-3 h-3 w-full animate-pulse rounded bg-slate-100" />
+              </div>
+            ))
+          ) : items.length === 0 ? (
+            <div className="rounded-xl border border-[hsl(var(--ds-border))] px-4 py-8 text-center text-slate-500">
+              <div className="text-base font-medium text-slate-700">No procurement items yet</div>
+              <div className="mt-1 text-sm">Add your first item to start tracking approvals and deliveries.</div>
+              <button
+                className="mt-4 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white"
+                onClick={openNewModal}
+              >
+                Add Item
+              </button>
+            </div>
+          ) : filteredItems.length === 0 ? (
+            <div className="rounded-xl border border-[hsl(var(--ds-border))] px-4 py-6 text-sm text-slate-500">
+              No items match your filters. Try adjusting the search or status filter.
+            </div>
+          ) : (
+            filteredItems.map((item) => {
+              const atRisk = isAtRisk(item);
+              const isExpanded = expandedIds.has(item.id);
+              const showApprove = item.status === "awaiting_approval";
+              const showOrdered = item.status === "approved";
+              return (
+                <div key={item.id} className="rounded-xl border border-[hsl(var(--ds-border))] bg-white p-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <label className="inline-flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        className="mt-1 h-4 w-4 accent-slate-900"
+                        checked={selectedIds.has(item.id)}
+                        onChange={() => toggleSelected(item.id)}
+                      />
+                      <div>
+                        <div className="text-sm font-semibold text-slate-900">{item.item_name}</div>
+                        <div className="text-xs text-slate-500">{item.vendor_name}</div>
+                      </div>
+                    </label>
+                    <span
+                      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${statusClass(
+                        item.status
+                      )}`}
+                    >
+                      {PROCUREMENT_STATUS_LABELS[item.status]}
+                    </span>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-lg bg-slate-50 px-2 py-1.5">
+                      <div className="text-slate-500">Need By</div>
+                      <div className="font-medium text-slate-800">{formatDate(item.need_by_date)}</div>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 px-2 py-1.5">
+                      <div className="text-slate-500">Lead Time</div>
+                      <div className="font-medium text-slate-800">
+                        {item.lead_time_days !== null ? `${item.lead_time_days} days` : "â€”"}
+                      </div>
+                    </div>
+                  </div>
+
+                  {atRisk ? (
+                    <span
+                      className={`mt-2 inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${riskClass}`}
+                    >
+                      At Risk
+                    </span>
+                  ) : null}
+
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {showApprove ? (
+                      <button
+                        className="inline-flex items-center justify-center rounded-lg border border-[hsl(var(--status-awaiting))] bg-[hsl(var(--status-awaiting-bg))] px-2.5 py-1.5 text-xs font-medium text-[hsl(var(--status-awaiting-foreground))]"
+                        onClick={() => handleQuickApprove(item)}
+                      >
+                        Approve
+                      </button>
+                    ) : null}
+                    {showOrdered ? (
+                      <button
+                        className="inline-flex items-center justify-center rounded-lg border border-[hsl(var(--status-ordered))] bg-[hsl(var(--status-ordered-bg))] px-2.5 py-1.5 text-xs font-medium text-[hsl(var(--status-ordered-foreground))]"
+                        onClick={() => handleQuickOrdered(item)}
+                      >
+                        Mark Ordered
+                      </button>
+                    ) : null}
+                    <button
+                      className="inline-flex items-center justify-center rounded-lg border border-[hsl(var(--ds-border))] bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700"
+                      onClick={() => openEditModal(item)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      className="inline-flex items-center justify-center rounded-lg border border-[hsl(var(--status-risk))] bg-white px-2.5 py-1.5 text-xs font-medium text-[hsl(var(--status-risk-foreground))]"
+                      onClick={() => handleArchive(item)}
+                    >
+                      Archive
+                    </button>
+                  </div>
+
+                  <button
+                    className="mt-3 w-full rounded-lg border border-[hsl(var(--ds-border))] bg-white px-3 py-1.5 text-xs font-medium text-slate-700"
+                    onClick={() => toggleExpanded(item.id)}
+                  >
+                    {isExpanded ? "Hide details" : "Show details"}
+                  </button>
+
+                  {isExpanded ? (
+                    <div className="mt-3 space-y-2 rounded-lg border border-[hsl(var(--ds-border))] bg-[hsl(var(--status-delivered-bg))] p-3 text-xs text-slate-700">
+                      <div>
+                        <span className="font-medium text-slate-500">Expected Delivery: </span>
+                        {formatDate(item.expected_delivery_date)}
+                      </div>
+                      <div>
+                        <span className="font-medium text-slate-500">Created: </span>
+                        {formatDate(item.created_at)}
+                      </div>
+                      <div>
+                        <span className="font-medium text-slate-500">Latest Update: </span>
+                        {formatDate(item.updated_at)}
+                      </div>
+                      <div>
+                        <span className="font-medium text-slate-500">Notes: </span>
+                        {item.notes ?? "No notes yet."}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="hidden overflow-x-auto md:block">
           <table className="min-w-[1100px] w-full text-base">
             <thead className="text-left text-slate-500">
               <tr className="border-b border-[hsl(var(--ds-border))] text-base">
@@ -1115,12 +1254,12 @@ export default function ProcurementTracker({ projectId }: Props) {
 
       {modalOpen ? (
         <div
-          className="fixed inset-0 z-50 flex justify-end bg-black/30"
+          className="fixed inset-0 z-50 flex items-end bg-black/30 md:items-stretch md:justify-end"
           onClick={handleCloseRequest}
           role="presentation"
         >
           <aside
-            className="h-full w-full max-w-xl overflow-y-auto bg-white p-6 shadow-xl"
+            className="h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-4 shadow-xl sm:p-6 md:h-full md:max-w-xl md:rounded-none"
             onClick={(event) => event.stopPropagation()}
           >
             <div className="flex items-start justify-between">
@@ -1141,7 +1280,7 @@ export default function ProcurementTracker({ projectId }: Props) {
 
             <div className="mt-6">
               <div className="text-base font-medium text-slate-700">Status Timeline</div>
-              <div className="mt-3 flex items-center gap-3">
+              <div className="mt-3 flex items-center gap-3 overflow-x-auto pb-1">
                 {timelineSteps.map((step, index) => {
                   const isComplete = index <= timelineIndex;
                   const isActive = index === timelineIndex;
@@ -1383,7 +1522,7 @@ export default function ProcurementTracker({ projectId }: Props) {
             </div>
 
             {error ? <div className="mt-3 text-base text-rose-600">{error}</div> : null}
-            <div className="mt-6 flex justify-end gap-2">
+            <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <button
                 className="rounded-lg border border-[hsl(var(--ds-border))] px-3 py-2 text-base"
                 onClick={handleCloseRequest}
