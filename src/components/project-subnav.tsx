@@ -45,7 +45,10 @@ export default function ProjectSubnav({
       </div>
       <div className="flex flex-wrap items-center gap-2 px-6 py-3">
         {items.map((item) => {
-          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+          const isOverview = item.href === base;
+          const active = isOverview
+            ? pathname === base
+            : pathname === item.href || pathname.startsWith(`${item.href}/`);
           return (
             <Link
               key={item.href}

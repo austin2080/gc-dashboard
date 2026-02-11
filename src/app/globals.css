@@ -6,6 +6,27 @@
   --brand: #2f3a4a;
   --primary: #3b82f6;
   --primary-hover: #2563eb;
+  /* Procurement design tokens (HSL) */
+  --ds-background: 0 0% 100%;
+  --ds-foreground: 222.2 84% 4.9%;
+  --ds-border: 214.3 31.8% 91.4%;
+  --status-awaiting: 38 92% 50%;
+  --status-awaiting-foreground: 38 92% 14%;
+  --status-awaiting-bg: 43 96% 95%;
+  --status-approved: 142 71% 45%;
+  --status-approved-foreground: 142 71% 14%;
+  --status-approved-bg: 142 76% 94%;
+  --status-ordered: 217 91% 60%;
+  --status-ordered-foreground: 217 91% 14%;
+  --status-ordered-bg: 214 95% 95%;
+  --status-delivered: 215 14% 55%;
+  --status-delivered-foreground: 215 14% 20%;
+  --status-delivered-bg: 215 14% 94%;
+  --status-risk: 14 90% 55%;
+  --status-risk-foreground: 14 90% 14%;
+  --status-risk-bg: 14 100% 96%;
+  --metric-total: 222 47% 25%;
+  --metric-total-bg: 222 47% 96%;
 }
 
 html[data-mode="waiverdesk"] {
@@ -24,7 +45,7 @@ html[data-mode="waiverdesk"] {
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-inter), system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
 button {
