@@ -27,6 +27,7 @@ export default function ProjectSubnav({
     { label: "Change Orders", href: `${base}/change-orders` },
     { label: "RFIs", href: `${base}/rfis` },
     { label: "Submittals", href: `${base}/submittals` },
+    { label: "Procurement", href: `${base}/procurement` },
     { label: "Schedule", href: `${base}/schedule` },
     { label: "Directory", href: `${base}/directory` },
   ];
