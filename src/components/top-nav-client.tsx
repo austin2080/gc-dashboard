@@ -106,6 +106,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [modeOpen, setModeOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const hasUnreadNotifications = true;
   const toolsRef = useRef<HTMLDivElement | null>(null);
   const projectsRef = useRef<HTMLDivElement | null>(null);
@@ -140,7 +141,19 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
     setProjectsOpen(false);
     setProfileOpen(false);
     setModeOpen(false);
+    setMobileMenuOpen(false);
   };
+
+  const menuTools = activeProject
+    ? PROJECT_TOOL_GROUPS.flatMap((group) =>
+        group.items.map((item) => ({
+          label: item.label,
+          href: `/projects/${activeProject.id}/${item.path}`,
+        })),
+      )
+    : GLOBAL_TOOLS;
+
+  const modeLabel = mode === "waiverdesk" ? "WaiverDesk" : "Project Management";
 
   useEffect(() => {
     if (!toolsOpen && !projectsOpen && !profileOpen) return;
@@ -165,8 +178,8 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
 
   return (
     <header className="sticky top-0 z-20 w-full border-b border-white/10 bg-[color:var(--brand)] text-white">
-      <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-3">
-        <div className="flex flex-wrap items-center gap-3">
+      <div className="px-4 py-3 md:px-6">
+        <div className="flex items-center justify-between gap-3">
           <Link href={withMode("/dashboard")} className="flex items-center gap-2">
             <div className="text-xs uppercase tracking-widest opacity-70">
               {mode === "waiverdesk" ? "WD" : "GC"}
@@ -176,7 +189,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
             </div>
           </Link>
 
-          <div className="flex items-center gap-2">
+          <div className="hidden items-center gap-2 md:flex">
             {mode === "waiverdesk" ? (
               <div className="relative" ref={toolsRef}>
                 <button
@@ -354,16 +367,34 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
             )}
           </div>
 
+
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen((open) => !open)}
+            className="inline-flex rounded-xl border border-white/20 px-3 py-2 text-base md:hidden"
+            aria-label="Toggle mobile menu"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className="h-5 w-5"
+            >
+              {mobileMenuOpen ? <path d="M18 6 6 18M6 6l12 12" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
+            </svg>
+          </button>
         </div>
 
-        <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
+        <div className="mt-3 hidden flex-1 flex-wrap items-center justify-end gap-2 md:flex">
           <div className="relative" ref={modeRef}>
             <button
               className="rounded-full border border-white/20 px-3 py-2 text-base cursor-pointer flex items-center gap-2"
               type="button"
               onClick={() => setModeOpen((open) => !open)}
             >
-              {mode === "waiverdesk" ? "WaiverDesk" : "Project Management"}
+              {modeLabel}
               <svg
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 24 24"
@@ -494,6 +525,106 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
               className="w-full rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-base text-white placeholder:text-white/60"
               placeholder="Quick search projects, contracts, RFIs..."
             />
+          </div>
+        ) : null}
+
+        {mobileMenuOpen ? (
+          <div className="mt-3 space-y-3 rounded-xl border border-white/15 bg-white/[0.07] p-3 text-white md:hidden">
+            <input
+              className="w-full rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-base text-white placeholder:text-white/60"
+              placeholder="Quick search projects, contracts, RFIs..."
+            />
+
+            <div className="space-y-2">
+              <div className="text-xs uppercase tracking-widest text-white/70">Mode</div>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  className="rounded-lg border border-white/20 px-3 py-2 text-sm"
+                  type="button"
+                  onClick={async () => {
+                    await setMode("waiverdesk");
+                    closeAllMenus();
+                    router.push("/waiverdesk/dashboard");
+                  }}
+                >
+                  WaiverDesk
+                </button>
+                <button
+                  className="rounded-lg border border-white/20 px-3 py-2 text-sm"
+                  type="button"
+                  onClick={async () => {
+                    await setMode("pm");
+                    closeAllMenus();
+                    router.push("/dashboard");
+                  }}
+                >
+                  Project Management
+                </button>
+              </div>
+            </div>
+
+            {mode === "waiverdesk" ? (
+              <div className="space-y-2">
+                <div className="text-xs uppercase tracking-widest text-white/70">WaiverDesk menu</div>
+                <div className="grid grid-cols-1 gap-1">
+                  {WAIVER_NAV_ITEMS.map((item) => (
+                    <Link
+                      key={item.label}
+                      href={withMode(item.href)}
+                      onClick={closeAllMenus}
+                      className="flex items-center justify-between rounded-lg px-3 py-2 text-sm hover:bg-white/[0.09]"
+                    >
+                      <span>{item.label}</span>
+                      {item.count !== undefined ? (
+                        <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs">{item.count}</span>
+                      ) : null}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  <div className="text-xs uppercase tracking-widest text-white/70">Project</div>
+                  <Link
+                    href={withMode("/projects")}
+                    onClick={closeAllMenus}
+                    className="block rounded-lg border border-white/20 px-3 py-2 text-sm"
+                  >
+                    {projectContextLabel}
+                  </Link>
+                </div>
+                <div className="space-y-2">
+                  <div className="text-xs uppercase tracking-widest text-white/70">
+                    {activeProject ? "Project tools" : "Company tools"}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    {menuTools.map((tool) => (
+                      <Link
+                        key={tool.label}
+                        href={withMode(tool.href)}
+                        onClick={closeAllMenus}
+                        className="rounded-lg border border-white/20 px-3 py-2 text-sm"
+                      >
+                        {tool.label}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
+            <div className="space-y-1 border-t border-white/15 pt-2">
+              <Link href="/profile" onClick={closeAllMenus} className="block rounded-lg px-3 py-2 text-sm hover:bg-white/[0.09]">
+                Profile
+              </Link>
+              <Link href={withMode("/settings")} onClick={closeAllMenus} className="block rounded-lg px-3 py-2 text-sm hover:bg-white/[0.09]">
+                Settings
+              </Link>
+              <Link href={withMode("/logout")} onClick={closeAllMenus} className="block rounded-lg px-3 py-2 text-sm hover:bg-white/[0.09]">
+                Log out
+              </Link>
+            </div>
           </div>
         ) : null}
       </div>
