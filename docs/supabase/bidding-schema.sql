@@ -5,7 +5,14 @@ create extension if not exists pgcrypto;
 DO $$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'bid_trade_status') THEN
-    CREATE TYPE bid_trade_status AS ENUM ('submitted', 'bidding', 'declined', 'ghosted');
+    CREATE TYPE bid_trade_status AS ENUM ('submitted', 'bidding', 'declined', 'ghosted', 'invited');
+  END IF;
+END$$;
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_type WHERE typname = 'bid_trade_status') THEN
+    ALTER TYPE bid_trade_status ADD VALUE IF NOT EXISTS 'invited';
   END IF;
 END$$;
 

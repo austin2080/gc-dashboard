@@ -136,6 +136,156 @@ export async function archiveBidProject(projectId: string): Promise<boolean> {
   return true;
 }
 
+export async function createBidSubcontractor(payload: {
+  company_name: string;
+  primary_contact?: string | null;
+  email?: string | null;
+  phone?: string | null;
+}): Promise<{ id: string; company_name: string; primary_contact: string | null } | null> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("bid_subcontractors")
+    .insert({
+      company_name: payload.company_name.trim(),
+      primary_contact: payload.primary_contact ?? null,
+      email: payload.email ?? null,
+      phone: payload.phone ?? null,
+    })
+    .select("id, company_name, primary_contact")
+    .single();
+
+  if (error || !data) {
+    console.error("Failed to create subcontractor", error);
+    return null;
+  }
+
+  return data as { id: string; company_name: string; primary_contact: string | null };
+}
+
+export async function inviteSubToProject(payload: {
+  project_id: string;
+  subcontractor_id: string;
+  sort_order: number;
+}): Promise<{ id: string } | null> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("bid_project_subs")
+    .insert({
+      project_id: payload.project_id,
+      subcontractor_id: payload.subcontractor_id,
+      sort_order: payload.sort_order,
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) {
+    console.error("Failed to invite subcontractor", error);
+    return null;
+  }
+
+  return data as { id: string };
+}
+
+export async function createTradeBid(payload: {
+  project_id: string;
+  trade_id: string;
+  project_sub_id: string;
+  status: "submitted" | "bidding" | "declined" | "ghosted" | "invited";
+  bid_amount?: number | null;
+  contact_name?: string | null;
+}): Promise<boolean> {
+  const supabase = createClient();
+  const { error } = await supabase.from("bid_trade_bids").insert({
+    project_id: payload.project_id,
+    trade_id: payload.trade_id,
+    project_sub_id: payload.project_sub_id,
+    status: payload.status,
+    bid_amount: payload.bid_amount ?? null,
+    contact_name: payload.contact_name ?? null,
+  });
+
+  if (error) {
+    console.error("Failed to create trade bid", error);
+    return false;
+  }
+
+  return true;
+}
+
+export async function listBidSubcontractors(): Promise<
+  Array<{ id: string; company_name: string; primary_contact: string | null; email: string | null; phone: string | null }>
+> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("bid_subcontractors")
+    .select("id, company_name, primary_contact, email, phone")
+    .is("archived_at", null)
+    .order("company_name", { ascending: true });
+
+  if (error || !data) {
+    console.error("Failed to load subcontractors", error);
+    return [];
+  }
+
+  return data as Array<{
+    id: string;
+    company_name: string;
+    primary_contact: string | null;
+    email: string | null;
+    phone: string | null;
+  }>;
+}
+
+export async function updateTradeBid(payload: {
+  id: string;
+  status: "submitted" | "bidding" | "declined" | "ghosted" | "invited";
+  bid_amount?: number | null;
+  contact_name?: string | null;
+}): Promise<boolean> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("bid_trade_bids")
+    .update({
+      status: payload.status,
+      bid_amount: payload.bid_amount ?? null,
+      contact_name: payload.contact_name ?? null,
+    })
+    .eq("id", payload.id);
+
+  if (error) {
+    console.error("Failed to update trade bid", error);
+    return false;
+  }
+
+  return true;
+}
+
+export async function updateBidSubcontractor(payload: {
+  id: string;
+  company_name: string;
+  primary_contact?: string | null;
+  email?: string | null;
+  phone?: string | null;
+}): Promise<boolean> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("bid_subcontractors")
+    .update({
+      company_name: payload.company_name.trim(),
+      primary_contact: payload.primary_contact ?? null,
+      email: payload.email ?? null,
+      phone: payload.phone ?? null,
+    })
+    .eq("id", payload.id);
+
+  if (error) {
+    console.error("Failed to update subcontractor", error);
+    return false;
+  }
+
+  return true;
+}
+
 export async function countBidProjectSubs(projectIds: string[]): Promise<number> {
   if (!projectIds.length) return 0;
   const supabase = createClient();

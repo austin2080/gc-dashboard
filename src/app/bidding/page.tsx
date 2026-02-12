@@ -11,6 +11,12 @@ import {
   countBidProjectSubs,
   createBidProject,
   createBidTrades,
+  createBidSubcontractor,
+  listBidSubcontractors,
+  inviteSubToProject,
+  createTradeBid,
+  updateTradeBid,
+  updateBidSubcontractor,
   updateBidProject,
   archiveBidProject,
   countGhostedBids,
@@ -19,15 +25,20 @@ import {
 } from "@/lib/bidding/store";
 
 type TradeSubBid = {
+  bidId: string;
+  subId: string;
   company: string;
   contact: string;
+  email?: string;
+  phone?: string;
   status: BidTradeStatus;
   bidAmount?: number;
 };
 
 type TradeRow = {
+  tradeId: string;
   trade: string;
-  bids: Array<TradeSubBid | null>;
+  bidsBySubId: Record<string, TradeSubBid | null>;
 };
 
 type BidProjectView = {
@@ -37,8 +48,8 @@ type BidProjectView = {
   location: string;
   budget: number | null;
   dueDate: string | null;
+  subs: Array<{ id: string; company: string; contact: string }>;
   trades: TradeRow[];
-  subCount: number;
 };
 
 type Metrics = {
@@ -62,6 +73,36 @@ type CostCode = {
   description?: string | null;
   division?: string | null;
   is_active?: boolean | null;
+};
+
+type NewSubDraft = {
+  company_name: string;
+  primary_contact: string;
+  email: string;
+  phone: string;
+  status: BidTradeStatus;
+  bid_amount: string;
+  contact_name: string;
+};
+
+type EditBidDraft = {
+  bid_id: string;
+  sub_id: string;
+  company_name: string;
+  primary_contact: string;
+  email: string;
+  phone: string;
+  status: BidTradeStatus;
+  bid_amount: string;
+  contact_name: string;
+};
+
+type InviteDraft = {
+  status: BidTradeStatus;
+  bid_amount: string;
+  contact_name: string;
+  invitee_mode: "existing" | "new";
+  selected_sub_id: string;
 };
 
 function daysUntil(isoDate: string): number {
@@ -88,6 +129,7 @@ function StatusPill({ status }: { status: BidTradeStatus }) {
     bidding: "bg-blue-100 text-blue-800",
     declined: "bg-rose-100 text-rose-800",
     ghosted: "bg-amber-100 text-amber-800",
+    invited: "bg-slate-100 text-slate-700",
   };
 
   return (
@@ -162,9 +204,22 @@ function ProjectTabs({
   );
 }
 
-function BidComparisonGrid({ project }: { project: BidProjectView }) {
-  const maxSubColumns = project.subCount;
-
+function BidComparisonGrid({
+  project,
+  onInviteExisting,
+  onAddSubForTrade,
+  onEditBid,
+}: {
+  project: BidProjectView;
+  onInviteExisting: (payload: {
+    tradeId: string;
+    tradeName: string;
+    projectSubId: string;
+    company: string;
+  }) => void;
+  onAddSubForTrade: (payload: { tradeId: string; tradeName: string }) => void;
+  onEditBid: (bid: TradeSubBid) => void;
+}) {
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 px-6 py-5">
@@ -184,14 +239,24 @@ function BidComparisonGrid({ project }: { project: BidProjectView }) {
               <th className="sticky left-0 z-30 border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-xl font-semibold text-slate-600">
                 Trade
               </th>
-              {Array.from({ length: maxSubColumns }).map((_, index) => (
+              {project.subs.length ? (
+                project.subs.map((sub, index) => (
+                  <th
+                    key={`sub-header-${sub.id}`}
+                    className="border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-600"
+                  >
+                    <div className="text-base font-semibold text-slate-700">Sub {index + 1}</div>
+                    <div className="text-xs font-medium text-slate-500">{sub.company}</div>
+                  </th>
+                ))
+              ) : (
                 <th
-                  key={`sub-header-${index}`}
+                  key="sub-header-placeholder"
                   className="border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-xl font-semibold text-slate-600"
                 >
-                  Sub {index + 1}
+                  Sub 1
                 </th>
-              ))}
+              )}
               <th className="border-b border-slate-200 bg-slate-100 px-3 py-3 text-center text-sm font-semibold text-slate-600">&nbsp;</th>
             </tr>
           </thead>
@@ -201,30 +266,61 @@ function BidComparisonGrid({ project }: { project: BidProjectView }) {
                 <th className="sticky left-0 z-10 border-b border-r border-slate-200 bg-white px-4 py-5 text-left text-lg font-semibold text-slate-900">
                   {row.trade}
                 </th>
-                {Array.from({ length: maxSubColumns }).map((_, index) => {
-                  const bid = row.bids[index] ?? null;
-                  return (
-                    <td key={`${row.trade}-sub-${index}`} className="border-b border-r border-slate-200 px-4 py-4">
-                      {bid ? (
-                        <div className="space-y-1">
-                          <p className="text-xl font-semibold text-slate-900">{bid.company}</p>
-                          <p className="text-sm text-slate-500">{bid.contact}</p>
-                          <StatusPill status={bid.status} />
-                          {bid.bidAmount ? <p className="text-2xl font-semibold text-slate-900">{formatCurrency(bid.bidAmount)}</p> : null}
-                        </div>
-                      ) : (
-                        <div className="flex h-full min-h-24 items-center rounded-lg border border-dashed border-slate-200 px-3 text-sm text-slate-400">
-                          No sub invited
-                        </div>
-                      )}
-                    </td>
-                  );
-                })}
+                {project.subs.length ? (
+                  project.subs.map((sub) => {
+                    const bid = row.bidsBySubId[sub.id] ?? null;
+                    return (
+                      <td key={`${row.trade}-${sub.id}`} className="border-b border-r border-slate-200 px-4 py-4">
+                        {bid ? (
+                          <button
+                            type="button"
+                            onClick={() => onEditBid(bid)}
+                            className="group flex w-full flex-col items-start rounded-lg border border-transparent px-1 py-1 text-left transition hover:border-slate-200 hover:bg-slate-50"
+                          >
+                            <p className="text-xl font-semibold text-slate-900">{bid.company}</p>
+                            <p className="text-sm text-slate-500">{bid.contact}</p>
+                            <StatusPill status={bid.status} />
+                            {bid.bidAmount ? <p className="text-2xl font-semibold text-slate-900">{formatCurrency(bid.bidAmount)}</p> : null}
+                            <span className="mt-2 text-xs text-slate-400 opacity-0 transition group-hover:opacity-100">
+                              Click to edit
+                            </span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onInviteExisting({
+                                tradeId: row.tradeId,
+                                tradeName: row.trade,
+                                projectSubId: sub.id,
+                                company: sub.company,
+                              })
+                            }
+                            className="flex h-full min-h-24 w-full items-center rounded-lg border border-dashed border-slate-200 px-3 text-left text-sm text-slate-400 hover:border-slate-300 hover:bg-slate-50"
+                          >
+                            Not invited yet — click to add
+                          </button>
+                        )}
+                      </td>
+                    );
+                  })
+                ) : (
+                  <td key={`${row.trade}-sub-empty`} className="border-b border-r border-slate-200 px-4 py-4">
+                    <button
+                      type="button"
+                      onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
+                      className="flex h-full min-h-24 w-full items-center rounded-lg border border-dashed border-slate-200 px-3 text-left text-sm text-slate-400 hover:border-slate-300 hover:bg-slate-50"
+                    >
+                      No subs yet — click to invite
+                    </button>
+                  </td>
+                )}
                 <td className="border-b border-slate-200 px-2 text-center align-middle">
                   <button
                     type="button"
                     className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-xl text-slate-600 transition hover:bg-slate-50"
                     aria-label={`Add subcontractor for ${row.trade}`}
+                    onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
                   >
                     +
                   </button>
@@ -262,21 +358,33 @@ function buildProjectView(detail: BidProjectDetail | null): BidProjectView | nul
     bidsByTrade.set(bid.trade_id, tradeMap);
   });
 
+  const subByProjectSubId = new Map(detail.projectSubs.map((sub) => [sub.id, sub]));
+
   const trades: TradeRow[] = detail.trades.map((trade) => {
     const tradeMap = bidsByTrade.get(trade.id) ?? new Map<string, BidTradeBid>();
-    const bids = subs.map((sub) => {
+    const bidsBySubId: Record<string, TradeSubBid | null> = {};
+    subs.forEach((sub) => {
       const bid = tradeMap.get(sub.id);
-      if (!bid) return null;
-      return {
+      if (!bid) {
+        bidsBySubId[sub.id] = null;
+        return;
+      }
+      const subRecord = subByProjectSubId.get(sub.id);
+      bidsBySubId[sub.id] = {
+        bidId: bid.id,
+        subId: subRecord?.subcontractor_id ?? sub.id,
         company: sub.company,
         contact: bid.contact_name ?? sub.contact,
+        email: subRecord?.subcontractor?.email ?? undefined,
+        phone: subRecord?.subcontractor?.phone ?? undefined,
         status: bid.status,
         bidAmount: bid.bid_amount ?? undefined,
       };
     });
     return {
+      tradeId: trade.id,
       trade: trade.trade_name,
-      bids,
+      bidsBySubId,
     };
   });
 
@@ -287,8 +395,8 @@ function buildProjectView(detail: BidProjectDetail | null): BidProjectView | nul
     location: detail.project.location ?? "—",
     budget: detail.project.budget ?? null,
     dueDate: detail.project.due_date ?? null,
+    subs,
     trades,
-    subCount: Math.max(subs.length, 1),
   };
 }
 
@@ -323,6 +431,41 @@ export default function BiddingPage() {
   const [savingEdit, setSavingEdit] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [inviteDraft, setInviteDraft] = useState<InviteDraft>({
+    status: "bidding",
+    bid_amount: "",
+    contact_name: "",
+    invitee_mode: "existing",
+    selected_sub_id: "",
+  });
+  const [newSubDraft, setNewSubDraft] = useState<NewSubDraft>({
+    company_name: "",
+    primary_contact: "",
+    email: "",
+    phone: "",
+    status: "bidding",
+    bid_amount: "",
+    contact_name: "",
+  });
+  const [inviteTarget, setInviteTarget] = useState<{
+    tradeId: string;
+    tradeName: string;
+    projectSubId: string;
+    company: string;
+  } | null>(null);
+  const [newSubTrade, setNewSubTrade] = useState<{ tradeId: string; tradeName: string } | null>(null);
+  const [savingInvite, setSavingInvite] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [subList, setSubList] = useState<
+    Array<{ id: string; company_name: string; primary_contact: string | null; email: string | null; phone: string | null }>
+  >([]);
+  const [subListLoading, setSubListLoading] = useState(false);
+  const [subSearch, setSubSearch] = useState("");
+  const [editBidModalOpen, setEditBidModalOpen] = useState(false);
+  const [editBidDraft, setEditBidDraft] = useState<EditBidDraft | null>(null);
+  const [savingBidEdit, setSavingBidEdit] = useState(false);
+  const [editBidError, setEditBidError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -396,6 +539,23 @@ export default function BiddingPage() {
 
   useEffect(() => {
     let active = true;
+    async function loadSubList() {
+      if (!inviteModalOpen) return;
+      setSubListLoading(true);
+      const data = await listBidSubcontractors();
+      if (!active) return;
+      setSubList(data);
+      setSubListLoading(false);
+    }
+
+    loadSubList();
+    return () => {
+      active = false;
+    };
+  }, [inviteModalOpen]);
+
+  useEffect(() => {
+    let active = true;
     async function loadDetail() {
       if (!selectedProjectId) {
         setDetail(null);
@@ -418,6 +578,19 @@ export default function BiddingPage() {
   const selectedProject = useMemo(
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
     [projects, selectedProjectId]
+  );
+  const invitedSubIds = useMemo(
+    () => new Set(detail?.projectSubs.map((item) => item.subcontractor_id) ?? []),
+    [detail]
+  );
+  const availableSubs = useMemo(
+    () =>
+      subList.filter(
+        (sub) =>
+          !invitedSubIds.has(sub.id) &&
+          `${sub.company_name} ${sub.primary_contact ?? ""}`.toLowerCase().includes(subSearch.toLowerCase())
+      ),
+    [subList, invitedSubIds, subSearch]
   );
 
   const openEditModal = () => {
@@ -517,7 +690,59 @@ export default function BiddingPage() {
             Loading bid details...
           </section>
         ) : projectView ? (
-          <BidComparisonGrid project={projectView} />
+          <BidComparisonGrid
+            project={projectView}
+            onInviteExisting={(payload) => {
+              setInviteTarget(payload);
+              setNewSubTrade(null);
+              setInviteDraft({
+                status: "bidding",
+                bid_amount: "",
+                contact_name: "",
+                invitee_mode: "existing",
+                selected_sub_id: "",
+              });
+              setInviteError(null);
+              setInviteModalOpen(true);
+            }}
+            onAddSubForTrade={(payload) => {
+              setNewSubTrade(payload);
+              setNewSubDraft({
+                company_name: "",
+                primary_contact: "",
+                email: "",
+                phone: "",
+                status: "bidding",
+                bid_amount: "",
+                contact_name: "",
+              });
+              setInviteTarget(null);
+              setInviteDraft({
+                status: "bidding",
+                bid_amount: "",
+                contact_name: "",
+                invitee_mode: "existing",
+                selected_sub_id: "",
+              });
+              setInviteError(null);
+              setInviteModalOpen(true);
+            }}
+            onEditBid={(bid) => {
+              setEditBidDraft({
+                bid_id: bid.bidId,
+                sub_id: bid.subId,
+                company_name: bid.company,
+                primary_contact: bid.contact,
+                email: bid.email ?? "",
+                phone: bid.phone ?? "",
+                status: bid.status,
+                bid_amount: bid.bidAmount ? String(bid.bidAmount) : "",
+                contact_name: bid.contact ?? "",
+              });
+              setEditBidError(null);
+              setEditBidModalOpen(true);
+            }}
+          />
         ) : (
           <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-slate-500 shadow-sm">
             Select a project to view bid coverage.
@@ -831,6 +1056,460 @@ export default function BiddingPage() {
                   className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {savingEdit ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+      {inviteModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-xl">
+            <div className="border-b border-slate-200 px-6 py-4">
+              <h2 className="text-2xl font-semibold text-slate-900">Invite Sub to Trade</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                {inviteTarget ? `${inviteTarget.company} · ${inviteTarget.tradeName}` : newSubTrade ? `New invite · ${newSubTrade.tradeName}` : ""}
+              </p>
+            </div>
+            <form
+              className="space-y-4 px-6 py-5"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                if (!selectedProject) return;
+                setSavingInvite(true);
+                setInviteError(null);
+                const bidAmountValue = inviteDraft.bid_amount.trim() ? Number(inviteDraft.bid_amount) : null;
+                if (inviteTarget) {
+                  const ok = await createTradeBid({
+                    project_id: selectedProject.id,
+                    trade_id: inviteTarget.tradeId,
+                    project_sub_id: inviteTarget.projectSubId,
+                    status: inviteDraft.status,
+                    bid_amount: Number.isFinite(bidAmountValue) ? bidAmountValue : null,
+                    contact_name: inviteDraft.contact_name.trim() || null,
+                  });
+                  if (!ok) {
+                    setInviteError("Unable to add this sub to the trade.");
+                    setSavingInvite(false);
+                    return;
+                  }
+                } else if (inviteDraft.invitee_mode === "existing") {
+                  if (!inviteDraft.selected_sub_id) {
+                    setInviteError("Select a subcontractor.");
+                    setSavingInvite(false);
+                    return;
+                  }
+                  if (!newSubTrade) {
+                    setInviteError("Select a trade to invite.");
+                    setSavingInvite(false);
+                    return;
+                  }
+                  const tradeId = newSubTrade.tradeId;
+                  let resolvedProjectSubId = "";
+                  if (!resolvedProjectSubId) {
+                    const sortOrder = detail?.projectSubs.length ? detail.projectSubs.length + 1 : 1;
+                    const projectSub = await inviteSubToProject({
+                      project_id: selectedProject.id,
+                      subcontractor_id: inviteDraft.selected_sub_id,
+                      sort_order: sortOrder,
+                    });
+                    if (!projectSub) {
+                      setInviteError("Unable to invite subcontractor to project.");
+                      setSavingInvite(false);
+                      return;
+                    }
+                    resolvedProjectSubId = projectSub.id;
+                  }
+                  const ok = await createTradeBid({
+                    project_id: selectedProject.id,
+                    trade_id: tradeId,
+                    project_sub_id: resolvedProjectSubId,
+                    status: inviteDraft.status,
+                    bid_amount: Number.isFinite(bidAmountValue) ? bidAmountValue : null,
+                    contact_name: inviteDraft.contact_name.trim() || null,
+                  });
+                  if (!ok) {
+                    setInviteError("Unable to add this sub to the trade.");
+                    setSavingInvite(false);
+                    return;
+                  }
+                } else {
+                  if (!newSubDraft.company_name.trim()) {
+                    setInviteError("Company name is required.");
+                    setSavingInvite(false);
+                    return;
+                  }
+                  if (!newSubTrade) {
+                    setInviteError("Select a trade to invite.");
+                    setSavingInvite(false);
+                    return;
+                  }
+                  const tradeId = newSubTrade.tradeId;
+                  const sub = await createBidSubcontractor({
+                    company_name: newSubDraft.company_name,
+                    primary_contact: newSubDraft.primary_contact.trim() || null,
+                    email: newSubDraft.email.trim() || null,
+                    phone: newSubDraft.phone.trim() || null,
+                  });
+                  if (!sub) {
+                    setInviteError("Unable to create subcontractor.");
+                    setSavingInvite(false);
+                    return;
+                  }
+                  const sortOrder = detail?.projectSubs.length ? detail.projectSubs.length + 1 : 1;
+                  const projectSub = await inviteSubToProject({
+                    project_id: selectedProject.id,
+                    subcontractor_id: sub.id,
+                    sort_order: sortOrder,
+                  });
+                  if (!projectSub) {
+                    setInviteError("Unable to invite subcontractor to project.");
+                    setSavingInvite(false);
+                    return;
+                  }
+                  const ok = await createTradeBid({
+                    project_id: selectedProject.id,
+                    trade_id: tradeId,
+                    project_sub_id: projectSub.id,
+                    status: inviteDraft.status,
+                    bid_amount: Number.isFinite(bidAmountValue) ? bidAmountValue : null,
+                    contact_name: inviteDraft.contact_name.trim() || null,
+                  });
+                  if (!ok) {
+                    setInviteError("Unable to add this sub to the trade.");
+                    setSavingInvite(false);
+                    return;
+                  }
+                }
+                const refreshed = await getBidProjectDetail(selectedProject.id);
+                setDetail(refreshed);
+                setInviteModalOpen(false);
+                setInviteTarget(null);
+                setNewSubTrade(null);
+                setInviteDraft({ status: "bidding", bid_amount: "", contact_name: "", invitee_mode: "existing", selected_sub_id: "" });
+                setSubSearch("");
+                setSavingInvite(false);
+              }}
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                {inviteTarget ? (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 sm:col-span-2">
+                    Adding {inviteTarget.company} to {inviteTarget.tradeName}.
+                  </div>
+                ) : (
+                  <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 sm:col-span-2">
+                    Invitee
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setInviteDraft((prev) => ({ ...prev, invitee_mode: "existing" }))}
+                        className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                          inviteDraft.invitee_mode === "existing"
+                            ? "border-slate-300 bg-slate-900 text-white"
+                            : "border-slate-200 bg-white text-slate-600"
+                        }`}
+                      >
+                        Existing Sub
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setInviteDraft((prev) => ({ ...prev, invitee_mode: "new" }))}
+                        className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                          inviteDraft.invitee_mode === "new"
+                            ? "border-slate-300 bg-slate-900 text-white"
+                            : "border-slate-200 bg-white text-slate-600"
+                        }`}
+                      >
+                        New Sub
+                      </button>
+                    </div>
+                  </label>
+                )}
+                {!inviteTarget && inviteDraft.invitee_mode === "existing" ? (
+                  <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 sm:col-span-2">
+                    Subcontractor
+                    <div className="flex flex-col gap-2">
+                      <input
+                        value={subSearch}
+                        onChange={(event) => setSubSearch(event.target.value)}
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                        placeholder="Search subs"
+                      />
+                      <div className="max-h-40 overflow-auto rounded-lg border border-slate-200 bg-white">
+                        {subListLoading ? (
+                          <div className="px-3 py-2 text-sm text-slate-500">Loading subs...</div>
+                        ) : subList.length ? (
+                          availableSubs.length ? (
+                            availableSubs.map((sub) => (
+                              <button
+                                key={sub.id}
+                                type="button"
+                                onClick={() => setInviteDraft((prev) => ({ ...prev, selected_sub_id: sub.id }))}
+                                className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm ${
+                                  inviteDraft.selected_sub_id === sub.id ? "bg-slate-100 text-slate-900" : "hover:bg-slate-50"
+                                }`}
+                              >
+                                <span className="font-medium">{sub.company_name}</span>
+                                <span className="text-xs text-slate-500">{sub.primary_contact ?? "—"}</span>
+                              </button>
+                            ))
+                          ) : (
+                            <div className="px-3 py-2 text-sm text-slate-500">All subs are already invited.</div>
+                          )
+                        ) : (
+                          <div className="px-3 py-2 text-sm text-slate-500">No subs found.</div>
+                        )}
+                      </div>
+                    </div>
+                  </label>
+                ) : !inviteTarget ? (
+                  <>
+                    <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 sm:col-span-2">
+                      Company name
+                      <input
+                        value={newSubDraft.company_name}
+                        onChange={(event) => setNewSubDraft((prev) => ({ ...prev, company_name: event.target.value }))}
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                      Primary contact
+                      <input
+                        value={newSubDraft.primary_contact}
+                        onChange={(event) => setNewSubDraft((prev) => ({ ...prev, primary_contact: event.target.value }))}
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                      Email
+                      <input
+                        value={newSubDraft.email}
+                        onChange={(event) => setNewSubDraft((prev) => ({ ...prev, email: event.target.value }))}
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                        type="email"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                      Phone
+                      <input
+                        value={newSubDraft.phone}
+                        onChange={(event) => setNewSubDraft((prev) => ({ ...prev, phone: event.target.value }))}
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                      />
+                    </label>
+                  </>
+                ) : null}
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                  Status
+                  <select
+                    value={inviteDraft.status}
+                    onChange={(event) =>
+                      setInviteDraft((prev) => ({ ...prev, status: event.target.value as BidTradeStatus }))
+                    }
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                  >
+                    <option value="invited">Invited</option>
+                    <option value="bidding">Bidding</option>
+                    <option value="submitted">Submitted</option>
+                    <option value="declined">Declined</option>
+                    <option value="ghosted">Ghosted</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                  Bid amount
+                  <input
+                    value={inviteDraft.bid_amount}
+                    onChange={(event) => setInviteDraft((prev) => ({ ...prev, bid_amount: event.target.value }))}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                    inputMode="decimal"
+                    placeholder="e.g. 250000"
+                  />
+                </label>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 sm:col-span-2">
+                  Contact name
+                  <input
+                    value={inviteDraft.contact_name}
+                    onChange={(event) => setInviteDraft((prev) => ({ ...prev, contact_name: event.target.value }))}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                    placeholder="Optional"
+                  />
+                </label>
+              </div>
+              {inviteError ? (
+                <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {inviteError}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 pt-4">
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  onClick={() => {
+                    setInviteModalOpen(false);
+                    setInviteTarget(null);
+                    setNewSubTrade(null);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingInvite}
+                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {savingInvite ? "Adding..." : "Add to Trade"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+      {editBidModalOpen && editBidDraft ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-xl">
+            <div className="border-b border-slate-200 px-6 py-4">
+              <h2 className="text-2xl font-semibold text-slate-900">Edit Bid</h2>
+              <p className="mt-1 text-sm text-slate-500">Update bid status, amount, and contractor info.</p>
+            </div>
+            <form
+              className="space-y-4 px-6 py-5"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                if (!editBidDraft) return;
+                if (!editBidDraft.company_name.trim()) {
+                  setEditBidError("Company name is required.");
+                  return;
+                }
+                setSavingBidEdit(true);
+                setEditBidError(null);
+                const bidAmountValue = editBidDraft.bid_amount.trim() ? Number(editBidDraft.bid_amount) : null;
+                const [bidOk, subOk] = await Promise.all([
+                  updateTradeBid({
+                    id: editBidDraft.bid_id,
+                    status: editBidDraft.status,
+                    bid_amount: Number.isFinite(bidAmountValue) ? bidAmountValue : null,
+                    contact_name: editBidDraft.contact_name.trim() || null,
+                  }),
+                  updateBidSubcontractor({
+                    id: editBidDraft.sub_id,
+                    company_name: editBidDraft.company_name,
+                    primary_contact: editBidDraft.primary_contact.trim() || null,
+                    email: editBidDraft.email.trim() || null,
+                    phone: editBidDraft.phone.trim() || null,
+                  }),
+                ]);
+                if (!bidOk || !subOk) {
+                  setEditBidError("Unable to save changes.");
+                  setSavingBidEdit(false);
+                  return;
+                }
+                if (selectedProject) {
+                  const refreshed = await getBidProjectDetail(selectedProject.id);
+                  setDetail(refreshed);
+                }
+                setEditBidModalOpen(false);
+                setSavingBidEdit(false);
+              }}
+            >
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 sm:col-span-2">
+                  Company name
+                  <input
+                    value={editBidDraft.company_name}
+                    onChange={(event) =>
+                      setEditBidDraft((prev) => (prev ? { ...prev, company_name: event.target.value } : prev))
+                    }
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                  />
+                </label>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                  Primary contact
+                  <input
+                    value={editBidDraft.primary_contact}
+                    onChange={(event) =>
+                      setEditBidDraft((prev) => (prev ? { ...prev, primary_contact: event.target.value } : prev))
+                    }
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                  />
+                </label>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                  Email
+                  <input
+                    value={editBidDraft.email}
+                    onChange={(event) =>
+                      setEditBidDraft((prev) => (prev ? { ...prev, email: event.target.value } : prev))
+                    }
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                    type="email"
+                  />
+                </label>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                  Phone
+                  <input
+                    value={editBidDraft.phone}
+                    onChange={(event) =>
+                      setEditBidDraft((prev) => (prev ? { ...prev, phone: event.target.value } : prev))
+                    }
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                  />
+                </label>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                  Status
+                  <select
+                    value={editBidDraft.status}
+                    onChange={(event) =>
+                      setEditBidDraft((prev) => (prev ? { ...prev, status: event.target.value as BidTradeStatus } : prev))
+                    }
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                  >
+                    <option value="invited">Invited</option>
+                    <option value="bidding">Bidding</option>
+                    <option value="submitted">Submitted</option>
+                    <option value="declined">Declined</option>
+                    <option value="ghosted">Ghosted</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                  Bid amount
+                  <input
+                    value={editBidDraft.bid_amount}
+                    onChange={(event) =>
+                      setEditBidDraft((prev) => (prev ? { ...prev, bid_amount: event.target.value } : prev))
+                    }
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                    inputMode="decimal"
+                  />
+                </label>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 sm:col-span-2">
+                  Bid contact name
+                  <input
+                    value={editBidDraft.contact_name}
+                    onChange={(event) =>
+                      setEditBidDraft((prev) => (prev ? { ...prev, contact_name: event.target.value } : prev))
+                    }
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                  />
+                </label>
+              </div>
+              {editBidError ? (
+                <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {editBidError}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 pt-4">
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  onClick={() => setEditBidModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingBidEdit}
+                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {savingBidEdit ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </form>

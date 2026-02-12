@@ -1,4 +1,4 @@
-export type BidTradeStatus = "submitted" | "bidding" | "declined" | "ghosted";
+export type BidTradeStatus = "submitted" | "bidding" | "declined" | "ghosted" | "invited";
 
 export type BidProjectSummary = {
   id: string;
