@@ -23,6 +23,19 @@ type BidProjectSubRow = Omit<BidProjectSub, "subcontractor"> & {
 
 type BidTradeBidRow = BidTradeBid;
 
+function normalizeSubcontractor(
+  value:
+    | BidProjectSubRow["subcontractor"]
+    | BidProjectSubRow["subcontractor"][]
+    | null
+    | undefined
+): BidProjectSubRow["subcontractor"] {
+  if (Array.isArray(value)) {
+    return value[0] ?? null;
+  }
+  return value ?? null;
+}
+
 export async function listBidProjects(): Promise<BidProjectSummary[]> {
   const supabase = createClient();
   const { data, error } = await supabase
@@ -370,7 +383,12 @@ export async function getBidProjectDetail(projectId: string): Promise<BidProject
   return {
     project: project as BidProjectRow,
     trades: (trades ?? []) as BidTradeRow[],
-    projectSubs: (projectSubs ?? []) as BidProjectSubRow[],
+    projectSubs: (projectSubs ?? []).map((row) => ({
+      ...(row as Omit<BidProjectSubRow, "subcontractor">),
+      subcontractor: normalizeSubcontractor(
+        (row as BidProjectSubRow & { subcontractor: BidProjectSubRow["subcontractor"][] | null }).subcontractor
+      ),
+    })),
     tradeBids: (tradeBids ?? []) as BidTradeBidRow[],
   };
 }
