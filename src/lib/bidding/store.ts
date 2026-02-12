@@ -102,6 +102,34 @@ export async function createBidTrades(
   return true;
 }
 
+export async function updateBidTrades(
+  projectId: string,
+  trades: Array<{ id: string; trade_name: string; sort_order: number }>
+): Promise<boolean> {
+  if (!projectId || !trades.length) return true;
+  const supabase = createClient();
+  const results = await Promise.all(
+    trades.map((trade) =>
+      supabase
+        .from("bid_trades")
+        .update({
+          trade_name: trade.trade_name.trim(),
+          sort_order: trade.sort_order,
+        })
+        .eq("id", trade.id)
+        .eq("project_id", projectId)
+    )
+  );
+
+  const failed = results.find((result) => result.error);
+  if (failed?.error) {
+    console.error("Failed to update bid trades", failed.error);
+    return false;
+  }
+
+  return true;
+}
+
 export async function updateBidProject(
   projectId: string,
   payload: {

@@ -18,6 +18,7 @@ import {
   updateTradeBid,
   updateBidSubcontractor,
   updateBidProject,
+  updateBidTrades,
   archiveBidProject,
   countGhostedBids,
   getBidProjectDetail,
@@ -103,6 +104,12 @@ type InviteDraft = {
   contact_name: string;
   invitee_mode: "existing" | "new";
   selected_sub_id: string;
+};
+
+type TradeEditDraft = {
+  id: string | null;
+  trade_name: string;
+  sort_order: number;
 };
 
 function daysUntil(isoDate: string): number {
@@ -409,6 +416,7 @@ export default function BiddingPage() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editTradesModalOpen, setEditTradesModalOpen] = useState(false);
   const [draft, setDraft] = useState<ProjectDraft>({
     project_name: "",
     owner: "",
@@ -426,11 +434,15 @@ export default function BiddingPage() {
   const [costCodes, setCostCodes] = useState<CostCode[]>([]);
   const [selectedCostCodes, setSelectedCostCodes] = useState<CostCode[]>([]);
   const [costCodeQuery, setCostCodeQuery] = useState("");
+  const [tradeCostCodeQuery, setTradeCostCodeQuery] = useState("");
   const [loadingCostCodes, setLoadingCostCodes] = useState(false);
+  const [tradeDrafts, setTradeDrafts] = useState<TradeEditDraft[]>([]);
   const [saving, setSaving] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [savingTrades, setSavingTrades] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
+  const [tradeEditError, setTradeEditError] = useState<string | null>(null);
   const [inviteModalOpen, setInviteModalOpen] = useState(false);
   const [inviteDraft, setInviteDraft] = useState<InviteDraft>({
     status: "bidding",
@@ -512,7 +524,7 @@ export default function BiddingPage() {
   useEffect(() => {
     let active = true;
     async function loadCostCodes() {
-      if (!modalOpen) return;
+      if (!modalOpen && !editTradesModalOpen) return;
       setLoadingCostCodes(true);
       try {
         const response = await fetch("/api/cost-codes");
@@ -535,7 +547,7 @@ export default function BiddingPage() {
     return () => {
       active = false;
     };
-  }, [modalOpen]);
+  }, [modalOpen, editTradesModalOpen]);
 
   useEffect(() => {
     let active = true;
@@ -592,6 +604,10 @@ export default function BiddingPage() {
       ),
     [subList, invitedSubIds, subSearch]
   );
+  const tradeNamesLower = useMemo(
+    () => new Set(tradeDrafts.map((trade) => trade.trade_name.trim().toLowerCase()).filter(Boolean)),
+    [tradeDrafts]
+  );
 
   const openEditModal = () => {
     if (!selectedProject) return;
@@ -604,6 +620,20 @@ export default function BiddingPage() {
     });
     setEditError(null);
     setEditModalOpen(true);
+  };
+
+  const openEditTradesModal = () => {
+    if (!detail) return;
+    setTradeDrafts(
+      detail.trades.map((trade, index) => ({
+        id: trade.id,
+        trade_name: trade.trade_name ?? "",
+        sort_order: trade.sort_order ?? index + 1,
+      }))
+    );
+    setTradeCostCodeQuery("");
+    setTradeEditError(null);
+    setEditTradesModalOpen(true);
   };
 
   return (
@@ -623,6 +653,13 @@ export default function BiddingPage() {
                   className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
                 >
                   Edit Project
+                </button>
+                <button
+                  type="button"
+                  onClick={openEditTradesModal}
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+                >
+                  Edit Trades
                 </button>
                 <button
                   type="button"
@@ -676,7 +713,11 @@ export default function BiddingPage() {
         />
       </section>
 
-      {projects.length ? (
+      {loading ? (
+        <section className="rounded-2xl border border-slate-200 bg-white px-6 py-6 text-sm text-slate-500 shadow-sm">
+          Loading bid projects...
+        </section>
+      ) : projects.length ? (
         <ProjectTabs projects={projects} selectedId={selectedProjectId} onSelect={setSelectedProjectId} />
       ) : (
         <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-slate-500 shadow-sm">
@@ -1056,6 +1097,238 @@ export default function BiddingPage() {
                   className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {savingEdit ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+      {editTradesModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+          <div className="w-full max-w-4xl rounded-2xl border border-slate-200 bg-white shadow-xl">
+            <div className="border-b border-slate-200 px-6 py-4">
+              <h2 className="text-2xl font-semibold text-slate-900">Edit Trades / Cost Codes</h2>
+              <p className="mt-1 text-sm text-slate-500">Rename existing trades and add more trades to this project.</p>
+            </div>
+            <form
+              className="space-y-5 px-6 py-5"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                if (!selectedProject) return;
+                const normalizedDrafts = tradeDrafts.map((trade) => ({
+                  ...trade,
+                  trade_name: trade.trade_name.trim(),
+                }));
+                if (normalizedDrafts.some((trade) => trade.id && !trade.trade_name)) {
+                  setTradeEditError("Existing trades cannot be blank.");
+                  return;
+                }
+                const persistedDrafts = normalizedDrafts.filter((trade) => trade.id || trade.trade_name);
+                if (!persistedDrafts.length) {
+                  setTradeEditError("Add at least one trade.");
+                  return;
+                }
+
+                const indexedDrafts = persistedDrafts.map((trade, index) => ({
+                  ...trade,
+                  sort_order: index + 1,
+                }));
+                const existingPayload = indexedDrafts
+                  .filter((trade): trade is TradeEditDraft & { id: string } => Boolean(trade.id))
+                  .map((trade) => ({
+                    id: trade.id,
+                    trade_name: trade.trade_name,
+                    sort_order: trade.sort_order,
+                  }));
+                const newPayload = indexedDrafts
+                  .filter((trade) => !trade.id)
+                  .map((trade) => ({
+                    trade_name: trade.trade_name,
+                    sort_order: trade.sort_order,
+                  }));
+
+                setSavingTrades(true);
+                setTradeEditError(null);
+                const updated = await updateBidTrades(selectedProject.id, existingPayload);
+                if (!updated) {
+                  setTradeEditError("Unable to update existing trades.");
+                  setSavingTrades(false);
+                  return;
+                }
+                const created = await createBidTrades(selectedProject.id, newPayload);
+                if (!created) {
+                  setTradeEditError("Unable to add new trades.");
+                  setSavingTrades(false);
+                  return;
+                }
+
+                const refreshed = await getBidProjectDetail(selectedProject.id);
+                setDetail(refreshed);
+                setEditTradesModalOpen(false);
+                setSavingTrades(false);
+              }}
+            >
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-white">
+                  <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600">
+                    Project Trades
+                  </div>
+                  <div className="max-h-80 space-y-2 overflow-auto p-3">
+                    {tradeDrafts.length ? (
+                      tradeDrafts.map((trade, index) => (
+                        <div key={`${trade.id ?? "new"}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                          <div className="flex items-center gap-2">
+                            <input
+                              value={trade.trade_name}
+                              onChange={(event) =>
+                                setTradeDrafts((prev) =>
+                                  prev.map((item, itemIndex) =>
+                                    itemIndex === index ? { ...item, trade_name: event.target.value } : item
+                                  )
+                                )
+                              }
+                              className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                              placeholder="Trade name"
+                            />
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setTradeDrafts((prev) => {
+                                  if (index === 0) return prev;
+                                  const next = [...prev];
+                                  [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                                  return next;
+                                })
+                              }
+                              className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                              aria-label="Move trade up"
+                            >
+                              Up
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setTradeDrafts((prev) => {
+                                  if (index >= prev.length - 1) return prev;
+                                  const next = [...prev];
+                                  [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                                  return next;
+                                })
+                              }
+                              className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                              aria-label="Move trade down"
+                            >
+                              Down
+                            </button>
+                            {!trade.id ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setTradeDrafts((prev) => prev.filter((_, itemIndex) => itemIndex !== index))
+                                }
+                                className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                                aria-label="Remove new trade"
+                              >
+                                Remove
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-slate-300 px-3 py-4 text-sm text-slate-500">
+                        No trades yet. Add from cost codes or create a manual trade.
+                      </div>
+                    )}
+                  </div>
+                  <div className="border-t border-slate-200 p-3">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setTradeDrafts((prev) => [
+                          ...prev,
+                          { id: null, trade_name: "", sort_order: prev.length + 1 },
+                        ])
+                      }
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Add Manual Trade
+                    </button>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50">
+                  <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600">
+                    Add From Cost Codes
+                  </div>
+                  <div className="space-y-2 p-3">
+                    <input
+                      value={tradeCostCodeQuery}
+                      onChange={(event) => setTradeCostCodeQuery(event.target.value)}
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                      placeholder="Search cost codes"
+                    />
+                    <div className="max-h-72 overflow-auto rounded-lg border border-slate-200 bg-white">
+                      {loadingCostCodes ? (
+                        <div className="px-3 py-4 text-sm text-slate-500">Loading cost codes...</div>
+                      ) : costCodes.length ? (
+                        costCodes
+                          .filter((code) => {
+                            const label = `${code.code} ${code.description ?? ""}`.toLowerCase();
+                            return label.includes(tradeCostCodeQuery.toLowerCase());
+                          })
+                          .filter((code) => {
+                            const tradeLabel = `${code.code}${code.description ? ` ${code.description}` : ""}`.trim().toLowerCase();
+                            return !tradeNamesLower.has(tradeLabel);
+                          })
+                          .map((code) => {
+                            const tradeLabel = `${code.code}${code.description ? ` ${code.description}` : ""}`.trim();
+                            return (
+                              <button
+                                key={code.id}
+                                type="button"
+                                onClick={() =>
+                                  setTradeDrafts((prev) => [
+                                    ...prev,
+                                    {
+                                      id: null,
+                                      trade_name: tradeLabel,
+                                      sort_order: prev.length + 1,
+                                    },
+                                  ])
+                                }
+                                className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
+                              >
+                                <span className="font-medium">{code.code}</span>
+                                <span className="ml-3 truncate text-xs text-slate-500">{code.description ?? "No description"}</span>
+                              </button>
+                            );
+                          })
+                      ) : (
+                        <div className="px-3 py-4 text-sm text-slate-500">No cost codes found.</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {tradeEditError ? (
+                <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {tradeEditError}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 pt-4">
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  onClick={() => setEditTradesModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingTrades}
+                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {savingTrades ? "Saving..." : "Save Trades"}
                 </button>
               </div>
             </form>
