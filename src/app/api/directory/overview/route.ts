@@ -20,6 +20,7 @@ type DirectoryCompanyRow = {
   procore_company_id?: string | null;
   notes?: string | null;
   is_active?: boolean | null;
+  approved_vendor?: boolean | null;
   updated_at?: string | null;
   created_at?: string | null;
 };
@@ -44,6 +45,7 @@ function mapCompany(row: DirectoryCompanyRow) {
     procoreCompanyId: row.procore_company_id ?? undefined,
     notes: row.notes ?? undefined,
     isActive: row.is_active ?? true,
+    approvedVendor: row.approved_vendor ?? false,
     lastUpdated: row.updated_at ?? row.created_at ?? new Date().toISOString(),
   };
 }
@@ -55,7 +57,7 @@ export async function GET() {
     const { data: companies, error: companiesError } = await supabase
       .from("directory_companies")
       .select(
-        "id,name,trade,primary_contact,email,phone,address,city,state,zip,country,website,license_number,tax_id,vendor_type,procore_company_id,notes,is_active,updated_at,created_at"
+        "id,name,trade,primary_contact,email,phone,address,city,state,zip,country,website,license_number,tax_id,vendor_type,procore_company_id,notes,is_active,approved_vendor,updated_at,created_at"
       )
       .eq("tenant_company_id", companyId)
       .order("name", { ascending: true });

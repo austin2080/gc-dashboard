@@ -14,6 +14,7 @@ type CompanyDraft = {
   phone: string;
   notes: string;
   isActive: boolean;
+  approvedVendor: boolean;
 };
 
 const EMPTY_DRAFT: CompanyDraft = {
@@ -24,6 +25,7 @@ const EMPTY_DRAFT: CompanyDraft = {
   phone: "",
   notes: "",
   isActive: true,
+  approvedVendor: false,
 };
 
 function toDraft(company?: Company): CompanyDraft {
@@ -36,6 +38,7 @@ function toDraft(company?: Company): CompanyDraft {
     phone: company.phone ?? "",
     notes: company.notes ?? "",
     isActive: company.isActive,
+    approvedVendor: company.approvedVendor ?? false,
   };
 }
 
@@ -112,6 +115,7 @@ export default function DirectoryPageClient() {
           phone: draft.phone.trim() || undefined,
           notes: draft.notes.trim() || undefined,
           isActive: draft.isActive,
+          approvedVendor: draft.approvedVendor,
         },
       ],
     };
@@ -247,6 +251,7 @@ export default function DirectoryPageClient() {
           procoreCompanyId: row.procore_company_id || "",
           notes: row.notes || "",
           isActive: toBoolean(row.is_active ?? row.active ?? ""),
+          approvedVendor: toBoolean(row.approved_vendor ?? row.approved ?? "") ?? false,
         }))
         .filter((row) => row.name && row.name.trim().length > 0);
 
@@ -303,6 +308,7 @@ export default function DirectoryPageClient() {
       "procore_company_id",
       "notes",
       "is_active",
+      "approved_vendor",
     ];
     const dataRows = rows.map((company) => [
       company.name,
@@ -322,6 +328,7 @@ export default function DirectoryPageClient() {
       company.procoreCompanyId ?? "",
       company.notes ?? "",
       company.isActive ? "true" : "false",
+      company.approvedVendor ? "true" : "false",
     ]);
 
     return [headers.join(","), ...dataRows.map((row) => row.map(escapeCsv).join(","))].join("\n");
@@ -393,24 +400,55 @@ export default function DirectoryPageClient() {
           <table className="w-full text-sm">
             <thead className="border-b bg-black/5 text-left">
               <tr>
-                <th className="p-3">Company Name</th><th className="p-3">Trade</th><th className="p-3">Primary Contact</th><th className="p-3">Email</th><th className="p-3">Phone</th><th className="p-3">Status</th><th className="p-3">Projects</th><th className="p-3">Last Updated</th><th className="p-3 text-right">Actions</th>
+                <th className="p-3">Company Name</th><th className="p-3">Trade</th><th className="p-3">Primary Contact</th><th className="p-3">Email</th><th className="p-3">Phone</th><th className="p-3">Approved</th><th className="p-3">Status</th><th className="p-3">Projects</th><th className="p-3">Last Updated</th><th className="p-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="p-8 text-center text-sm opacity-70">
+                  <td colSpan={10} className="p-8 text-center text-sm opacity-70">
                     Loading directory...
                   </td>
                 </tr>
               ) : filteredCompanies.length === 0 ? (
-                <tr><td colSpan={9} className="p-8 text-center text-sm opacity-70">No companies found. Add your first company to start linking waiver records.</td></tr>
+                <tr><td colSpan={10} className="p-8 text-center text-sm opacity-70">No companies found. Add your first company to start linking waiver records.</td></tr>
               ) : (
                 filteredCompanies.map((company) => {
                   const projectCount = relations.filter((entry) => entry.companyId === company.id).length;
                   return (
                     <tr key={company.id} className="border-b last:border-b-0">
                       <td className="p-3 font-medium">{company.name}</td><td className="p-3">{company.trade ?? "-"}</td><td className="p-3">{company.primaryContact ?? "-"}</td><td className="p-3">{company.email ?? "-"}</td><td className="p-3">{company.phone ?? "-"}</td>
+                      <td className="p-3">
+                        <label className="inline-flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            checked={company.approvedVendor ?? false}
+                            onChange={async (event) => {
+                              await fetch("/api/directory/companies", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                  companies: [
+                                    {
+                                      id: company.id,
+                                      name: company.name,
+                                      trade: company.trade,
+                                      primaryContact: company.primaryContact,
+                                      email: company.email,
+                                      phone: company.phone,
+                                      notes: company.notes,
+                                      isActive: company.isActive,
+                                      approvedVendor: event.target.checked,
+                                    },
+                                  ],
+                                }),
+                              });
+                              await refresh();
+                            }}
+                          />
+                          {company.approvedVendor ? "Approved" : "Not approved"}
+                        </label>
+                      </td>
                       <td className="p-3"><span className={`rounded-full px-2 py-1 text-xs ${company.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-700"}`}>{company.isActive ? "Active" : "Inactive"}</span></td>
                       <td className="p-3">{projectCount}</td><td className="p-3">{new Date(company.lastUpdated).toLocaleDateString()}</td>
                       <td className="p-3">
@@ -433,6 +471,7 @@ export default function DirectoryPageClient() {
                                       phone: company.phone,
                                       notes: company.notes,
                                       isActive: !company.isActive,
+                                      approvedVendor: company.approvedVendor ?? false,
                                     },
                                   ],
                                 }),

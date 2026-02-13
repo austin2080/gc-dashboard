@@ -8,6 +8,7 @@ type CompanyDraft = {
   phone: string;
   notes: string;
   isActive: boolean;
+  approvedVendor: boolean;
 };
 
 type Props = {
@@ -36,6 +37,7 @@ export default function CompanyFormModal({ open, title, draft, error, onClose, o
           <label><div className="mb-1 opacity-70">Phone</div><input className="w-full rounded border px-3 py-2" value={draft.phone} onChange={(event) => onChange({ ...draft, phone: event.target.value })} /></label>
           <label className="md:col-span-2"><div className="mb-1 opacity-70">Notes</div><textarea className="w-full rounded border px-3 py-2" rows={3} value={draft.notes} onChange={(event) => onChange({ ...draft, notes: event.target.value })} /></label>
           <label className="inline-flex items-center gap-2"><input type="checkbox" checked={draft.isActive} onChange={(event) => onChange({ ...draft, isActive: event.target.checked })} />Active</label>
+          <label className="inline-flex items-center gap-2"><input type="checkbox" checked={draft.approvedVendor} onChange={(event) => onChange({ ...draft, approvedVendor: event.target.checked })} />Approved Vendor</label>
         </div>
         {error ? <div className="mt-3 text-sm text-red-600">{error}</div> : null}
         <div className="mt-4 flex justify-end gap-2">

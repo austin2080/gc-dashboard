@@ -44,6 +44,7 @@ create table if not exists bid_subcontractors (
   primary_contact text,
   email text,
   phone text,
+  approved_vendor boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   archived_at timestamptz

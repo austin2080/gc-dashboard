@@ -14,6 +14,7 @@ export type Company = {
   primaryContact?: string;
   email?: string;
   phone?: string;
+  approvedVendor?: boolean;
   address?: string;
   city?: string;
   state?: string;

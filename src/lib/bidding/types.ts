@@ -22,6 +22,7 @@ export type BidSubcontractor = {
   primary_contact: string | null;
   email: string | null;
   phone: string | null;
+  approved_vendor?: boolean | null;
 };
 
 export type BidProjectSub = {

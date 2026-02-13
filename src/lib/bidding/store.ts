@@ -279,6 +279,57 @@ export async function listBidSubcontractors(): Promise<
   }>;
 }
 
+export async function ensureBidSubcontractor(payload: {
+  company_name: string;
+  primary_contact?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  approved_vendor?: boolean | null;
+}): Promise<{ id: string } | null> {
+  const supabase = createClient();
+  const companyName = payload.company_name.trim();
+  if (!companyName) return null;
+
+  if (payload.email) {
+    const { data: byEmail, error: emailError } = await supabase
+      .from("bid_subcontractors")
+      .select("id")
+      .eq("email", payload.email)
+      .limit(1);
+    if (!emailError && byEmail && byEmail.length) {
+      return { id: byEmail[0].id };
+    }
+  }
+
+  const { data: byName, error: nameError } = await supabase
+    .from("bid_subcontractors")
+    .select("id")
+    .eq("company_name", companyName)
+    .limit(1);
+  if (!nameError && byName && byName.length) {
+    return { id: byName[0].id };
+  }
+
+  const { data, error } = await supabase
+    .from("bid_subcontractors")
+    .insert({
+      company_name: companyName,
+      primary_contact: payload.primary_contact ?? null,
+      email: payload.email ?? null,
+      phone: payload.phone ?? null,
+      approved_vendor: payload.approved_vendor ?? false,
+    })
+    .select("id")
+    .single();
+
+  if (error || !data) {
+    console.error("Failed to create subcontractor", error);
+    return null;
+  }
+
+  return { id: data.id };
+}
+
 export async function updateTradeBid(payload: {
   id: string;
   status: "submitted" | "bidding" | "declined" | "ghosted" | "invited";
