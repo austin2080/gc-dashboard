@@ -218,6 +218,7 @@ function BidComparisonGrid({
   project,
   onInviteExisting,
   onAddSubForTrade,
+  onAddTrade,
   onEditBid,
 }: {
   project: BidProjectView;
@@ -228,6 +229,7 @@ function BidComparisonGrid({
     company: string;
   }) => void;
   onAddSubForTrade: (payload: { tradeId: string; tradeName: string }) => void;
+  onAddTrade: () => void;
   onEditBid: (bid: TradeSubBid) => void;
 }) {
   const [openTrades, setOpenTrades] = useState<Record<string, boolean>>({});
@@ -359,6 +361,14 @@ function BidComparisonGrid({
             </article>
           );
         })}
+        <button
+          type="button"
+          onClick={onAddTrade}
+          className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"
+        >
+          <span aria-hidden>＋</span>
+          Add Trade
+        </button>
       </div>
 
       <div className="hidden overflow-x-auto md:block">
@@ -530,6 +540,16 @@ function BidComparisonGrid({
             })}
           </tbody>
         </table>
+        <div className="border-t border-slate-200 bg-white px-4 py-4">
+          <button
+            type="button"
+            onClick={onAddTrade}
+            className="inline-flex items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"
+          >
+            <span aria-hidden>＋</span>
+            Add Trade
+          </button>
+        </div>
       </div>
     </section>
   );
@@ -1012,6 +1032,7 @@ export default function BiddingPage() {
               setInviteError(null);
               setInviteModalOpen(true);
             }}
+            onAddTrade={openEditTradesModal}
             onEditBid={(bid) => {
               setEditBidDraft({
                 bid_id: bid.bidId,
