@@ -763,6 +763,52 @@ export default function BiddingPage() {
   }, [inviteModalOpen]);
 
   useEffect(() => {
+    const shouldLock =
+      modalOpen || editModalOpen || editTradesModalOpen || inviteModalOpen || editBidModalOpen;
+    const body = document.body;
+    const html = document.documentElement;
+    const previousOverflow = body.style.overflow;
+    const previousPosition = body.style.position;
+    const previousTop = body.style.top;
+    const previousWidth = body.style.width;
+    const previousPaddingRight = body.style.paddingRight;
+    const previousHtmlOverflow = html.style.overflow;
+    const scrollY = window.scrollY;
+    const scrollbarWidth = window.innerWidth - html.clientWidth;
+    if (shouldLock) {
+      body.style.overflow = "hidden";
+      body.style.position = "fixed";
+      body.style.top = `-${scrollY}px`;
+      body.style.width = "100%";
+      if (scrollbarWidth > 0) {
+        body.style.paddingRight = `${scrollbarWidth}px`;
+      }
+      html.style.overflow = "hidden";
+    } else {
+      body.style.overflow = "";
+      body.style.position = "";
+      body.style.top = "";
+      body.style.width = "";
+      body.style.paddingRight = "";
+      html.style.overflow = "";
+      window.scrollTo(0, scrollY);
+    }
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.body.style.position = previousPosition;
+      document.body.style.top = previousTop;
+      document.body.style.width = previousWidth;
+      document.body.style.paddingRight = previousPaddingRight;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      if (!shouldLock) return;
+      const top = Number.parseInt(previousTop || "0", 10);
+      if (!Number.isNaN(top) && top !== 0) {
+        window.scrollTo(0, -top);
+      }
+    };
+  }, [modalOpen, editModalOpen, editTradesModalOpen, inviteModalOpen, editBidModalOpen]);
+
+  useEffect(() => {
     let active = true;
     async function loadDetail() {
       if (!selectedProjectId) {
@@ -1537,8 +1583,8 @@ export default function BiddingPage() {
         </div>
       ) : null}
       {inviteModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 py-6 overflow-y-auto overscroll-contain">
+          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl">
             <div className="border-b border-slate-200 px-6 py-4">
               <h2 className="text-2xl font-semibold text-slate-900">Invite Sub to Trade</h2>
               <p className="mt-1 text-sm text-slate-500">
