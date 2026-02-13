@@ -923,29 +923,6 @@ export default function BiddingPage() {
                 >
                   Edit Trades
                 </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!selectedProject) return;
-                    const confirmed = window.confirm(`Archive “${selectedProject.project_name}”? This will remove it from active bids.`);
-                    if (!confirmed) return;
-                    const ok = await archiveBidProject(selectedProject.id);
-                    if (!ok) return;
-                    setProjects((prev) => prev.filter((project) => project.id !== selectedProject.id));
-                    setSelectedProjectId((prev) => {
-                      if (prev !== selectedProject.id) return prev;
-                      const next = projects.filter((project) => project.id !== selectedProject.id)[0]?.id ?? "";
-                      return next;
-                    });
-                    setMetrics((prev) => ({
-                      ...prev,
-                      activeBids: Math.max(prev.activeBids - 1, 0),
-                    }));
-                  }}
-                  className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 shadow-sm transition hover:bg-rose-100"
-                >
-                  Archive
-                </button>
               </>
             ) : null}
             <button
@@ -1055,6 +1032,34 @@ export default function BiddingPage() {
             Select a project to view bid coverage.
           </section>
         )
+      ) : null}
+
+      {selectedProject ? (
+        <section className="flex justify-end">
+          <button
+            type="button"
+            onClick={async () => {
+              if (!selectedProject) return;
+              const confirmed = window.confirm(`Archive “${selectedProject.project_name}”? This will remove it from active bids.`);
+              if (!confirmed) return;
+              const ok = await archiveBidProject(selectedProject.id);
+              if (!ok) return;
+              setProjects((prev) => prev.filter((project) => project.id !== selectedProject.id));
+              setSelectedProjectId((prev) => {
+                if (prev !== selectedProject.id) return prev;
+                const next = projects.filter((project) => project.id !== selectedProject.id)[0]?.id ?? "";
+                return next;
+              });
+              setMetrics((prev) => ({
+                ...prev,
+                activeBids: Math.max(prev.activeBids - 1, 0),
+              }));
+            }}
+            className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 shadow-sm transition hover:bg-rose-100"
+          >
+            Archive
+          </button>
+        </section>
       ) : null}
 
       {modalOpen ? (
