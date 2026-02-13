@@ -41,6 +41,7 @@ export type BidTradeBid = {
   status: BidTradeStatus;
   bid_amount: number | null;
   contact_name: string | null;
+  notes: string | null;
 };
 
 export type BidProjectDetail = {

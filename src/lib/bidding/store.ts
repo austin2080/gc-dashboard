@@ -234,6 +234,7 @@ export async function createTradeBid(payload: {
   status: "submitted" | "bidding" | "declined" | "ghosted" | "invited";
   bid_amount?: number | null;
   contact_name?: string | null;
+  notes?: string | null;
 }): Promise<boolean> {
   const supabase = createClient();
   const { error } = await supabase.from("bid_trade_bids").insert({
@@ -243,6 +244,7 @@ export async function createTradeBid(payload: {
     status: payload.status,
     bid_amount: payload.bid_amount ?? null,
     contact_name: payload.contact_name ?? null,
+    notes: payload.notes ?? null,
   });
 
   if (error) {
@@ -282,6 +284,7 @@ export async function updateTradeBid(payload: {
   status: "submitted" | "bidding" | "declined" | "ghosted" | "invited";
   bid_amount?: number | null;
   contact_name?: string | null;
+  notes?: string | null;
 }): Promise<boolean> {
   const supabase = createClient();
   const { error } = await supabase
@@ -290,6 +293,7 @@ export async function updateTradeBid(payload: {
       status: payload.status,
       bid_amount: payload.bid_amount ?? null,
       contact_name: payload.contact_name ?? null,
+      notes: payload.notes ?? null,
     })
     .eq("id", payload.id);
 
@@ -401,7 +405,7 @@ export async function getBidProjectDetail(projectId: string): Promise<BidProject
 
   const { data: tradeBids, error: bidsError } = await supabase
     .from("bid_trade_bids")
-    .select("id, project_id, trade_id, project_sub_id, status, bid_amount, contact_name")
+    .select("id, project_id, trade_id, project_sub_id, status, bid_amount, contact_name, notes")
     .eq("project_id", projectId);
 
   if (bidsError) {

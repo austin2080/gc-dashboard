@@ -436,6 +436,17 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                     <span className="text-xs text-[color:var(--muted)]">Active</span>
                   ) : null}
                 </button>
+                <button
+                  className="flex w-full items-center justify-between rounded px-2 py-2 text-sm hover:bg-black/[0.03]"
+                  type="button"
+                  onClick={async () => {
+                    await setMode("pm");
+                    closeAllMenus();
+                    router.push("/bidding");
+                  }}
+                >
+                  Bidding
+                </button>
               </div>
             ) : null}
           </div>
@@ -559,6 +570,17 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                   }}
                 >
                   Project Management
+                </button>
+                <button
+                  className="rounded-lg border border-white/20 px-3 py-2 text-sm"
+                  type="button"
+                  onClick={async () => {
+                    await setMode("pm");
+                    closeAllMenus();
+                    router.push("/bidding");
+                  }}
+                >
+                  Bidding
                 </button>
               </div>
             </div>

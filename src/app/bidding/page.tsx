@@ -34,6 +34,7 @@ type TradeSubBid = {
   phone?: string;
   status: BidTradeStatus;
   bidAmount?: number;
+  notes?: string;
 };
 
 type TradeRow = {
@@ -96,12 +97,14 @@ type EditBidDraft = {
   status: BidTradeStatus;
   bid_amount: string;
   contact_name: string;
+  notes: string;
 };
 
 type InviteDraft = {
   status: BidTradeStatus;
   bid_amount: string;
   contact_name: string;
+  notes: string;
   invitee_mode: "existing" | "new";
   selected_sub_id: string;
 };
@@ -288,6 +291,7 @@ function BidComparisonGrid({
                             <p className="text-sm text-slate-500">{bid.contact}</p>
                             <StatusPill status={bid.status} />
                             {bid.bidAmount ? <p className="text-2xl font-semibold text-slate-900">{formatCurrency(bid.bidAmount)}</p> : null}
+                            {bid.notes ? <p className="mt-2 line-clamp-3 text-xs text-slate-500">{bid.notes}</p> : null}
                             <span className="mt-2 text-xs text-slate-400 opacity-0 transition group-hover:opacity-100">
                               Click to edit
                             </span>
@@ -386,6 +390,7 @@ function buildProjectView(detail: BidProjectDetail | null): BidProjectView | nul
         phone: subRecord?.subcontractor?.phone ?? undefined,
         status: bid.status,
         bidAmount: bid.bid_amount ?? undefined,
+        notes: bid.notes ?? undefined,
       };
     });
     return {
@@ -448,6 +453,7 @@ export default function BiddingPage() {
     status: "bidding",
     bid_amount: "",
     contact_name: "",
+    notes: "",
     invitee_mode: "existing",
     selected_sub_id: "",
   });
@@ -740,6 +746,7 @@ export default function BiddingPage() {
                 status: "bidding",
                 bid_amount: "",
                 contact_name: "",
+                notes: "",
                 invitee_mode: "existing",
                 selected_sub_id: "",
               });
@@ -762,6 +769,7 @@ export default function BiddingPage() {
                 status: "bidding",
                 bid_amount: "",
                 contact_name: "",
+                notes: "",
                 invitee_mode: "existing",
                 selected_sub_id: "",
               });
@@ -779,6 +787,7 @@ export default function BiddingPage() {
                 status: bid.status,
                 bid_amount: bid.bidAmount ? String(bid.bidAmount) : "",
                 contact_name: bid.contact ?? "",
+                notes: bid.notes ?? "",
               });
               setEditBidError(null);
               setEditBidModalOpen(true);
@@ -1104,14 +1113,14 @@ export default function BiddingPage() {
         </div>
       ) : null}
       {editTradesModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-          <div className="w-full max-w-4xl rounded-2xl border border-slate-200 bg-white shadow-xl">
-            <div className="border-b border-slate-200 px-6 py-4">
-              <h2 className="text-2xl font-semibold text-slate-900">Edit Trades / Cost Codes</h2>
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/40 p-0 sm:items-center sm:p-4">
+          <div className="flex h-[100dvh] w-full max-w-4xl flex-col overflow-hidden rounded-none border border-slate-200 bg-white shadow-xl sm:h-auto sm:max-h-[90dvh] sm:rounded-2xl">
+            <div className="border-b border-slate-200 px-4 py-4 sm:px-6">
+              <h2 className="text-xl font-semibold text-slate-900 sm:text-2xl">Edit Trades / Cost Codes</h2>
               <p className="mt-1 text-sm text-slate-500">Rename existing trades and add more trades to this project.</p>
             </div>
             <form
-              className="space-y-5 px-6 py-5"
+              className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 sm:gap-5 sm:px-6 sm:py-5"
               onSubmit={async (event) => {
                 event.preventDefault();
                 if (!selectedProject) return;
@@ -1168,16 +1177,16 @@ export default function BiddingPage() {
                 setSavingTrades(false);
               }}
             >
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-3 md:grid-cols-2 sm:gap-4">
                 <div className="rounded-xl border border-slate-200 bg-white">
                   <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600">
                     Project Trades
                   </div>
-                  <div className="max-h-80 space-y-2 overflow-auto p-3">
+                  <div className="max-h-64 space-y-2 overflow-auto p-3 sm:max-h-80">
                     {tradeDrafts.length ? (
                       tradeDrafts.map((trade, index) => (
                         <div key={`${trade.id ?? "new"}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 p-2">
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                             <input
                               value={trade.trade_name}
                               onChange={(event) =>
@@ -1187,51 +1196,53 @@ export default function BiddingPage() {
                                   )
                                 )
                               }
-                              className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                              className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none sm:flex-1"
                               placeholder="Trade name"
                             />
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setTradeDrafts((prev) => {
-                                  if (index === 0) return prev;
-                                  const next = [...prev];
-                                  [next[index - 1], next[index]] = [next[index], next[index - 1]];
-                                  return next;
-                                })
-                              }
-                              className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                              aria-label="Move trade up"
-                            >
-                              Up
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setTradeDrafts((prev) => {
-                                  if (index >= prev.length - 1) return prev;
-                                  const next = [...prev];
-                                  [next[index], next[index + 1]] = [next[index + 1], next[index]];
-                                  return next;
-                                })
-                              }
-                              className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                              aria-label="Move trade down"
-                            >
-                              Down
-                            </button>
-                            {!trade.id ? (
+                            <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
                               <button
                                 type="button"
                                 onClick={() =>
-                                  setTradeDrafts((prev) => prev.filter((_, itemIndex) => itemIndex !== index))
+                                  setTradeDrafts((prev) => {
+                                    if (index === 0) return prev;
+                                    const next = [...prev];
+                                    [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                                    return next;
+                                  })
                                 }
-                                className="rounded-lg border border-rose-200 bg-rose-50 px-2 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100"
-                                aria-label="Remove new trade"
+                                className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                                aria-label="Move trade up"
                               >
-                                Remove
+                                Up
                               </button>
-                            ) : null}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setTradeDrafts((prev) => {
+                                    if (index >= prev.length - 1) return prev;
+                                    const next = [...prev];
+                                    [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                                    return next;
+                                  })
+                                }
+                                className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                                aria-label="Move trade down"
+                              >
+                                Down
+                              </button>
+                              {!trade.id ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setTradeDrafts((prev) => prev.filter((_, itemIndex) => itemIndex !== index))
+                                  }
+                                  className="col-span-2 rounded-lg border border-rose-200 bg-rose-50 px-2 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100 sm:col-span-1"
+                                  aria-label="Remove new trade"
+                                >
+                                  Remove
+                                </button>
+                              ) : null}
+                            </div>
                           </div>
                         </div>
                       ))
@@ -1267,7 +1278,7 @@ export default function BiddingPage() {
                       className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
                       placeholder="Search cost codes"
                     />
-                    <div className="max-h-72 overflow-auto rounded-lg border border-slate-200 bg-white">
+                    <div className="max-h-56 overflow-auto rounded-lg border border-slate-200 bg-white sm:max-h-72">
                       {loadingCostCodes ? (
                         <div className="px-3 py-4 text-sm text-slate-500">Loading cost codes...</div>
                       ) : costCodes.length ? (
@@ -1315,7 +1326,7 @@ export default function BiddingPage() {
                   {tradeEditError}
                 </p>
               ) : null}
-              <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 pt-4">
+              <div className="sticky bottom-0 flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 bg-white pt-4">
                 <button
                   type="button"
                   className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
@@ -1352,6 +1363,7 @@ export default function BiddingPage() {
                 setSavingInvite(true);
                 setInviteError(null);
                 const bidAmountValue = inviteDraft.bid_amount.trim() ? Number(inviteDraft.bid_amount) : null;
+                const notesValue = inviteDraft.notes.trim() || null;
                 if (inviteTarget) {
                   const ok = await createTradeBid({
                     project_id: selectedProject.id,
@@ -1360,6 +1372,7 @@ export default function BiddingPage() {
                     status: inviteDraft.status,
                     bid_amount: Number.isFinite(bidAmountValue) ? bidAmountValue : null,
                     contact_name: inviteDraft.contact_name.trim() || null,
+                    notes: notesValue,
                   });
                   if (!ok) {
                     setInviteError("Unable to add this sub to the trade.");
@@ -1400,6 +1413,7 @@ export default function BiddingPage() {
                     status: inviteDraft.status,
                     bid_amount: Number.isFinite(bidAmountValue) ? bidAmountValue : null,
                     contact_name: inviteDraft.contact_name.trim() || null,
+                    notes: notesValue,
                   });
                   if (!ok) {
                     setInviteError("Unable to add this sub to the trade.");
@@ -1447,6 +1461,7 @@ export default function BiddingPage() {
                     status: inviteDraft.status,
                     bid_amount: Number.isFinite(bidAmountValue) ? bidAmountValue : null,
                     contact_name: inviteDraft.contact_name.trim() || null,
+                    notes: notesValue,
                   });
                   if (!ok) {
                     setInviteError("Unable to add this sub to the trade.");
@@ -1459,7 +1474,14 @@ export default function BiddingPage() {
                 setInviteModalOpen(false);
                 setInviteTarget(null);
                 setNewSubTrade(null);
-                setInviteDraft({ status: "bidding", bid_amount: "", contact_name: "", invitee_mode: "existing", selected_sub_id: "" });
+                setInviteDraft({
+                  status: "bidding",
+                  bid_amount: "",
+                  contact_name: "",
+                  notes: "",
+                  invitee_mode: "existing",
+                  selected_sub_id: "",
+                });
                 setSubSearch("");
                 setSavingInvite(false);
               }}
@@ -1607,6 +1629,15 @@ export default function BiddingPage() {
                     placeholder="Optional"
                   />
                 </label>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 sm:col-span-2">
+                  Notes
+                  <textarea
+                    value={inviteDraft.notes}
+                    onChange={(event) => setInviteDraft((prev) => ({ ...prev, notes: event.target.value }))}
+                    className="min-h-[96px] rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                    placeholder="Add bid notes, scope clarifications, or special terms."
+                  />
+                </label>
               </div>
               {inviteError ? (
                 <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
@@ -1662,6 +1693,7 @@ export default function BiddingPage() {
                     status: editBidDraft.status,
                     bid_amount: Number.isFinite(bidAmountValue) ? bidAmountValue : null,
                     contact_name: editBidDraft.contact_name.trim() || null,
+                    notes: editBidDraft.notes.trim() || null,
                   }),
                   updateBidSubcontractor({
                     id: editBidDraft.sub_id,
@@ -1761,6 +1793,17 @@ export default function BiddingPage() {
                       setEditBidDraft((prev) => (prev ? { ...prev, contact_name: event.target.value } : prev))
                     }
                     className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                  />
+                </label>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 sm:col-span-2">
+                  Notes
+                  <textarea
+                    value={editBidDraft.notes}
+                    onChange={(event) =>
+                      setEditBidDraft((prev) => (prev ? { ...prev, notes: event.target.value } : prev))
+                    }
+                    className="min-h-[96px] rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                    placeholder="Add bid notes, scope clarifications, or special terms."
                   />
                 </label>
               </div>

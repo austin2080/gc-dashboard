@@ -68,6 +68,7 @@ create table if not exists bid_trade_bids (
   status bid_trade_status not null default 'bidding',
   bid_amount numeric,
   contact_name text,
+  notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (trade_id, project_sub_id)
