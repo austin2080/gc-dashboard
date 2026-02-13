@@ -236,8 +236,9 @@ function BidComparisonGrid({
 
   useEffect(() => {
     const next: Record<string, boolean> = {};
+    const isDesktop = typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches;
     project.trades.forEach((trade) => {
-      next[trade.tradeId] = false;
+      next[trade.tradeId] = isDesktop;
     });
     setOpenTrades(next);
   }, [project.id, project.trades]);
