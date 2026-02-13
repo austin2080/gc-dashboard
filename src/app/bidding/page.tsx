@@ -242,7 +242,78 @@ function BidComparisonGrid({
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      <div className="space-y-4 p-4 md:hidden">
+        {project.trades.map((row) => (
+          <article key={`mobile-${row.trade}`} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <h3 className="text-lg font-semibold text-slate-900">{row.trade}</h3>
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-xl text-slate-600 transition hover:bg-slate-50"
+                aria-label={`Add subcontractor for ${row.trade}`}
+                onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
+              >
+                +
+              </button>
+            </div>
+
+            {project.subs.length ? (
+              <div className="space-y-3">
+                {project.subs.map((sub, index) => {
+                  const bid = row.bidsBySubId[sub.id] ?? null;
+
+                  return (
+                    <div key={`${row.trade}-${sub.id}-mobile`} className="rounded-lg border border-slate-200 p-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sub {index + 1}</p>
+                      <p className="text-sm font-semibold text-slate-900">{sub.company}</p>
+                      {bid ? (
+                        <button
+                          type="button"
+                          onClick={() => onEditBid(bid)}
+                          className="mt-2 flex w-full flex-col items-start rounded-lg bg-slate-50 p-3 text-left"
+                        >
+                          <p className="text-sm text-slate-500">Contact: {bid.contact}</p>
+                          <div className="mt-2">
+                            <StatusPill status={bid.status} />
+                          </div>
+                          {bid.bidAmount ? <p className="mt-2 text-lg font-semibold text-slate-900">{formatCurrency(bid.bidAmount)}</p> : null}
+                          {bid.notes ? <p className="mt-2 line-clamp-3 text-xs text-slate-500">{bid.notes}</p> : null}
+                          <span className="mt-2 text-xs text-slate-400">Tap to edit</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onInviteExisting({
+                              tradeId: row.tradeId,
+                              tradeName: row.trade,
+                              projectSubId: sub.id,
+                              company: sub.company,
+                            })
+                          }
+                          className="mt-2 flex w-full items-center rounded-lg border border-dashed border-slate-200 px-3 py-4 text-left text-sm text-slate-500"
+                        >
+                          Not invited yet — tap to add
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
+                className="flex min-h-24 w-full items-center rounded-lg border border-dashed border-slate-200 px-3 text-left text-sm text-slate-400"
+              >
+                No subs yet — tap to invite
+              </button>
+            )}
+          </article>
+        ))}
+      </div>
+
+      <div className="hidden overflow-x-auto md:block">
         <table className="min-w-[920px] w-full border-separate border-spacing-0">
           <thead className="sticky top-0 z-20">
             <tr>
