@@ -129,6 +129,20 @@ function safeDaysUntil(isoDate: string | null | undefined): number | null {
   return daysUntil(isoDate);
 }
 
+function getNextSubSortOrder(projectSubs: BidProjectDetail["projectSubs"]): number {
+  const used = new Set(
+    projectSubs
+      .map((sub) => sub.sort_order)
+      .filter((value): value is number => Number.isInteger(value) && value > 0)
+  );
+
+  let next = 1;
+  while (used.has(next)) {
+    next += 1;
+  }
+  return next;
+}
+
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
 }
@@ -216,18 +230,11 @@ function ProjectTabs({
 
 function BidComparisonGrid({
   project,
-  onInviteExisting,
   onAddSubForTrade,
   onAddTrade,
   onEditBid,
 }: {
   project: BidProjectView;
-  onInviteExisting: (payload: {
-    tradeId: string;
-    tradeName: string;
-    projectSubId: string;
-    company: string;
-  }) => void;
   onAddSubForTrade: (payload: { tradeId: string; tradeName: string }) => void;
   onAddTrade: () => void;
   onEditBid: (bid: TradeSubBid) => void;
@@ -247,7 +254,11 @@ function BidComparisonGrid({
     setOpenTrades((prev) => ({ ...prev, [tradeId]: !prev[tradeId] }));
   };
 
-  const totalSubColumns = project.subs.length ? project.subs.length : 1;
+  const maxTradeSubs = project.trades.reduce((max, row) => {
+    const tradeSubCount = project.subs.reduce((count, sub) => (row.bidsBySubId[sub.id] ? count + 1 : count), 0);
+    return Math.max(max, tradeSubCount);
+  }, 0);
+  const totalSubColumns = Math.max(3, maxTradeSubs);
 
   const getTradeCounts = (row: TradeRow) => {
     let received = 0;
@@ -412,23 +423,14 @@ function BidComparisonGrid({
               <th className="sticky left-0 z-30 border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-xl font-semibold text-slate-600">
                 Trade
               </th>
-              {project.subs.length ? (
-                project.subs.map((sub, index) => (
-                  <th
-                    key={`sub-header-${sub.id}`}
-                    className="border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-600"
-                  >
-                    <div className="text-base font-semibold text-slate-700">Sub {index + 1}</div>
-                  </th>
-                ))
-              ) : (
+              {Array.from({ length: totalSubColumns }).map((_, index) => (
                 <th
-                  key="sub-header-placeholder"
-                  className="border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-xl font-semibold text-slate-600"
+                  key={`sub-header-${index + 1}`}
+                  className="border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-600"
                 >
-                  Sub 1
+                  <div className="text-base font-semibold text-slate-700">Sub {index + 1}</div>
                 </th>
-              )}
+              ))}
               <th className="border-b border-slate-200 bg-slate-100 px-3 py-3 text-center text-sm font-semibold text-slate-600">&nbsp;</th>
             </tr>
           </thead>
@@ -530,56 +532,48 @@ function BidComparisonGrid({
                       </div>
                     </div>
                   </th>
-                  {project.subs.length ? (
-                    project.subs.map((sub) => {
-                      const bid = row.bidsBySubId[sub.id] ?? null;
-                      return (
-                        <td key={`${row.trade}-${sub.id}`} className="border-b border-r border-slate-200 px-4 py-4">
-                          {bid ? (
+                  {(() => {
+                    const tradeSubs = project.subs.filter((sub) => row.bidsBySubId[sub.id]);
+                    const emptyColumns = Math.max(totalSubColumns - tradeSubs.length, 0);
+
+                    return (
+                      <>
+                        {tradeSubs.map((sub) => {
+                          const bid = row.bidsBySubId[sub.id];
+                          if (!bid) return null;
+                          return (
+                            <td key={`${row.trade}-${sub.id}`} className="border-b border-r border-slate-200 px-4 py-4">
+                              <button
+                                type="button"
+                                onClick={() => onEditBid(bid)}
+                                className="group flex w-full flex-col items-start rounded-lg border border-transparent px-1 py-1 text-left transition hover:border-slate-200 hover:bg-slate-50"
+                              >
+                                <p className="text-xl font-semibold text-slate-900">{bid.company}</p>
+                                <p className="text-sm text-slate-500">{bid.contact}</p>
+                                <StatusPill status={bid.status} />
+                                {bid.bidAmount ? <p className="text-2xl font-semibold text-slate-900">{formatCurrency(bid.bidAmount)}</p> : null}
+                                {bid.notes ? <p className="mt-2 line-clamp-3 text-xs text-slate-500">{bid.notes}</p> : null}
+                                <span className="mt-2 text-xs text-slate-400 opacity-0 transition group-hover:opacity-100">
+                                  Click to edit
+                                </span>
+                              </button>
+                            </td>
+                          );
+                        })}
+                        {Array.from({ length: emptyColumns }).map((_, index) => (
+                          <td key={`${row.trade}-sub-empty-${index}`} className="border-b border-r border-slate-200 px-4 py-4">
                             <button
                               type="button"
-                              onClick={() => onEditBid(bid)}
-                              className="group flex w-full flex-col items-start rounded-lg border border-transparent px-1 py-1 text-left transition hover:border-slate-200 hover:bg-slate-50"
-                            >
-                              <p className="text-xl font-semibold text-slate-900">{bid.company}</p>
-                              <p className="text-sm text-slate-500">{bid.contact}</p>
-                              <StatusPill status={bid.status} />
-                              {bid.bidAmount ? <p className="text-2xl font-semibold text-slate-900">{formatCurrency(bid.bidAmount)}</p> : null}
-                              {bid.notes ? <p className="mt-2 line-clamp-3 text-xs text-slate-500">{bid.notes}</p> : null}
-                              <span className="mt-2 text-xs text-slate-400 opacity-0 transition group-hover:opacity-100">
-                                Click to edit
-                              </span>
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                onInviteExisting({
-                                  tradeId: row.tradeId,
-                                  tradeName: row.trade,
-                                  projectSubId: sub.id,
-                                  company: sub.company,
-                                })
-                              }
+                              onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
                               className="flex h-full min-h-24 w-full items-center rounded-lg border border-dashed border-slate-200 px-3 text-left text-sm text-slate-400 hover:border-slate-300 hover:bg-slate-50"
                             >
                               Not invited yet — click to add
                             </button>
-                          )}
-                        </td>
-                      );
-                    })
-                  ) : (
-                    <td key={`${row.trade}-sub-empty`} className="border-b border-r border-slate-200 px-4 py-4">
-                      <button
-                        type="button"
-                        onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
-                        className="flex h-full min-h-24 w-full items-center rounded-lg border border-dashed border-slate-200 px-3 text-left text-sm text-slate-400 hover:border-slate-300 hover:bg-slate-50"
-                      >
-                        No subs yet — click to invite
-                      </button>
-                    </td>
-                  )}
+                          </td>
+                        ))}
+                      </>
+                    );
+                  })()}
                   <td className="border-b border-slate-200 px-2 text-center align-middle">
                     <button
                       type="button"
@@ -619,7 +613,17 @@ const emptyMetrics: Metrics = {
 
 function buildProjectView(detail: BidProjectDetail | null): BidProjectView | null {
   if (!detail) return null;
-  const subs = detail.projectSubs
+  const sortedProjectSubs = [...detail.projectSubs].sort((a, b) => {
+    const aOrder = a.sort_order ?? Number.MAX_SAFE_INTEGER;
+    const bOrder = b.sort_order ?? Number.MAX_SAFE_INTEGER;
+    if (aOrder !== bOrder) return aOrder - bOrder;
+
+    const aInvitedAt = a.invited_at ?? "";
+    const bInvitedAt = b.invited_at ?? "";
+    return aInvitedAt.localeCompare(bInvitedAt);
+  });
+
+  const subs = sortedProjectSubs
     .map((sub) => ({
       id: sub.id,
       company: sub.subcontractor?.company_name ?? "Unknown subcontractor",
@@ -634,7 +638,7 @@ function buildProjectView(detail: BidProjectDetail | null): BidProjectView | nul
     bidsByTrade.set(bid.trade_id, tradeMap);
   });
 
-  const subByProjectSubId = new Map(detail.projectSubs.map((sub) => [sub.id, sub]));
+  const subByProjectSubId = new Map(sortedProjectSubs.map((sub) => [sub.id, sub]));
 
   const trades: TradeRow[] = detail.trades.map((trade) => {
     const tradeMap = bidsByTrade.get(trade.id) ?? new Map<string, BidTradeBid>();
@@ -1031,20 +1035,6 @@ export default function BiddingPage() {
         ) : projectView ? (
           <BidComparisonGrid
             project={projectView}
-            onInviteExisting={(payload) => {
-              setInviteTarget(payload);
-              setNewSubTrade(null);
-              setInviteDraft({
-                status: "bidding",
-                bid_amount: "",
-                contact_name: "",
-                notes: "",
-                invitee_mode: "existing",
-                selected_sub_id: "",
-              });
-              setInviteError(null);
-              setInviteModalOpen(true);
-            }}
             onAddSubForTrade={(payload) => {
               setNewSubTrade(payload);
               setNewSubDraft({
@@ -1714,7 +1704,7 @@ export default function BiddingPage() {
                   const tradeId = newSubTrade.tradeId;
                   let resolvedProjectSubId = "";
                   if (!resolvedProjectSubId) {
-                    const sortOrder = detail?.projectSubs.length ? detail.projectSubs.length + 1 : 1;
+                    const sortOrder = getNextSubSortOrder(detail?.projectSubs ?? []);
                     const projectSub = await inviteSubToProject({
                       project_id: selectedProject.id,
                       subcontractor_id: inviteDraft.selected_sub_id,
@@ -1764,7 +1754,7 @@ export default function BiddingPage() {
                     setSavingInvite(false);
                     return;
                   }
-                  const sortOrder = detail?.projectSubs.length ? detail.projectSubs.length + 1 : 1;
+                  const sortOrder = getNextSubSortOrder(detail?.projectSubs ?? []);
                   const projectSub = await inviteSubToProject({
                     project_id: selectedProject.id,
                     subcontractor_id: sub.id,
@@ -2156,3 +2146,4 @@ export default function BiddingPage() {
     </main>
   );
 }
+
