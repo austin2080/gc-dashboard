@@ -133,7 +133,7 @@ function getNextSubSortOrder(projectSubs: BidProjectDetail["projectSubs"]): numb
   const used = new Set(
     projectSubs
       .map((sub) => sub.sort_order)
-      .filter((value): value is number => Number.isInteger(value) && value > 0)
+      .filter((value): value is number => typeof value === "number" && Number.isInteger(value) && value > 0)
   );
 
   let next = 1;
@@ -2146,4 +2146,3 @@ export default function BiddingPage() {
     </main>
   );
 }
-
