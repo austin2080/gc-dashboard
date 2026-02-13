@@ -230,6 +230,39 @@ function BidComparisonGrid({
   onAddSubForTrade: (payload: { tradeId: string; tradeName: string }) => void;
   onEditBid: (bid: TradeSubBid) => void;
 }) {
+  const [openTrades, setOpenTrades] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    const next: Record<string, boolean> = {};
+    project.trades.forEach((trade) => {
+      next[trade.tradeId] = true;
+    });
+    setOpenTrades(next);
+  }, [project.id, project.trades]);
+
+  const toggleTrade = (tradeId: string) => {
+    setOpenTrades((prev) => ({ ...prev, [tradeId]: !prev[tradeId] }));
+  };
+
+  const totalSubColumns = project.subs.length ? project.subs.length : 1;
+
+  const getTradeCounts = (row: TradeRow) => {
+    let received = 0;
+    let invited = 0;
+    let bidding = 0;
+    Object.values(row.bidsBySubId).forEach((bid) => {
+      if (!bid) return;
+      if (bid.status === "submitted") {
+        received += 1;
+      } else if (bid.status === "bidding") {
+        bidding += 1;
+      } else if (bid.status === "invited") {
+        invited += 1;
+      }
+    });
+    return { received, invited, bidding };
+  };
+
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 px-6 py-5">
@@ -243,74 +276,89 @@ function BidComparisonGrid({
       </div>
 
       <div className="space-y-4 p-4 md:hidden">
-        {project.trades.map((row) => (
-          <article key={`mobile-${row.trade}`} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h3 className="text-lg font-semibold text-slate-900">{row.trade}</h3>
-              <button
-                type="button"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-xl text-slate-600 transition hover:bg-slate-50"
-                aria-label={`Add subcontractor for ${row.trade}`}
-                onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
-              >
-                +
-              </button>
-            </div>
+        {project.trades.map((row) => {
+          const isOpen = openTrades[row.tradeId] ?? true;
+          const tradeSubs = project.subs.filter((sub) => row.bidsBySubId[sub.id]);
+          const tradeCounts = getTradeCounts(row);
 
-            {project.subs.length ? (
-              <div className="space-y-3">
-                {project.subs.map((sub, index) => {
-                  const bid = row.bidsBySubId[sub.id] ?? null;
-
-                  return (
-                    <div key={`${row.trade}-${sub.id}-mobile`} className="rounded-lg border border-slate-200 p-3">
-                      <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sub {index + 1}</p>
-                      <p className="text-sm font-semibold text-slate-900">{sub.company}</p>
-                      {bid ? (
-                        <button
-                          type="button"
-                          onClick={() => onEditBid(bid)}
-                          className="mt-2 flex w-full flex-col items-start rounded-lg bg-slate-50 p-3 text-left"
-                        >
-                          <p className="text-sm text-slate-500">Contact: {bid.contact}</p>
-                          <div className="mt-2">
-                            <StatusPill status={bid.status} />
-                          </div>
-                          {bid.bidAmount ? <p className="mt-2 text-lg font-semibold text-slate-900">{formatCurrency(bid.bidAmount)}</p> : null}
-                          {bid.notes ? <p className="mt-2 line-clamp-3 text-xs text-slate-500">{bid.notes}</p> : null}
-                          <span className="mt-2 text-xs text-slate-400">Tap to edit</span>
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            onInviteExisting({
-                              tradeId: row.tradeId,
-                              tradeName: row.trade,
-                              projectSubId: sub.id,
-                              company: sub.company,
-                            })
-                          }
-                          className="mt-2 flex w-full items-center rounded-lg border border-dashed border-slate-200 px-3 py-4 text-left text-sm text-slate-500"
-                        >
-                          Not invited yet — tap to add
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
+          return (
+            <article key={`mobile-${row.trade}`} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => toggleTrade(row.tradeId)}
+                    aria-expanded={isOpen}
+                    aria-label={`${isOpen ? "Collapse" : "Expand"} ${row.trade}`}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:bg-slate-50"
+                  >
+                    <svg
+                      className={`h-4 w-4 transition ${isOpen ? "rotate-90" : ""}`}
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                      aria-hidden="true"
+                    >
+                      <path d="M7.5 5.5L12.5 10L7.5 14.5V5.5Z" />
+                    </svg>
+                      </button>
+                  <div>
+                    <h3 className="text-lg font-semibold text-slate-900">{row.trade}</h3>
+                    <p className="text-xs text-slate-500">
+                      {tradeCounts.received} received · {tradeCounts.bidding} bidding · {tradeCounts.invited} invited
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-xl text-slate-600 transition hover:bg-slate-50"
+                  aria-label={`Add subcontractor for ${row.trade}`}
+                  onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
+                >
+                  +
+                </button>
               </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
-                className="flex min-h-24 w-full items-center rounded-lg border border-dashed border-slate-200 px-3 text-left text-sm text-slate-400"
-              >
-                No subs yet — tap to invite
-              </button>
-            )}
-          </article>
-        ))}
+
+              {isOpen ? (
+                tradeSubs.length ? (
+                  <div className="space-y-3">
+                    {tradeSubs.map((sub, index) => {
+                      const bid = row.bidsBySubId[sub.id]!;
+                      return (
+                        <div key={`${row.trade}-${sub.id}-mobile`} className="rounded-lg border border-slate-200 p-3">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sub {index + 1}</p>
+                          <p className="text-sm font-semibold text-slate-900">{sub.company}</p>
+                          <button
+                            type="button"
+                            onClick={() => onEditBid(bid)}
+                            className="mt-2 flex w-full flex-col items-start rounded-lg bg-slate-50 p-3 text-left"
+                          >
+                            <p className="text-sm text-slate-500">Contact: {bid.contact}</p>
+                            <div className="mt-2">
+                              <StatusPill status={bid.status} />
+                            </div>
+                            {bid.bidAmount ? (
+                              <p className="mt-2 text-lg font-semibold text-slate-900">{formatCurrency(bid.bidAmount)}</p>
+                            ) : null}
+                            {bid.notes ? <p className="mt-2 line-clamp-3 text-xs text-slate-500">{bid.notes}</p> : null}
+                            <span className="mt-2 text-xs text-slate-400">Tap to edit</span>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
+                    className="flex min-h-24 w-full items-center rounded-lg border border-dashed border-slate-200 px-3 text-left text-sm text-slate-400"
+                  >
+                    No subs yet — tap to invite
+                  </button>
+                )
+              ) : null}
+            </article>
+          );
+        })}
       </div>
 
       <div className="hidden overflow-x-auto md:block">
@@ -342,73 +390,144 @@ function BidComparisonGrid({
             </tr>
           </thead>
           <tbody>
-            {project.trades.map((row) => (
-              <tr key={row.trade} className="align-top">
-                <th className="sticky left-0 z-10 border-b border-r border-slate-200 bg-white px-4 py-5 text-left text-lg font-semibold text-slate-900">
-                  {row.trade}
-                </th>
-                {project.subs.length ? (
-                  project.subs.map((sub) => {
-                    const bid = row.bidsBySubId[sub.id] ?? null;
-                    return (
-                      <td key={`${row.trade}-${sub.id}`} className="border-b border-r border-slate-200 px-4 py-4">
-                        {bid ? (
-                          <button
-                            type="button"
-                            onClick={() => onEditBid(bid)}
-                            className="group flex w-full flex-col items-start rounded-lg border border-transparent px-1 py-1 text-left transition hover:border-slate-200 hover:bg-slate-50"
+            {project.trades.map((row) => {
+              const isOpen = openTrades[row.tradeId] ?? true;
+              const tradeCounts = getTradeCounts(row);
+
+              if (!isOpen) {
+                return (
+                  <tr key={row.trade} className="align-top">
+                    <th className="sticky left-0 z-10 border-b border-r border-slate-200 bg-white px-4 py-5 text-left text-lg font-semibold text-slate-900">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleTrade(row.tradeId)}
+                          aria-expanded={isOpen}
+                          aria-label={`${isOpen ? "Collapse" : "Expand"} ${row.trade}`}
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:bg-slate-50"
+                        >
+                          <svg
+                            className={`h-4 w-4 transition ${isOpen ? "rotate-90" : ""}`}
+                            viewBox="0 0 20 20"
+                            fill="currentColor"
+                            aria-hidden="true"
                           >
-                            <p className="text-xl font-semibold text-slate-900">{bid.company}</p>
-                            <p className="text-sm text-slate-500">{bid.contact}</p>
-                            <StatusPill status={bid.status} />
-                            {bid.bidAmount ? <p className="text-2xl font-semibold text-slate-900">{formatCurrency(bid.bidAmount)}</p> : null}
-                            {bid.notes ? <p className="mt-2 line-clamp-3 text-xs text-slate-500">{bid.notes}</p> : null}
-                            <span className="mt-2 text-xs text-slate-400 opacity-0 transition group-hover:opacity-100">
-                              Click to edit
-                            </span>
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onInviteExisting({
-                                tradeId: row.tradeId,
-                                tradeName: row.trade,
-                                projectSubId: sub.id,
-                                company: sub.company,
-                              })
-                            }
-                            className="flex h-full min-h-24 w-full items-center rounded-lg border border-dashed border-slate-200 px-3 text-left text-sm text-slate-400 hover:border-slate-300 hover:bg-slate-50"
-                          >
-                            Not invited yet — click to add
-                          </button>
-                        )}
-                      </td>
-                    );
-                  })
-                ) : (
-                  <td key={`${row.trade}-sub-empty`} className="border-b border-r border-slate-200 px-4 py-4">
+                            <path d="M7.5 5.5L12.5 10L7.5 14.5V5.5Z" />
+                          </svg>
+                        </button>
+                        <div>
+                          <div>{row.trade}</div>
+                          <div className="text-xs font-normal text-slate-500">
+                            {tradeCounts.received} received · {tradeCounts.bidding} bidding · {tradeCounts.invited} invited
+                          </div>
+                        </div>
+                      </div>
+                    </th>
+                    <td className="border-b border-slate-200 px-2 text-right align-middle" colSpan={totalSubColumns + 1}>
+                      <button
+                        type="button"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-xl text-slate-600 transition hover:bg-slate-50"
+                        aria-label={`Add subcontractor for ${row.trade}`}
+                        onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
+                      >
+                        +
+                      </button>
+                    </td>
+                  </tr>
+                );
+              }
+
+              return (
+                <tr key={row.trade} className="align-top">
+                  <th className="sticky left-0 z-10 border-b border-r border-slate-200 bg-white px-4 py-5 text-left text-lg font-semibold text-slate-900">
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleTrade(row.tradeId)}
+                        aria-expanded={isOpen}
+                        aria-label={`${isOpen ? "Collapse" : "Expand"} ${row.trade}`}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:bg-slate-50"
+                      >
+                        <svg
+                          className={`h-4 w-4 transition ${isOpen ? "rotate-90" : ""}`}
+                          viewBox="0 0 20 20"
+                          fill="currentColor"
+                          aria-hidden="true"
+                        >
+                          <path d="M7.5 5.5L12.5 10L7.5 14.5V5.5Z" />
+                        </svg>
+                      </button>
+                      <div>
+                        <div>{row.trade}</div>
+                        <div className="text-xs font-normal text-slate-500">
+                          {tradeCounts.received} received · {tradeCounts.bidding} bidding · {tradeCounts.invited} invited
+                        </div>
+                      </div>
+                    </div>
+                  </th>
+                  {project.subs.length ? (
+                    project.subs.map((sub) => {
+                      const bid = row.bidsBySubId[sub.id] ?? null;
+                      return (
+                        <td key={`${row.trade}-${sub.id}`} className="border-b border-r border-slate-200 px-4 py-4">
+                          {bid ? (
+                            <button
+                              type="button"
+                              onClick={() => onEditBid(bid)}
+                              className="group flex w-full flex-col items-start rounded-lg border border-transparent px-1 py-1 text-left transition hover:border-slate-200 hover:bg-slate-50"
+                            >
+                              <p className="text-xl font-semibold text-slate-900">{bid.company}</p>
+                              <p className="text-sm text-slate-500">{bid.contact}</p>
+                              <StatusPill status={bid.status} />
+                              {bid.bidAmount ? <p className="text-2xl font-semibold text-slate-900">{formatCurrency(bid.bidAmount)}</p> : null}
+                              {bid.notes ? <p className="mt-2 line-clamp-3 text-xs text-slate-500">{bid.notes}</p> : null}
+                              <span className="mt-2 text-xs text-slate-400 opacity-0 transition group-hover:opacity-100">
+                                Click to edit
+                              </span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onInviteExisting({
+                                  tradeId: row.tradeId,
+                                  tradeName: row.trade,
+                                  projectSubId: sub.id,
+                                  company: sub.company,
+                                })
+                              }
+                              className="flex h-full min-h-24 w-full items-center rounded-lg border border-dashed border-slate-200 px-3 text-left text-sm text-slate-400 hover:border-slate-300 hover:bg-slate-50"
+                            >
+                              Not invited yet — click to add
+                            </button>
+                          )}
+                        </td>
+                      );
+                    })
+                  ) : (
+                    <td key={`${row.trade}-sub-empty`} className="border-b border-r border-slate-200 px-4 py-4">
+                      <button
+                        type="button"
+                        onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
+                        className="flex h-full min-h-24 w-full items-center rounded-lg border border-dashed border-slate-200 px-3 text-left text-sm text-slate-400 hover:border-slate-300 hover:bg-slate-50"
+                      >
+                        No subs yet — click to invite
+                      </button>
+                    </td>
+                  )}
+                  <td className="border-b border-slate-200 px-2 text-center align-middle">
                     <button
                       type="button"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-xl text-slate-600 transition hover:bg-slate-50"
+                      aria-label={`Add subcontractor for ${row.trade}`}
                       onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
-                      className="flex h-full min-h-24 w-full items-center rounded-lg border border-dashed border-slate-200 px-3 text-left text-sm text-slate-400 hover:border-slate-300 hover:bg-slate-50"
                     >
-                      No subs yet — click to invite
+                      +
                     </button>
                   </td>
-                )}
-                <td className="border-b border-slate-200 px-2 text-center align-middle">
-                  <button
-                    type="button"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-xl text-slate-600 transition hover:bg-slate-50"
-                    aria-label={`Add subcontractor for ${row.trade}`}
-                    onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
-                  >
-                    +
-                  </button>
-                </td>
-              </tr>
-            ))}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
