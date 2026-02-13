@@ -235,7 +235,7 @@ function BidComparisonGrid({
   useEffect(() => {
     const next: Record<string, boolean> = {};
     project.trades.forEach((trade) => {
-      next[trade.tradeId] = true;
+      next[trade.tradeId] = false;
     });
     setOpenTrades(next);
   }, [project.id, project.trades]);
