@@ -5,9 +5,9 @@ import type { ReactNode } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-export type AppMode = "waiverdesk" | "pm";
+export type AppMode = "waiverdesk" | "pm" | "bidding";
 
-const VALID_MODES: AppMode[] = ["waiverdesk", "pm"];
+const VALID_MODES: AppMode[] = ["waiverdesk", "pm", "bidding"];
 
 export const ModeContext = createContext<{
   mode: AppMode;
@@ -37,6 +37,7 @@ export default function ModeProvider({
     const queryMode = coerceMode(searchParams.get("mode"));
     if (queryMode) return queryMode;
     if (pathname.startsWith("/waiverdesk")) return "waiverdesk";
+    if (pathname.startsWith("/bidding")) return "bidding";
     return storedMode;
   }, [pathname, searchParams, storedMode]);
 

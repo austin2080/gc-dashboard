@@ -153,7 +153,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
       )
     : GLOBAL_TOOLS;
 
-  const modeLabel = mode === "waiverdesk" ? "WaiverDesk" : "Project Management";
+  const modeLabel = mode === "waiverdesk" ? "WaiverDesk" : mode === "bidding" ? "Bidding" : "Project Management";
 
   useEffect(() => {
     if (!toolsOpen && !projectsOpen && !profileOpen) return;
@@ -367,6 +367,152 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
             )}
           </div>
 
+          <div className="hidden items-center gap-2 md:flex">
+            <button
+              type="button"
+              onClick={() => setMobileSearchOpen((v) => !v)}
+              className="rounded-xl border border-white/20 px-3 py-2 text-base md:hidden"
+              aria-label="Toggle search"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                className="h-4 w-4"
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" />
+              </svg>
+            </button>
+            <div className="hidden min-w-[220px] max-w-[360px] flex-1 md:block">
+              <input
+                className="w-full rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-base text-white placeholder:text-white/60"
+                placeholder="Quick search projects, contracts, RFIs..."
+              />
+            </div>
+            <div className="relative" ref={modeRef}>
+              <button
+                className="rounded-full border border-white/20 px-3 py-2 text-base cursor-pointer flex items-center gap-2"
+                type="button"
+                onClick={() => setModeOpen((open) => !open)}
+              >
+                {modeLabel}
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="h-3 w-3 opacity-60"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+              {modeOpen ? (
+                <div className="absolute right-0 top-full z-30 min-w-[220px] rounded-xl border border-[#E5E7EB] bg-white p-2 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
+                  <button
+                    className="flex w-full items-center justify-between rounded px-2 py-2 text-sm hover:bg-black/[0.03]"
+                    type="button"
+                    onClick={async () => {
+                      await setMode("waiverdesk");
+                      closeAllMenus();
+                      router.push("/waiverdesk/dashboard");
+                    }}
+                  >
+                    WaiverDesk
+                    {mode === "waiverdesk" ? (
+                      <span className="text-xs text-[color:var(--muted)]">Active</span>
+                    ) : null}
+                  </button>
+                  <button
+                    className="flex w-full items-center justify-between rounded px-2 py-2 text-sm hover:bg-black/[0.03]"
+                    type="button"
+                    onClick={async () => {
+                      await setMode("pm");
+                      closeAllMenus();
+                      router.push("/dashboard");
+                    }}
+                  >
+                    Project Management
+                    {mode === "pm" ? (
+                      <span className="text-xs text-[color:var(--muted)]">Active</span>
+                    ) : null}
+                  </button>
+                  <button
+                    className="flex w-full items-center justify-between rounded px-2 py-2 text-sm hover:bg-black/[0.03]"
+                    type="button"
+                    onClick={async () => {
+                      await setMode("bidding");
+                      closeAllMenus();
+                      router.push("/bidding");
+                    }}
+                  >
+                    Bidding
+                    {mode === "bidding" ? (
+                      <span className="text-xs text-[color:var(--muted)]">Active</span>
+                    ) : null}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
+            <button
+              className="relative rounded-full border border-white/20 px-3 py-2 text-base cursor-pointer"
+              aria-label="Notifications"
+            >
+              🔔
+              {hasUnreadNotifications ? (
+                <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary ring-2 ring-[color:var(--brand)]" />
+              ) : null}
+            </button>
+
+            <div className="relative" ref={profileRef}>
+              <button
+                className="rounded-full border border-white/20 px-3 py-2 text-base cursor-pointer flex items-center gap-2"
+                type="button"
+                onClick={() => setProfileOpen((open) => !open)}
+              >
+                Profile
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  className="h-3 w-3 opacity-60"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+              {profileOpen ? (
+                <div className="absolute right-0 top-full z-30 min-w-[180px] rounded-xl border border-[#E5E7EB] bg-white p-2 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
+                  <Link
+                    href="/profile"
+                    onClick={closeAllMenus}
+                    className="block rounded px-2 py-1 text-base text-black/80 hover:bg-black/[0.03]"
+                  >
+                    Profile
+                  </Link>
+                  <Link
+                    href={withMode("/settings")}
+                    onClick={closeAllMenus}
+                    className="block rounded px-2 py-1 text-base text-black/80 hover:bg-black/[0.03]"
+                  >
+                    Settings
+                  </Link>
+                  <Link
+                    href={withMode("/logout")}
+                    onClick={closeAllMenus}
+                    className="block rounded px-2 py-1 text-base text-black/80 hover:bg-black/[0.03]"
+                  >
+                    Log out
+                  </Link>
+                </div>
+              ) : null}
+            </div>
+          </div>
 
           <button
             type="button"
@@ -387,149 +533,6 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
           </button>
         </div>
 
-        <div className="mt-3 hidden flex-1 flex-wrap items-center justify-end gap-2 md:flex">
-          <div className="relative" ref={modeRef}>
-            <button
-              className="rounded-full border border-white/20 px-3 py-2 text-base cursor-pointer flex items-center gap-2"
-              type="button"
-              onClick={() => setModeOpen((open) => !open)}
-            >
-              {modeLabel}
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                className="h-3 w-3 opacity-60"
-              >
-                <path d="m6 9 6 6 6-6" />
-              </svg>
-            </button>
-            {modeOpen ? (
-              <div className="absolute right-0 top-full z-30 min-w-[220px] rounded-xl border border-[#E5E7EB] bg-white p-2 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
-                <button
-                  className="flex w-full items-center justify-between rounded px-2 py-2 text-sm hover:bg-black/[0.03]"
-                  type="button"
-                  onClick={async () => {
-                    await setMode("waiverdesk");
-                    closeAllMenus();
-                    router.push("/waiverdesk/dashboard");
-                  }}
-                >
-                  WaiverDesk
-                  {mode === "waiverdesk" ? (
-                    <span className="text-xs text-[color:var(--muted)]">Active</span>
-                  ) : null}
-                </button>
-                <button
-                  className="flex w-full items-center justify-between rounded px-2 py-2 text-sm hover:bg-black/[0.03]"
-                  type="button"
-                  onClick={async () => {
-                    await setMode("pm");
-                    closeAllMenus();
-                    router.push("/dashboard");
-                  }}
-                >
-                  Project Management
-                  {mode === "pm" ? (
-                    <span className="text-xs text-[color:var(--muted)]">Active</span>
-                  ) : null}
-                </button>
-                <button
-                  className="flex w-full items-center justify-between rounded px-2 py-2 text-sm hover:bg-black/[0.03]"
-                  type="button"
-                  onClick={async () => {
-                    await setMode("pm");
-                    closeAllMenus();
-                    router.push("/bidding");
-                  }}
-                >
-                  Bidding
-                </button>
-              </div>
-            ) : null}
-          </div>
-          <button
-            type="button"
-            onClick={() => setMobileSearchOpen((v) => !v)}
-            className="rounded-xl border border-white/20 px-3 py-2 text-base md:hidden"
-            aria-label="Toggle search"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className="h-4 w-4"
-            >
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-3.5-3.5" />
-            </svg>
-          </button>
-          <div className="hidden min-w-[220px] max-w-[360px] flex-1 md:block">
-            <input
-              className="w-full rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-base text-white placeholder:text-white/60"
-              placeholder="Quick search projects, contracts, RFIs..."
-            />
-          </div>
-
-          <button
-            className="relative rounded-full border border-white/20 px-3 py-2 text-base cursor-pointer"
-            aria-label="Notifications"
-          >
-            🔔
-            {hasUnreadNotifications ? (
-              <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary ring-2 ring-[color:var(--brand)]" />
-            ) : null}
-          </button>
-
-          <div className="relative" ref={profileRef}>
-            <button
-              className="rounded-full border border-white/20 px-3 py-2 text-base cursor-pointer flex items-center gap-2"
-              type="button"
-              onClick={() => setProfileOpen((open) => !open)}
-            >
-              Profile
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                className="h-3 w-3 opacity-60"
-              >
-                <path d="m6 9 6 6 6-6" />
-              </svg>
-            </button>
-            {profileOpen ? (
-              <div className="absolute right-0 top-full z-30 min-w-[180px] rounded-xl border border-[#E5E7EB] bg-white p-2 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
-                <Link
-                  href="/profile"
-                  onClick={closeAllMenus}
-                  className="block rounded px-2 py-1 text-base text-black/80 hover:bg-black/[0.03]"
-                >
-                  Profile
-                </Link>
-                <Link
-                  href={withMode("/settings")}
-                  onClick={closeAllMenus}
-                  className="block rounded px-2 py-1 text-base text-black/80 hover:bg-black/[0.03]"
-                >
-                  Settings
-                </Link>
-                <Link
-                  href={withMode("/logout")}
-                  onClick={closeAllMenus}
-                  className="block rounded px-2 py-1 text-base text-black/80 hover:bg-black/[0.03]"
-                >
-                  Log out
-                </Link>
-              </div>
-            ) : null}
-          </div>
-        </div>
         {mobileSearchOpen ? (
           <div className="w-full md:hidden">
             <input
@@ -575,7 +578,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                   className="rounded-lg border border-white/20 px-3 py-2 text-sm"
                   type="button"
                   onClick={async () => {
-                    await setMode("pm");
+                    await setMode("bidding");
                     closeAllMenus();
                     router.push("/bidding");
                   }}
