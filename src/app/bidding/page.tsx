@@ -758,9 +758,6 @@ export default function BiddingPage() {
       if (!active) return;
       setProjects(projectData);
 
-      const nextSelected = projectData[0]?.id || "";
-      setSelectedProjectId((prev) => prev || nextSelected);
-
       if (projectData.length) {
         const projectIds = projectData.map((project) => project.id);
         const [totalSubs, ghosted] = await Promise.all([
@@ -1012,7 +1009,14 @@ export default function BiddingPage() {
           Loading bid projects...
         </section>
       ) : projects.length ? (
-        <ProjectTabs projects={projects} selectedId={selectedProjectId} onSelect={setSelectedProjectId} />
+        <div className="space-y-3">
+          <ProjectTabs projects={projects} selectedId={selectedProjectId} onSelect={setSelectedProjectId} />
+          {!selectedProjectId ? (
+            <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-6 text-center text-sm text-slate-600 shadow-sm">
+              Select a project to view bid coverage.
+            </section>
+          ) : null}
+        </div>
       ) : (
         <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-slate-500 shadow-sm">
           No bid projects yet. Create your first bid to start tracking coverage.
