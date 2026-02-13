@@ -265,6 +265,27 @@ function BidComparisonGrid({
     return { received, invited, bidding };
   };
 
+  const countClasses = (
+    value: number,
+    type: "received" | "bidding" | "invited",
+    hasReceived: boolean,
+    hasBidding: boolean
+  ) => {
+    if (type === "received") {
+      return value > 0 ? "text-emerald-600" : "text-rose-600";
+    }
+    if (type === "bidding" && value > 0) {
+      return "text-amber-600";
+    }
+    if (type === "invited" && (hasReceived || hasBidding)) {
+      return "text-slate-500";
+    }
+    if (hasReceived) {
+      return "text-slate-500";
+    }
+    return value > 0 ? "text-slate-500" : "text-rose-600";
+  };
+
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 px-6 py-5">
@@ -282,6 +303,8 @@ function BidComparisonGrid({
           const isOpen = openTrades[row.tradeId] ?? true;
           const tradeSubs = project.subs.filter((sub) => row.bidsBySubId[sub.id]);
           const tradeCounts = getTradeCounts(row);
+          const hasReceived = tradeCounts.received > 0;
+          const hasBidding = tradeCounts.bidding > 0;
 
           return (
             <article key={`mobile-${row.trade}`} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -305,8 +328,18 @@ function BidComparisonGrid({
                       </button>
                   <div>
                     <h3 className="text-lg font-semibold text-slate-900">{row.trade}</h3>
-                    <p className="text-xs text-slate-500">
-                      {tradeCounts.received} received · {tradeCounts.bidding} bidding · {tradeCounts.invited} invited
+                    <p className="text-xs">
+                      <span className={countClasses(tradeCounts.received, "received", hasReceived, hasBidding)}>
+                        {tradeCounts.received} received
+                      </span>
+                      <span className="text-slate-400"> · </span>
+                      <span className={countClasses(tradeCounts.bidding, "bidding", hasReceived, hasBidding)}>
+                        {tradeCounts.bidding} bidding
+                      </span>
+                      <span className="text-slate-400"> · </span>
+                      <span className={countClasses(tradeCounts.invited, "invited", hasReceived, hasBidding)}>
+                        {tradeCounts.invited} invited
+                      </span>
                     </p>
                   </div>
                 </div>
@@ -385,7 +418,6 @@ function BidComparisonGrid({
                     className="border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-600"
                   >
                     <div className="text-base font-semibold text-slate-700">Sub {index + 1}</div>
-                    <div className="text-xs font-medium text-slate-500">{sub.company}</div>
                   </th>
                 ))
               ) : (
@@ -403,6 +435,8 @@ function BidComparisonGrid({
             {project.trades.map((row) => {
               const isOpen = openTrades[row.tradeId] ?? true;
               const tradeCounts = getTradeCounts(row);
+              const hasReceived = tradeCounts.received > 0;
+              const hasBidding = tradeCounts.bidding > 0;
 
               if (!isOpen) {
                 return (
@@ -427,8 +461,18 @@ function BidComparisonGrid({
                         </button>
                         <div>
                           <div>{row.trade}</div>
-                          <div className="text-xs font-normal text-slate-500">
-                            {tradeCounts.received} received · {tradeCounts.bidding} bidding · {tradeCounts.invited} invited
+                          <div className="text-xs font-normal">
+                            <span className={countClasses(tradeCounts.received, "received", hasReceived, hasBidding)}>
+                              {tradeCounts.received} received
+                            </span>
+                            <span className="text-slate-400"> · </span>
+                            <span className={countClasses(tradeCounts.bidding, "bidding", hasReceived, hasBidding)}>
+                              {tradeCounts.bidding} bidding
+                            </span>
+                            <span className="text-slate-400"> · </span>
+                            <span className={countClasses(tradeCounts.invited, "invited", hasReceived, hasBidding)}>
+                              {tradeCounts.invited} invited
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -469,8 +513,18 @@ function BidComparisonGrid({
                       </button>
                       <div>
                         <div>{row.trade}</div>
-                        <div className="text-xs font-normal text-slate-500">
-                          {tradeCounts.received} received · {tradeCounts.bidding} bidding · {tradeCounts.invited} invited
+                        <div className="text-xs font-normal">
+                        <span className={countClasses(tradeCounts.received, "received", hasReceived, hasBidding)}>
+                          {tradeCounts.received} received
+                        </span>
+                        <span className="text-slate-400"> · </span>
+                        <span className={countClasses(tradeCounts.bidding, "bidding", hasReceived, hasBidding)}>
+                          {tradeCounts.bidding} bidding
+                        </span>
+                        <span className="text-slate-400"> · </span>
+                        <span className={countClasses(tradeCounts.invited, "invited", hasReceived, hasBidding)}>
+                          {tradeCounts.invited} invited
+                        </span>
                         </div>
                       </div>
                     </div>
