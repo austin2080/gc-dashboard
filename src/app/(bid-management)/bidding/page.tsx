@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { BidManagementHeader } from "@/components/bidding/bid-management-header";
+import { useBidManagementToolbar } from "@/components/bidding/bid-management-toolbar";
 import type {
   BidProjectDetail,
   BidProjectSummary,
@@ -682,6 +684,7 @@ function buildProjectView(detail: BidProjectDetail | null): BidProjectView | nul
 }
 
 export default function BiddingPage() {
+  const { setActions } = useBidManagementToolbar();
   const [projects, setProjects] = useState<BidProjectSummary[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [metrics, setMetrics] = useState<Metrics>(emptyMetrics);
@@ -986,7 +989,7 @@ export default function BiddingPage() {
     [tradeDrafts]
   );
 
-  const openEditModal = () => {
+  const openEditModal = useCallback(() => {
     if (!selectedProject) return;
     setEditDraft({
       project_name: selectedProject.project_name ?? "",
@@ -997,9 +1000,9 @@ export default function BiddingPage() {
     });
     setEditError(null);
     setEditModalOpen(true);
-  };
+  }, [selectedProject]);
 
-  const openEditTradesModal = () => {
+  const openEditTradesModal = useCallback(() => {
     if (!detail) return;
     setTradeDrafts(
       detail.trades.map((trade, index) => ({
@@ -1011,48 +1014,53 @@ export default function BiddingPage() {
     setTradeCostCodeQuery("");
     setTradeEditError(null);
     setEditTradesModalOpen(true);
-  };
+  }, [detail]);
+
+  const toolbarActions = useMemo(
+    () => (
+      <>
+        {selectedProject ? (
+          <>
+            <button
+              type="button"
+              onClick={openEditModal}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+            >
+              Edit Project
+            </button>
+            <button
+              type="button"
+              onClick={openEditTradesModal}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+            >
+              Edit Trades
+            </button>
+          </>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => {
+            setFormError(null);
+            setModalOpen(true);
+          }}
+          className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
+        >
+          <span aria-hidden>＋</span>
+          New Project
+        </button>
+      </>
+    ),
+    [openEditModal, openEditTradesModal, selectedProject, setFormError, setModalOpen]
+  );
+
+  useEffect(() => {
+    setActions(toolbarActions);
+    return () => setActions(null);
+  }, [setActions, toolbarActions]);
 
   return (
     <main className="space-y-6 bg-slate-50 p-4 sm:p-6">
-      <header className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-4xl font-semibold text-slate-900">Bid Management</h1>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            {selectedProject ? (
-              <>
-                <button
-                  type="button"
-                  onClick={openEditModal}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-                >
-                  Edit Project
-                </button>
-                <button
-                  type="button"
-                  onClick={openEditTradesModal}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-                >
-                  Edit Trades
-                </button>
-              </>
-            ) : null}
-            <button
-              type="button"
-              onClick={() => {
-                setFormError(null);
-                setModalOpen(true);
-              }}
-              className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
-            >
-              <span aria-hidden>＋</span>
-              New Project
-            </button>
-          </div>
-        </div>
-      </header>
+      <BidManagementHeader />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <KpiCard icon="📄" label="Active Bids" value={String(metrics.activeBids)} />
