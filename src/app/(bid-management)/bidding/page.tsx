@@ -1,20 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BidManagementHeader } from "@/components/bidding/bid-management-header";
 import { useBidManagementToolbar } from "@/components/bidding/bid-management-toolbar";
+import BidRiskOverview, { type BidRiskProject } from "@/components/bidding/BidRiskOverview";
+import ActiveBidSelector, { type ActiveBidProject } from "@/components/bidding/ActiveBidSelector";
+import ProjectSummaryBar from "@/components/bidding/ProjectSummaryBar";
+import TradeLevelingGrid, { type BidProjectView } from "@/components/bidding/TradeLevelingGrid";
+import type { TradeRowData, TradeSubBid } from "@/components/bidding/TradeRow";
 import type {
   BidProjectDetail,
   BidProjectSummary,
   BidTradeBid,
   BidTradeStatus,
 } from "@/lib/bidding/types";
+import { computeCoverageSnapshot, TARGET_BIDS_PER_TRADE } from "@/lib/bidding/metrics";
 import {
-  countBidProjectSubs,
   createBidProject,
   createBidTrades,
   createBidSubcontractor,
-  ensureBidSubcontractor,
   inviteSubToProject,
   createTradeBid,
   updateTradeBid,
@@ -22,46 +25,10 @@ import {
   updateBidProject,
   updateBidTrades,
   archiveBidProject,
-  countGhostedBids,
   getBidProjectDetail,
+  listBidSubcontractors,
   listBidProjects,
 } from "@/lib/bidding/store";
-
-type TradeSubBid = {
-  bidId: string;
-  subId: string;
-  company: string;
-  contact: string;
-  email?: string;
-  phone?: string;
-  status: BidTradeStatus;
-  bidAmount?: number;
-  notes?: string;
-};
-
-type TradeRow = {
-  tradeId: string;
-  trade: string;
-  bidsBySubId: Record<string, TradeSubBid | null>;
-};
-
-type BidProjectView = {
-  id: string;
-  projectName: string;
-  owner: string;
-  location: string;
-  budget: number | null;
-  dueDate: string | null;
-  subs: Array<{ id: string; company: string; contact: string }>;
-  trades: TradeRow[];
-};
-
-type Metrics = {
-  activeBids: number;
-  totalSubs: number;
-  ghosted: number;
-  nearestDueProject: BidProjectSummary | null;
-};
 
 type ProjectDraft = {
   project_name: string;
@@ -117,8 +84,10 @@ type TradeEditDraft = {
   sort_order: number;
 };
 
-function daysUntil(isoDate: string): number {
-  if (!isoDate) return 0;
+type RiskStatus = "Healthy" | "At Risk" | "Critical";
+
+function daysUntil(isoDate: string | null): number {
+  if (!isoDate) return Number.POSITIVE_INFINITY;
   const today = new Date();
   const due = new Date(`${isoDate}T00:00:00`);
   const msPerDay = 1000 * 60 * 60 * 24;
@@ -126,9 +95,13 @@ function daysUntil(isoDate: string): number {
   return Math.max(0, Math.ceil((due.getTime() - todayMidnight) / msPerDay));
 }
 
-function safeDaysUntil(isoDate: string | null | undefined): number | null {
-  if (!isoDate) return null;
-  return daysUntil(isoDate);
+function getRiskStatus(dueInDays: number, coveragePct: number): RiskStatus {
+  if (!Number.isFinite(dueInDays)) return coveragePct < 60 ? "At Risk" : "Healthy";
+  if (dueInDays <= 3 && coveragePct < 65) return "Critical";
+  if (dueInDays <= 7 && coveragePct < 75) return "At Risk";
+  if (coveragePct < 45) return "Critical";
+  if (coveragePct < 65) return "At Risk";
+  return "Healthy";
 }
 
 function getNextSubSortOrder(projectSubs: BidProjectDetail["projectSubs"]): number {
@@ -144,474 +117,6 @@ function getNextSubSortOrder(projectSubs: BidProjectDetail["projectSubs"]): numb
   }
   return next;
 }
-
-function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
-}
-
-function StatusPill({ status }: { status: BidTradeStatus }) {
-  const styles: Record<BidTradeStatus, string> = {
-    submitted: "bg-emerald-100 text-emerald-800",
-    bidding: "bg-blue-100 text-blue-800",
-    declined: "bg-rose-100 text-rose-800",
-    ghosted: "bg-amber-100 text-amber-800",
-    invited: "bg-slate-100 text-slate-700",
-  };
-
-  return (
-    <span className={`inline-flex rounded-md px-2 py-1 text-[11px] font-semibold tracking-[0.08em] ${styles[status]}`}>
-      {status.toUpperCase()}
-    </span>
-  );
-}
-
-function KpiCard({
-  icon,
-  label,
-  value,
-  sublabel,
-}: {
-  icon: string;
-  label: string;
-  value: string;
-  sublabel?: string;
-}) {
-  return (
-    <article className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
-      <div className="flex items-start gap-3">
-        <span className="text-xl" aria-hidden>
-          {icon}
-        </span>
-        <div>
-          <p className="text-3xl font-semibold leading-none text-slate-900">{value}</p>
-          <p className="mt-2 text-sm font-medium text-slate-600">{label}</p>
-          {sublabel ? <p className="mt-1 text-xs text-slate-500">{sublabel}</p> : null}
-        </div>
-      </div>
-    </article>
-  );
-}
-
-function ProjectTabs({
-  projects,
-  selectedId,
-  onSelect,
-}: {
-  projects: BidProjectSummary[];
-  selectedId: string;
-  onSelect: (id: string) => void;
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-100/80 p-2">
-      <div className="flex flex-wrap gap-2">
-        {projects.map((project) => {
-          const active = project.id === selectedId;
-          const countdown = project.due_date ? `${daysUntil(project.due_date)}d` : "--";
-          return (
-            <button
-              key={project.id}
-              type="button"
-              onClick={() => onSelect(project.id)}
-              className={`inline-flex items-center gap-3 rounded-xl border px-4 py-2 text-sm font-semibold transition ${
-                active
-                  ? "border-slate-300 bg-white text-slate-900 shadow-sm"
-                  : "border-transparent bg-transparent text-slate-500 hover:border-slate-200 hover:bg-white/60"
-              }`}
-            >
-              {project.project_name}
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700">
-                {countdown}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function BidComparisonGrid({
-  project,
-  onAddSubForTrade,
-  onAddTrade,
-  onEditBid,
-}: {
-  project: BidProjectView;
-  onAddSubForTrade: (payload: { tradeId: string; tradeName: string }) => void;
-  onAddTrade: () => void;
-  onEditBid: (bid: TradeSubBid) => void;
-}) {
-  const [openTrades, setOpenTrades] = useState<Record<string, boolean>>({});
-
-  useEffect(() => {
-    const next: Record<string, boolean> = {};
-    const isDesktop = typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches;
-    project.trades.forEach((trade) => {
-      next[trade.tradeId] = isDesktop;
-    });
-    setOpenTrades(next);
-  }, [project.id, project.trades]);
-
-  const toggleTrade = (tradeId: string) => {
-    setOpenTrades((prev) => ({ ...prev, [tradeId]: !prev[tradeId] }));
-  };
-
-  const maxTradeSubs = project.trades.reduce((max, row) => {
-    const tradeSubCount = project.subs.reduce((count, sub) => (row.bidsBySubId[sub.id] ? count + 1 : count), 0);
-    return Math.max(max, tradeSubCount);
-  }, 0);
-  const totalSubColumns = Math.max(3, maxTradeSubs);
-
-  const getTradeCounts = (row: TradeRow) => {
-    let received = 0;
-    let invited = 0;
-    let bidding = 0;
-    Object.values(row.bidsBySubId).forEach((bid) => {
-      if (!bid) return;
-      if (bid.status === "submitted") {
-        received += 1;
-      } else if (bid.status === "bidding") {
-        bidding += 1;
-      } else if (bid.status === "invited") {
-        invited += 1;
-      }
-    });
-    return { received, invited, bidding };
-  };
-
-  const countClasses = (
-    value: number,
-    type: "received" | "bidding" | "invited",
-    hasReceived: boolean,
-    hasBidding: boolean
-  ) => {
-    if (type === "received") {
-      return value > 0 ? "text-emerald-600" : "text-rose-600";
-    }
-    if (type === "bidding" && value > 0) {
-      return "text-amber-600";
-    }
-    if (type === "invited" && (hasReceived || hasBidding)) {
-      return "text-slate-500";
-    }
-    if (hasReceived) {
-      return "text-slate-500";
-    }
-    return value > 0 ? "text-slate-500" : "text-rose-600";
-  };
-
-  return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-200 px-6 py-5">
-        <h2 className="text-3xl font-semibold text-slate-900">{project.projectName}</h2>
-        <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-slate-600">
-          <span>🏢 {project.owner}</span>
-          <span>📍 {project.location}</span>
-          <span>💲 {project.budget !== null ? formatCurrency(project.budget) : "—"}</span>
-          <span>🗓️ Due {project.dueDate ?? "—"}</span>
-        </div>
-      </div>
-
-      <div className="space-y-4 p-4 md:hidden">
-        {project.trades.map((row) => {
-          const isOpen = openTrades[row.tradeId] ?? true;
-          const tradeSubs = project.subs.filter((sub) => row.bidsBySubId[sub.id]);
-          const tradeCounts = getTradeCounts(row);
-          const hasReceived = tradeCounts.received > 0;
-          const hasBidding = tradeCounts.bidding > 0;
-
-          return (
-            <article key={`mobile-${row.trade}`} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="mb-3 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => toggleTrade(row.tradeId)}
-                    aria-expanded={isOpen}
-                    aria-label={`${isOpen ? "Collapse" : "Expand"} ${row.trade}`}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:bg-slate-50"
-                  >
-                    <svg
-                      className={`h-4 w-4 transition ${isOpen ? "rotate-90" : ""}`}
-                      viewBox="0 0 20 20"
-                      fill="currentColor"
-                      aria-hidden="true"
-                    >
-                      <path d="M7.5 5.5L12.5 10L7.5 14.5V5.5Z" />
-                    </svg>
-                      </button>
-                  <div>
-                    <h3 className="text-lg font-semibold text-slate-900">{row.trade}</h3>
-                    <p className="text-xs">
-                      <span className={countClasses(tradeCounts.received, "received", hasReceived, hasBidding)}>
-                        {tradeCounts.received} received
-                      </span>
-                      <span className="text-slate-400"> · </span>
-                      <span className={countClasses(tradeCounts.bidding, "bidding", hasReceived, hasBidding)}>
-                        {tradeCounts.bidding} bidding
-                      </span>
-                      <span className="text-slate-400"> · </span>
-                      <span className={countClasses(tradeCounts.invited, "invited", hasReceived, hasBidding)}>
-                        {tradeCounts.invited} invited
-                      </span>
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-xl text-slate-600 transition hover:bg-slate-50"
-                  aria-label={`Add subcontractor for ${row.trade}`}
-                  onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
-                >
-                  +
-                </button>
-              </div>
-
-              {isOpen ? (
-                tradeSubs.length ? (
-                  <div className="space-y-3">
-                    {tradeSubs.map((sub, index) => {
-                      const bid = row.bidsBySubId[sub.id]!;
-                      return (
-                        <div key={`${row.trade}-${sub.id}-mobile`} className="rounded-lg border border-slate-200 p-3">
-                          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Sub {index + 1}</p>
-                          <p className="text-sm font-semibold text-slate-900">{sub.company}</p>
-                          <button
-                            type="button"
-                            onClick={() => onEditBid(bid)}
-                            className="mt-2 flex w-full flex-col items-start rounded-lg bg-slate-50 p-3 text-left"
-                          >
-                            <p className="text-sm text-slate-500">Contact: {bid.contact}</p>
-                            <div className="mt-2">
-                              <StatusPill status={bid.status} />
-                            </div>
-                            {bid.bidAmount ? (
-                              <p className="mt-2 text-lg font-semibold text-slate-900">{formatCurrency(bid.bidAmount)}</p>
-                            ) : null}
-                            {bid.notes ? <p className="mt-2 line-clamp-3 text-xs text-slate-500">{bid.notes}</p> : null}
-                            <span className="mt-2 text-xs text-slate-400">Tap to edit</span>
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
-                    className="flex min-h-24 w-full items-center rounded-lg border border-dashed border-slate-200 px-3 text-left text-sm text-slate-400"
-                  >
-                    No subs yet — tap to invite
-                  </button>
-                )
-              ) : null}
-            </article>
-          );
-        })}
-        <button
-          type="button"
-          onClick={onAddTrade}
-          className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-4 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"
-        >
-          <span aria-hidden>＋</span>
-          Add Trade
-        </button>
-      </div>
-
-      <div className="hidden overflow-x-auto md:block">
-        <table className="min-w-[920px] w-full border-separate border-spacing-0">
-          <thead className="sticky top-0 z-20">
-            <tr>
-              <th className="sticky left-0 z-30 border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-xl font-semibold text-slate-600">
-                Trade
-              </th>
-              {Array.from({ length: totalSubColumns }).map((_, index) => (
-                <th
-                  key={`sub-header-${index + 1}`}
-                  className="border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-600"
-                >
-                  <div className="text-base font-semibold text-slate-700">Sub {index + 1}</div>
-                </th>
-              ))}
-              <th className="border-b border-slate-200 bg-slate-100 px-3 py-3 text-center text-sm font-semibold text-slate-600">&nbsp;</th>
-            </tr>
-          </thead>
-          <tbody>
-            {project.trades.map((row) => {
-              const isOpen = openTrades[row.tradeId] ?? true;
-              const tradeCounts = getTradeCounts(row);
-              const hasReceived = tradeCounts.received > 0;
-              const hasBidding = tradeCounts.bidding > 0;
-
-              if (!isOpen) {
-                return (
-                  <tr key={row.trade} className="align-top">
-                    <th className="sticky left-0 z-10 border-b border-r border-slate-200 bg-white px-4 py-5 text-left text-lg font-semibold text-slate-900">
-                      <div className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => toggleTrade(row.tradeId)}
-                          aria-expanded={isOpen}
-                          aria-label={`${isOpen ? "Collapse" : "Expand"} ${row.trade}`}
-                          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:bg-slate-50"
-                        >
-                          <svg
-                            className={`h-4 w-4 transition ${isOpen ? "rotate-90" : ""}`}
-                            viewBox="0 0 20 20"
-                            fill="currentColor"
-                            aria-hidden="true"
-                          >
-                            <path d="M7.5 5.5L12.5 10L7.5 14.5V5.5Z" />
-                          </svg>
-                        </button>
-                        <div>
-                          <div>{row.trade}</div>
-                          <div className="text-xs font-normal">
-                            <span className={countClasses(tradeCounts.received, "received", hasReceived, hasBidding)}>
-                              {tradeCounts.received} received
-                            </span>
-                            <span className="text-slate-400"> · </span>
-                            <span className={countClasses(tradeCounts.bidding, "bidding", hasReceived, hasBidding)}>
-                              {tradeCounts.bidding} bidding
-                            </span>
-                            <span className="text-slate-400"> · </span>
-                            <span className={countClasses(tradeCounts.invited, "invited", hasReceived, hasBidding)}>
-                              {tradeCounts.invited} invited
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </th>
-                    <td className="border-b border-slate-200 px-2 text-right align-middle" colSpan={totalSubColumns + 1}>
-                      <button
-                        type="button"
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-xl text-slate-600 transition hover:bg-slate-50"
-                        aria-label={`Add subcontractor for ${row.trade}`}
-                        onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
-                      >
-                        +
-                      </button>
-                    </td>
-                  </tr>
-                );
-              }
-
-              return (
-                <tr key={row.trade} className="align-top">
-                  <th className="sticky left-0 z-10 border-b border-r border-slate-200 bg-white px-4 py-5 text-left text-lg font-semibold text-slate-900">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => toggleTrade(row.tradeId)}
-                        aria-expanded={isOpen}
-                        aria-label={`${isOpen ? "Collapse" : "Expand"} ${row.trade}`}
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:bg-slate-50"
-                      >
-                        <svg
-                          className={`h-4 w-4 transition ${isOpen ? "rotate-90" : ""}`}
-                          viewBox="0 0 20 20"
-                          fill="currentColor"
-                          aria-hidden="true"
-                        >
-                          <path d="M7.5 5.5L12.5 10L7.5 14.5V5.5Z" />
-                        </svg>
-                      </button>
-                      <div>
-                        <div>{row.trade}</div>
-                        <div className="text-xs font-normal">
-                        <span className={countClasses(tradeCounts.received, "received", hasReceived, hasBidding)}>
-                          {tradeCounts.received} received
-                        </span>
-                        <span className="text-slate-400"> · </span>
-                        <span className={countClasses(tradeCounts.bidding, "bidding", hasReceived, hasBidding)}>
-                          {tradeCounts.bidding} bidding
-                        </span>
-                        <span className="text-slate-400"> · </span>
-                        <span className={countClasses(tradeCounts.invited, "invited", hasReceived, hasBidding)}>
-                          {tradeCounts.invited} invited
-                        </span>
-                        </div>
-                      </div>
-                    </div>
-                  </th>
-                  {(() => {
-                    const tradeSubs = project.subs.filter((sub) => row.bidsBySubId[sub.id]);
-                    const emptyColumns = Math.max(totalSubColumns - tradeSubs.length, 0);
-
-                    return (
-                      <>
-                        {tradeSubs.map((sub) => {
-                          const bid = row.bidsBySubId[sub.id];
-                          if (!bid) return null;
-                          return (
-                            <td key={`${row.trade}-${sub.id}`} className="border-b border-r border-slate-200 px-4 py-4">
-                              <button
-                                type="button"
-                                onClick={() => onEditBid(bid)}
-                                className="group flex w-full flex-col items-start rounded-lg border border-transparent px-1 py-1 text-left transition hover:border-slate-200 hover:bg-slate-50"
-                              >
-                                <p className="text-xl font-semibold text-slate-900">{bid.company}</p>
-                                <p className="text-sm text-slate-500">{bid.contact}</p>
-                                <StatusPill status={bid.status} />
-                                {bid.bidAmount ? <p className="text-2xl font-semibold text-slate-900">{formatCurrency(bid.bidAmount)}</p> : null}
-                                {bid.notes ? <p className="mt-2 line-clamp-3 text-xs text-slate-500">{bid.notes}</p> : null}
-                                <span className="mt-2 text-xs text-slate-400 opacity-0 transition group-hover:opacity-100">
-                                  Click to edit
-                                </span>
-                              </button>
-                            </td>
-                          );
-                        })}
-                        {Array.from({ length: emptyColumns }).map((_, index) => (
-                          <td key={`${row.trade}-sub-empty-${index}`} className="border-b border-r border-slate-200 px-4 py-4">
-                            <button
-                              type="button"
-                              onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
-                              className="flex h-full min-h-24 w-full items-center rounded-lg border border-dashed border-slate-200 px-3 text-left text-sm text-slate-400 hover:border-slate-300 hover:bg-slate-50"
-                            >
-                              Not invited yet — click to add
-                            </button>
-                          </td>
-                        ))}
-                      </>
-                    );
-                  })()}
-                  <td className="border-b border-slate-200 px-2 text-center align-middle">
-                    <button
-                      type="button"
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-xl text-slate-600 transition hover:bg-slate-50"
-                      aria-label={`Add subcontractor for ${row.trade}`}
-                      onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
-                    >
-                      +
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-        <div className="border-t border-slate-200 bg-white px-4 py-4">
-          <button
-            type="button"
-            onClick={onAddTrade}
-            className="inline-flex items-center gap-2 rounded-xl border border-dashed border-slate-300 bg-white px-4 py-3 text-sm font-semibold text-slate-600 shadow-sm transition hover:border-slate-400 hover:bg-slate-50"
-          >
-            <span aria-hidden>＋</span>
-            Add Trade
-          </button>
-        </div>
-      </div>
-    </section>
-  );
-}
-
-const emptyMetrics: Metrics = {
-  activeBids: 0,
-  totalSubs: 0,
-  ghosted: 0,
-  nearestDueProject: null,
-};
 
 function buildProjectView(detail: BidProjectDetail | null): BidProjectView | null {
   if (!detail) return null;
@@ -642,7 +147,7 @@ function buildProjectView(detail: BidProjectDetail | null): BidProjectView | nul
 
   const subByProjectSubId = new Map(sortedProjectSubs.map((sub) => [sub.id, sub]));
 
-  const trades: TradeRow[] = detail.trades.map((trade) => {
+  const trades: TradeRowData[] = detail.trades.map((trade) => {
     const tradeMap = bidsByTrade.get(trade.id) ?? new Map<string, BidTradeBid>();
     const bidsBySubId: Record<string, TradeSubBid | null> = {};
     subs.forEach((sub) => {
@@ -687,7 +192,7 @@ export default function BiddingPage() {
   const { setActions } = useBidManagementToolbar();
   const [projects, setProjects] = useState<BidProjectSummary[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
-  const [metrics, setMetrics] = useState<Metrics>(emptyMetrics);
+  const [overviewProjects, setOverviewProjects] = useState<BidRiskProject[]>([]);
   const [detail, setDetail] = useState<BidProjectDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -771,29 +276,6 @@ export default function BiddingPage() {
       const projectData = await listBidProjects();
       if (!active) return;
       setProjects(projectData);
-
-      if (projectData.length) {
-        const projectIds = projectData.map((project) => project.id);
-        const [totalSubs, ghosted] = await Promise.all([
-          countBidProjectSubs(projectIds),
-          countGhostedBids(projectIds),
-        ]);
-        if (!active) return;
-
-        const nearestDueProject =
-          [...projectData]
-            .filter((project) => project.due_date)
-            .sort((a, b) => (safeDaysUntil(a.due_date) ?? 999999) - (safeDaysUntil(b.due_date) ?? 999999))[0] ?? null;
-
-        setMetrics({
-          activeBids: projectData.length,
-          totalSubs,
-          ghosted,
-          nearestDueProject,
-        });
-      } else {
-        setMetrics(emptyMetrics);
-      }
       setLoading(false);
     }
 
@@ -802,6 +284,54 @@ export default function BiddingPage() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    async function loadOverviewProjects() {
+      if (!projects.length) {
+        setOverviewProjects([]);
+        return;
+      }
+
+      const details = await Promise.all(projects.map((project) => getBidProjectDetail(project.id)));
+      if (!active) return;
+
+      const mapped: BidRiskProject[] = details
+        .filter((detail): detail is BidProjectDetail => Boolean(detail))
+        .map((projectDetail) => {
+          const coverage = computeCoverageSnapshot(projectDetail, TARGET_BIDS_PER_TRADE);
+          const tradesTotal = projectDetail.trades.length;
+          const tradesWith2PlusBids = Math.max(0, tradesTotal - coverage.tradesThin.length);
+
+          return {
+            id: projectDetail.project.id,
+            projectName: projectDetail.project.project_name,
+            clientName: projectDetail.project.owner ?? "Unknown owner",
+            dueDate: projectDetail.project.due_date ?? null,
+            tradesTotal,
+            tradesWith2PlusBids,
+            tradesThin: coverage.tradesThin,
+            awaitingResponsesCount: coverage.awaitingResponsesCount,
+            coveragePct: coverage.coveragePct,
+            coverageNumerator: coverage.coverageNumerator,
+            coverageDenominator: coverage.coverageDenominator,
+            targetBidsPerTrade: coverage.targetBidsPerTrade,
+          };
+        });
+
+      setOverviewProjects(mapped);
+    }
+
+    loadOverviewProjects();
+    return () => {
+      active = false;
+    };
+  }, [projects]);
+
+  useEffect(() => {
+    if (selectedProjectId || !projects.length) return;
+    setSelectedProjectId(projects[0].id);
+  }, [projects, selectedProjectId]);
 
   useEffect(() => {
     let active = true;
@@ -837,32 +367,20 @@ export default function BiddingPage() {
       if (!inviteModalOpen) return;
       setSubListLoading(true);
       try {
-        const res = await fetch("/api/directory/overview", { cache: "no-store" });
-        const payload = await res.json();
-        if (!res.ok) {
-          throw new Error(payload?.error ?? "Failed to load directory companies.");
-        }
+        const subs = await listBidSubcontractors();
         if (!active) return;
-        const companies: Array<{
-          id: string;
-          name: string;
-          primaryContact?: string | null;
-          email?: string | null;
-          phone?: string | null;
-          approvedVendor?: boolean | null;
-        }> = Array.isArray(payload?.companies) ? payload.companies : [];
         setSubList(
-          companies.map((company) => ({
-            id: String(company.id),
-            company_name: String(company.name ?? "").trim(),
-            primary_contact: company.primaryContact ?? null,
-            email: company.email ?? null,
-            phone: company.phone ?? null,
-            approved_vendor: Boolean(company.approvedVendor),
+          subs.map((sub) => ({
+            id: String(sub.id),
+            company_name: String(sub.company_name ?? "").trim(),
+            primary_contact: sub.primary_contact ?? null,
+            email: sub.email ?? null,
+            phone: sub.phone ?? null,
+            approved_vendor: Boolean(sub.approved_vendor),
           }))
         );
       } catch (err) {
-        console.error("Failed to load directory companies", err);
+        console.error("Failed to load subcontractors", err);
         if (!active) return;
         setSubList([]);
       } finally {
@@ -947,6 +465,25 @@ export default function BiddingPage() {
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
     [projects, selectedProjectId]
   );
+  const selectedRiskProject = useMemo(
+    () => overviewProjects.find((project) => project.id === selectedProjectId) ?? null,
+    [overviewProjects, selectedProjectId]
+  );
+  const activeBidProjects = useMemo<ActiveBidProject[]>(
+    () =>
+      overviewProjects.map((project) => ({
+        id: project.id,
+        projectName: project.projectName,
+        dueInDays: daysUntil(project.dueDate),
+        coveragePct: project.coveragePct ?? 0,
+        status: getRiskStatus(daysUntil(project.dueDate), project.coveragePct ?? 0),
+      })),
+    [overviewProjects]
+  );
+  const selectedCoverage = useMemo(() => {
+    if (!detail) return null;
+    return computeCoverageSnapshot(detail, TARGET_BIDS_PER_TRADE);
+  }, [detail]);
   const normalizeName = (value: string) =>
     value
       .toLowerCase()
@@ -988,6 +525,33 @@ export default function BiddingPage() {
     () => new Set(tradeDrafts.map((trade) => trade.trade_name.trim().toLowerCase()).filter(Boolean)),
     [tradeDrafts]
   );
+  const exportProjectCsv = useCallback(() => {
+    if (!projectView) return;
+    const rows = [
+      ["Trade", "Subcontractor", "Status", "Bid Amount", "Contact"],
+      ...projectView.trades.flatMap((trade) =>
+        Object.values(trade.bidsBySubId)
+          .filter((bid): bid is TradeSubBid => Boolean(bid))
+          .map((bid) => [trade.trade, bid.company, bid.status, String(bid.bidAmount ?? ""), bid.contact])
+      ),
+    ];
+    const csv = rows
+      .map((row) =>
+        row
+          .map((cell) => `"${String(cell).replace(/\"/g, '""')}"`)
+          .join(",")
+      )
+      .join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${projectView.projectName.replace(/\s+/g, "-").toLowerCase()}-bid-leveling.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, [projectView]);
 
   const openEditModal = useCallback(() => {
     if (!selectedProject) return;
@@ -1058,19 +622,69 @@ export default function BiddingPage() {
     return () => setActions(null);
   }, [setActions, toolbarActions]);
 
+  const openInviteForTrade = useCallback((payload: { tradeId: string; tradeName: string }) => {
+    setNewSubTrade(payload);
+    setNewSubDraft({
+      company_name: "",
+      primary_contact: "",
+      email: "",
+      phone: "",
+      status: "bidding",
+      bid_amount: "",
+      contact_name: "",
+    });
+    setInviteTarget(null);
+    setInviteDraft({
+      status: "bidding",
+      bid_amount: "",
+      contact_name: "",
+      notes: "",
+      invitee_mode: "existing",
+      selected_sub_id: "",
+    });
+    setInviteError(null);
+    setInviteModalOpen(true);
+  }, []);
+
+  const openBidEdit = useCallback((bid: TradeSubBid) => {
+    setEditBidDraft({
+      bid_id: bid.bidId,
+      sub_id: bid.subId,
+      company_name: bid.company,
+      primary_contact: bid.contact,
+      email: bid.email ?? "",
+      phone: bid.phone ?? "",
+      status: bid.status,
+      bid_amount: bid.bidAmount ? String(bid.bidAmount) : "",
+      contact_name: bid.contact ?? "",
+      notes: bid.notes ?? "",
+    });
+    setEditBidError(null);
+    setEditBidModalOpen(true);
+  }, []);
+
+  const archiveSelectedProject = useCallback(async () => {
+    if (!selectedProject) return;
+    const confirmed = window.confirm(`Archive “${selectedProject.project_name}”? This will remove it from active bids.`);
+    if (!confirmed) return;
+    const ok = await archiveBidProject(selectedProject.id);
+    if (!ok) return;
+    const nextProjects = projects.filter((project) => project.id !== selectedProject.id);
+    setProjects(nextProjects);
+    setOverviewProjects((prev) => prev.filter((project) => project.id !== selectedProject.id));
+    setSelectedProjectId(nextProjects[0]?.id ?? "");
+  }, [projects, selectedProject]);
+
   return (
     <main className="space-y-6 bg-slate-50 p-4 sm:p-6">
-      <BidManagementHeader />
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard icon="📄" label="Active Bids" value={String(metrics.activeBids)} />
-        <KpiCard icon="👷" label="Total Subs" value={String(metrics.totalSubs)} />
-        <KpiCard icon="⏰" label="Ghosted" value={String(metrics.ghosted)} />
-        <KpiCard
-          icon="📅"
-          label="Next Due"
-          value={metrics.nearestDueProject?.due_date ? `${daysUntil(metrics.nearestDueProject.due_date)}d` : "--"}
-          sublabel={metrics.nearestDueProject?.project_name ?? ""}
+      <section id="risk-overview">
+        <BidRiskOverview
+          projects={overviewProjects}
+          onCreateFirstBid={() => {
+            setFormError(null);
+            setModalOpen(true);
+          }}
+          onOpenProject={setSelectedProjectId}
         />
       </section>
 
@@ -1080,102 +694,56 @@ export default function BiddingPage() {
         </section>
       ) : projects.length ? (
         <div className="space-y-3">
-          <ProjectTabs projects={projects} selectedId={selectedProjectId} onSelect={setSelectedProjectId} />
-          {!selectedProjectId ? (
-            <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-6 text-center text-sm text-slate-600 shadow-sm">
+          <ActiveBidSelector
+            projects={activeBidProjects}
+            selectedProjectId={selectedProjectId}
+            onSelect={setSelectedProjectId}
+            onViewAll={() => document.getElementById("risk-overview")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          />
+
+          {loadingDetail ? (
+            <section className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center text-slate-500 shadow-sm">
+              Loading bid details...
+            </section>
+          ) : projectView ? (
+            <div className="space-y-3">
+              <ProjectSummaryBar
+                projectName={projectView.projectName}
+                clientName={projectView.owner}
+                city={projectView.location}
+                bidAmount={projectView.budget}
+                dueDate={projectView.dueDate}
+                coveragePct={selectedCoverage?.coveragePct ?? selectedRiskProject?.coveragePct ?? 0}
+                tradesThin={selectedCoverage?.tradesThin.length ?? selectedRiskProject?.tradesThin.length ?? 0}
+                awaitingResponses={selectedCoverage?.awaitingResponsesCount ?? selectedRiskProject?.awaitingResponsesCount ?? 0}
+                onInviteSubs={() => {
+                  if (projectView.trades[0]) {
+                    openInviteForTrade({ tradeId: projectView.trades[0].tradeId, tradeName: projectView.trades[0].trade });
+                    return;
+                  }
+                  openEditTradesModal();
+                }}
+                onExport={exportProjectCsv}
+                onArchive={archiveSelectedProject}
+              />
+              <TradeLevelingGrid
+                project={projectView}
+                onAddSubForTrade={openInviteForTrade}
+                onAddTrade={openEditTradesModal}
+                onEditBid={openBidEdit}
+              />
+            </div>
+          ) : (
+            <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-slate-500 shadow-sm">
               Select a project to view bid coverage.
             </section>
-          ) : null}
+          )}
         </div>
       ) : (
         <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-slate-500 shadow-sm">
           No bid projects yet. Create your first bid to start tracking coverage.
         </section>
       )}
-
-      {projects.length ? (
-        loadingDetail ? (
-          <section className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center text-slate-500 shadow-sm">
-            Loading bid details...
-          </section>
-        ) : projectView ? (
-          <BidComparisonGrid
-            project={projectView}
-            onAddSubForTrade={(payload) => {
-              setNewSubTrade(payload);
-              setNewSubDraft({
-                company_name: "",
-                primary_contact: "",
-                email: "",
-                phone: "",
-                status: "bidding",
-                bid_amount: "",
-                contact_name: "",
-              });
-              setInviteTarget(null);
-              setInviteDraft({
-                status: "bidding",
-                bid_amount: "",
-                contact_name: "",
-                notes: "",
-                invitee_mode: "existing",
-                selected_sub_id: "",
-              });
-              setInviteError(null);
-              setInviteModalOpen(true);
-            }}
-            onAddTrade={openEditTradesModal}
-            onEditBid={(bid) => {
-              setEditBidDraft({
-                bid_id: bid.bidId,
-                sub_id: bid.subId,
-                company_name: bid.company,
-                primary_contact: bid.contact,
-                email: bid.email ?? "",
-                phone: bid.phone ?? "",
-                status: bid.status,
-                bid_amount: bid.bidAmount ? String(bid.bidAmount) : "",
-                contact_name: bid.contact ?? "",
-                notes: bid.notes ?? "",
-              });
-              setEditBidError(null);
-              setEditBidModalOpen(true);
-            }}
-          />
-        ) : (
-          <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-slate-500 shadow-sm">
-            Select a project to view bid coverage.
-          </section>
-        )
-      ) : null}
-
-      {selectedProject ? (
-        <section className="flex justify-end">
-          <button
-            type="button"
-            onClick={async () => {
-              if (!selectedProject) return;
-              const confirmed = window.confirm(`Archive “${selectedProject.project_name}”? This will remove it from active bids.`);
-              if (!confirmed) return;
-              const ok = await archiveBidProject(selectedProject.id);
-              if (!ok) return;
-              setProjects((prev) => prev.filter((project) => project.id !== selectedProject.id));
-              setSelectedProjectId((prev) => {
-                if (prev !== selectedProject.id) return prev;
-                const next = projects.filter((project) => project.id !== selectedProject.id)[0]?.id ?? "";
-                return next;
-              });
-              setMetrics((prev) => ({
-                ...prev,
-                activeBids: Math.max(prev.activeBids - 1, 0),
-              }));
-            }}
-            className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 shadow-sm transition hover:bg-rose-100"
-          >
-            Archive
-          </button>
-        </section>
-      ) : null}
 
       {modalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
@@ -1215,17 +783,19 @@ export default function BiddingPage() {
                   await createBidTrades(created.id, tradePayload);
                 }
                 setProjects((prev) => [created, ...prev]);
-                setMetrics((prev) => {
-                  const prevDays = safeDaysUntil(prev.nearestDueProject?.due_date ?? null);
-                  const nextDays = safeDaysUntil(created.due_date ?? null);
-                  const shouldReplace =
-                    nextDays !== null && (prevDays === null || nextDays < prevDays);
-                  return {
-                    ...prev,
-                    activeBids: prev.activeBids + 1,
-                    nearestDueProject: shouldReplace ? created : prev.nearestDueProject,
-                  };
-                });
+                setOverviewProjects((prev) => [
+                  {
+                    id: created.id,
+                    projectName: created.project_name,
+                    clientName: created.owner ?? "Unknown owner",
+                    dueDate: created.due_date ?? null,
+                    tradesTotal: 0,
+                    tradesWith2PlusBids: 0,
+                    tradesThin: [],
+                    awaitingResponsesCount: 0,
+                  },
+                  ...prev,
+                ]);
                 setSelectedProjectId(created.id);
                 setModalOpen(false);
                 setSaving(false);
@@ -1769,42 +1339,26 @@ export default function BiddingPage() {
                   }
                   const selectedCompany = subList.find((sub) => sub.id === inviteDraft.selected_sub_id);
                   if (!selectedCompany) {
-                    setInviteError("Selected subcontractor not found in the directory.");
+                    setInviteError("Selected subcontractor not found.");
                     setSavingInvite(false);
                     return;
                   }
                   const tradeId = newSubTrade.tradeId;
-                  let resolvedProjectSubId = "";
-                  if (!resolvedProjectSubId) {
-                    const sortOrder = getNextSubSortOrder(detail?.projectSubs ?? []);
-                    const ensured = await ensureBidSubcontractor({
-                      company_name: selectedCompany.company_name,
-                      primary_contact: selectedCompany.primary_contact,
-                      email: selectedCompany.email,
-                      phone: selectedCompany.phone,
-                      approved_vendor: selectedCompany.approved_vendor,
-                    });
-                    if (!ensured) {
-                      setInviteError("Unable to add this subcontractor.");
-                      setSavingInvite(false);
-                      return;
-                    }
-                    const projectSub = await inviteSubToProject({
-                      project_id: selectedProject.id,
-                      subcontractor_id: ensured.id,
-                      sort_order: sortOrder,
-                    });
-                    if (!projectSub) {
-                      setInviteError("Unable to invite subcontractor to project.");
-                      setSavingInvite(false);
-                      return;
-                    }
-                    resolvedProjectSubId = projectSub.id;
+                  const sortOrder = getNextSubSortOrder(detail?.projectSubs ?? []);
+                  const projectSub = await inviteSubToProject({
+                    project_id: selectedProject.id,
+                    subcontractor_id: selectedCompany.id,
+                    sort_order: sortOrder,
+                  });
+                  if (!projectSub) {
+                    setInviteError("Unable to invite subcontractor to project.");
+                    setSavingInvite(false);
+                    return;
                   }
                   const ok = await createTradeBid({
                     project_id: selectedProject.id,
                     trade_id: tradeId,
-                    project_sub_id: resolvedProjectSubId,
+                    project_sub_id: projectSub.id,
                     status: inviteDraft.status,
                     bid_amount: Number.isFinite(bidAmountValue) ? bidAmountValue : null,
                     contact_name: inviteDraft.contact_name.trim() || null,
@@ -1827,64 +1381,29 @@ export default function BiddingPage() {
                     return;
                   }
                   const tradeId = newSubTrade.tradeId;
-                  const companyPayload = {
-                    companies: [
-                      {
-                        name: newSubDraft.company_name.trim(),
-                        primaryContact: newSubDraft.primary_contact.trim() || undefined,
-                        email: newSubDraft.email.trim() || undefined,
-                        phone: newSubDraft.phone.trim() || undefined,
-                        isActive: true,
-                        approvedVendor: false,
-                      },
-                    ],
-                  };
-                  let createdCompanyId = "";
-                  try {
-                    const res = await fetch("/api/directory/companies", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify(companyPayload),
-                    });
-                    const payload = await res.json().catch(() => ({}));
-                    if (!res.ok) {
-                      throw new Error(payload?.error ?? "Failed to create directory company.");
-                    }
-                    const created =
-                      payload?.companies?.find(
-                        (company: { id?: string; name?: string }) =>
-                          company?.name?.toLowerCase() === newSubDraft.company_name.trim().toLowerCase()
-                      ) ?? null;
-                    createdCompanyId = created?.id ?? "";
-                  } catch (err) {
-                    setInviteError(err instanceof Error ? err.message : "Unable to create directory company.");
-                    setSavingInvite(false);
-                    return;
-                  }
                   const sub = await createBidSubcontractor({
                     company_name: newSubDraft.company_name,
                     primary_contact: newSubDraft.primary_contact.trim() || null,
                     email: newSubDraft.email.trim() || null,
                     phone: newSubDraft.phone.trim() || null,
+                    approved_vendor: false,
                   });
                   if (!sub) {
                     setInviteError("Unable to create subcontractor.");
                     setSavingInvite(false);
                     return;
                   }
-                  if (createdCompanyId) {
-                    setSubList((prev) => [
-                      ...prev,
-                      {
-                        id: createdCompanyId,
-                        company_name: newSubDraft.company_name.trim(),
-                        primary_contact: newSubDraft.primary_contact.trim() || null,
-                        email: newSubDraft.email.trim() || null,
-                        phone: newSubDraft.phone.trim() || null,
-                        approved_vendor: false,
-                      },
-                    ]);
-                  }
+                  setSubList((prev) => [
+                    ...prev,
+                    {
+                      id: sub.id,
+                      company_name: newSubDraft.company_name.trim(),
+                      primary_contact: newSubDraft.primary_contact.trim() || null,
+                      email: newSubDraft.email.trim() || null,
+                      phone: newSubDraft.phone.trim() || null,
+                      approved_vendor: false,
+                    },
+                  ]);
                   const sortOrder = getNextSubSortOrder(detail?.projectSubs ?? []);
                   const projectSub = await inviteSubToProject({
                     project_id: selectedProject.id,
@@ -2030,27 +1549,20 @@ export default function BiddingPage() {
                                   checked={selected.approved_vendor}
                                   onChange={async (event) => {
                                     const nextApproved = event.target.checked;
+                                    const updated = await updateBidSubcontractor({
+                                      id: selected.id,
+                                      company_name: selected.company_name,
+                                      primary_contact: selected.primary_contact ?? null,
+                                      email: selected.email ?? null,
+                                      phone: selected.phone ?? null,
+                                      approved_vendor: nextApproved,
+                                    });
+                                    if (!updated) return;
                                     setSubList((prev) =>
                                       prev.map((item) =>
                                         item.id === selected.id ? { ...item, approved_vendor: nextApproved } : item
                                       )
                                     );
-                                    await fetch("/api/directory/companies", {
-                                      method: "POST",
-                                      headers: { "Content-Type": "application/json" },
-                                      body: JSON.stringify({
-                                        companies: [
-                                          {
-                                            id: selected.id,
-                                            name: selected.company_name,
-                                            primaryContact: selected.primary_contact ?? undefined,
-                                            email: selected.email ?? undefined,
-                                            phone: selected.phone ?? undefined,
-                                            approvedVendor: nextApproved,
-                                          },
-                                        ],
-                                      }),
-                                    });
                                   }}
                                 />
                                 Approved Vendor

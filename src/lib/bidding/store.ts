@@ -182,6 +182,7 @@ export async function createBidSubcontractor(payload: {
   primary_contact?: string | null;
   email?: string | null;
   phone?: string | null;
+  approved_vendor?: boolean | null;
 }): Promise<{ id: string; company_name: string; primary_contact: string | null } | null> {
   const supabase = createClient();
   const { data, error } = await supabase
@@ -191,6 +192,7 @@ export async function createBidSubcontractor(payload: {
       primary_contact: payload.primary_contact ?? null,
       email: payload.email ?? null,
       phone: payload.phone ?? null,
+      approved_vendor: payload.approved_vendor ?? false,
     })
     .select("id, company_name, primary_contact")
     .single();
@@ -256,12 +258,19 @@ export async function createTradeBid(payload: {
 }
 
 export async function listBidSubcontractors(): Promise<
-  Array<{ id: string; company_name: string; primary_contact: string | null; email: string | null; phone: string | null }>
+  Array<{
+    id: string;
+    company_name: string;
+    primary_contact: string | null;
+    email: string | null;
+    phone: string | null;
+    approved_vendor: boolean | null;
+  }>
 > {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("bid_subcontractors")
-    .select("id, company_name, primary_contact, email, phone")
+    .select("id, company_name, primary_contact, email, phone, approved_vendor")
     .is("archived_at", null)
     .order("company_name", { ascending: true });
 
@@ -276,6 +285,7 @@ export async function listBidSubcontractors(): Promise<
     primary_contact: string | null;
     email: string | null;
     phone: string | null;
+    approved_vendor: boolean | null;
   }>;
 }
 
@@ -362,6 +372,7 @@ export async function updateBidSubcontractor(payload: {
   primary_contact?: string | null;
   email?: string | null;
   phone?: string | null;
+  approved_vendor?: boolean | null;
 }): Promise<boolean> {
   const supabase = createClient();
   const { error } = await supabase
@@ -371,6 +382,7 @@ export async function updateBidSubcontractor(payload: {
       primary_contact: payload.primary_contact ?? null,
       email: payload.email ?? null,
       phone: payload.phone ?? null,
+      approved_vendor: payload.approved_vendor ?? null,
     })
     .eq("id", payload.id);
 

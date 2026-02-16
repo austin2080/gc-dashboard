@@ -1,14 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { BidManagementHeader } from "@/components/bidding/bid-management-header";
 import { useBidManagementToolbar } from "@/components/bidding/bid-management-toolbar";
+import { NewOwnerBidOverlay } from "@/components/owner-bids/NewOwnerBidOverlay";
 import {
-  NewOwnerBidOverlay,
-  type NewOwnerBidInput,
-  type OwnerBid,
-  type OwnerBidStatus,
-} from "@/components/owner-bids/NewOwnerBidOverlay";
+  createOwnerBid,
+  listOwnerBids,
+  updateOwnerBid,
+} from "@/lib/bidding/owner-bids-store";
+import type {
+  NewOwnerBidInput,
+  OwnerBid,
+  OwnerBidStatus,
+} from "@/lib/bidding/owner-bids-types";
 
 const statusOptions: OwnerBidStatus[] = ["Draft", "Submitted", "Awarded", "Lost"];
 
@@ -35,84 +39,11 @@ function dateOnly(value: string): string {
   return value.slice(0, 10);
 }
 
-const starterBids: OwnerBid[] = [
-  {
-    id: "ob-1",
-    name: "Westlake Medical Pavilion Expansion",
-    client: "Apex Health Partners",
-    projectType: "GMP",
-    address: "1810 Westlake Ave, Austin, TX",
-    squareFeet: 118000,
-    dueDate: "2026-03-04",
-    bidType: "GMP",
-    status: "Submitted",
-    assignedTo: "Alex Carter",
-    probability: 65,
-    estCost: 6645000,
-    ohpAmount: 631275,
-    markupPct: 9.5,
-    bidAmount: 7276275,
-    expectedProfit: 631275,
-    marginPct: 8.7,
-    lostReason: null,
-    lostNotes: "",
-    convertToProject: false,
-    createdAt: "2026-02-14T16:30:00.000Z",
-    updatedAt: "2026-02-20T11:12:00.000Z",
-  },
-  {
-    id: "ob-2",
-    name: "Southline Fleet Service Yard",
-    client: "City of Southline",
-    projectType: "Ground-Up",
-    address: "4400 Benton Rd, Southline, TX",
-    squareFeet: 94000,
-    dueDate: "2026-03-21",
-    bidType: "Hard Bid",
-    status: "Draft",
-    assignedTo: "Morgan Lee",
-    probability: 50,
-    estCost: 10120000,
-    ohpAmount: 809600,
-    markupPct: 8,
-    bidAmount: 10929600,
-    expectedProfit: 809600,
-    marginPct: 7.4,
-    lostReason: null,
-    lostNotes: "",
-    convertToProject: false,
-    createdAt: "2026-02-11T08:22:00.000Z",
-    updatedAt: "2026-02-18T14:08:00.000Z",
-  },
-  {
-    id: "ob-3",
-    name: "Riverfront Distribution Retrofit",
-    client: "North Harbor Development",
-    projectType: "TI",
-    address: "120 Riverfront Pkwy, Houston, TX",
-    squareFeet: 286000,
-    dueDate: "2026-01-12",
-    bidType: "Negotiated",
-    status: "Lost",
-    assignedTo: "Jordan Smith",
-    probability: 35,
-    estCost: 14740000,
-    ohpAmount: 1031800,
-    markupPct: 7,
-    bidAmount: 15771800,
-    expectedProfit: 1031800,
-    marginPct: 6.5,
-    lostReason: "Competitor",
-    lostNotes: "Owner selected incumbent GC after BAFO round.",
-    convertToProject: false,
-    createdAt: "2025-12-03T09:47:00.000Z",
-    updatedAt: "2026-01-16T17:19:00.000Z",
-  },
-];
-
 export default function OwnerBidsPage() {
   const { setActions } = useBidManagementToolbar();
-  const [bids, setBids] = useState<OwnerBid[]>(starterBids);
+  const [bids, setBids] = useState<OwnerBid[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | OwnerBidStatus>("all");
   const [dateFrom, setDateFrom] = useState("");
@@ -140,36 +71,47 @@ export default function OwnerBidsPage() {
   const selectedBid = bids.find((bid) => bid.id === selectedBidId) ?? null;
   const editingBid = bids.find((bid) => bid.id === editingBidId) ?? null;
 
-  const handleCreateBid = useCallback((payload: NewOwnerBidInput) => {
-    const now = new Date().toISOString();
-    const newBid: OwnerBid = {
-      id: `ob-${Math.random().toString(36).slice(2, 10)}`,
-      ...payload,
-      createdAt: now,
-      updatedAt: now,
-    };
-    setBids((prev) => [newBid, ...prev]);
-    setSelectedBidId(newBid.id);
+  const handleCreateBid = useCallback(async (payload: NewOwnerBidInput) => {
+    const created = await createOwnerBid(payload);
+    if (!created) {
+      throw new Error("Unable to create owner bid. Confirm the Supabase table and RLS policies are installed.");
+    }
+    setBids((prev) => [created, ...prev]);
+    setSelectedBidId(created.id);
     setToast("Owner bid created");
   }, []);
 
-  const handleEditBid = useCallback((payload: NewOwnerBidInput) => {
+  const handleEditBid = useCallback(async (payload: NewOwnerBidInput) => {
     if (!editingBidId) return;
-    const now = new Date().toISOString();
-    setBids((prev) =>
-      prev.map((bid) =>
-        bid.id === editingBidId
-          ? {
-              ...bid,
-              ...payload,
-              updatedAt: now,
-            }
-          : bid
-      )
-    );
+    const updated = await updateOwnerBid(editingBidId, payload);
+    if (!updated) {
+      throw new Error("Unable to update owner bid. Confirm the Supabase table and RLS policies are installed.");
+    }
+    setBids((prev) => prev.map((bid) => (bid.id === editingBidId ? updated : bid)));
     setSelectedBidId(editingBidId);
     setToast("Owner bid updated");
   }, [editingBidId]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadBids() {
+      setLoading(true);
+      const rows = await listOwnerBids();
+      if (!active) return;
+      setBids(rows);
+      setLoadError(
+        rows.length === 0
+          ? "No owner bids found yet. Create one to get started."
+          : null
+      );
+      setLoading(false);
+    }
+
+    loadBids();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -198,8 +140,6 @@ export default function OwnerBidsPage() {
 
   return (
     <main className="space-y-6 bg-slate-50 p-4 sm:p-6">
-      <BidManagementHeader />
-
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
           <input
@@ -245,7 +185,13 @@ export default function OwnerBidsPage() {
               </tr>
             </thead>
             <tbody>
-              {visibleBids.length ? (
+              {loading ? (
+                <tr>
+                  <td colSpan={10} className="px-3 py-8 text-center text-sm text-slate-500">
+                    Loading owner bids...
+                  </td>
+                </tr>
+              ) : visibleBids.length ? (
                 visibleBids.map((bid) => (
                   <tr
                     key={bid.id}
@@ -267,7 +213,7 @@ export default function OwnerBidsPage() {
               ) : (
                 <tr>
                   <td colSpan={10} className="px-3 py-8 text-center text-sm text-slate-500">
-                    No owner bids match current filters.
+                    {loadError ?? "No owner bids match current filters."}
                   </td>
                 </tr>
               )}

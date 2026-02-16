@@ -1,18 +1,23 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 
 type RiskStatus = "Healthy" | "At Risk" | "Critical";
 
-type BidRiskProject = {
+export type BidRiskProject = {
   id: string;
   projectName: string;
   clientName: string;
-  dueDate: string;
+  dueDate: string | null;
   tradesTotal: number;
   tradesWith2PlusBids: number;
   tradesThin: string[];
   awaitingResponsesCount: number;
+  coveragePct?: number;
+  coverageNumerator?: number;
+  coverageDenominator?: number;
+  targetBidsPerTrade?: number;
 };
 
 type BidRiskOverviewProps = {
@@ -70,7 +75,8 @@ const mockProjects: BidRiskProject[] = [
   },
 ];
 
-function formatDueLabel(dueDate: string, dueInDays: number) {
+function formatDueLabel(dueDate: string | null, dueInDays: number) {
+  if (!dueDate) return "--";
   if (dueInDays < 0) return "Past Due";
   if (dueInDays === 0) return "Today";
   if (dueInDays === 1) return "Tomorrow";
@@ -80,7 +86,8 @@ function formatDueLabel(dueDate: string, dueInDays: number) {
   return due.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-function computeDueInDays(dueDate: string) {
+function computeDueInDays(dueDate: string | null) {
+  if (!dueDate) return Number.POSITIVE_INFINITY;
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const due = new Date(dueDate);
@@ -90,6 +97,7 @@ function computeDueInDays(dueDate: string) {
 }
 
 function getStatus(dueInDays: number, coveragePct: number): RiskStatus {
+  if (!Number.isFinite(dueInDays)) return coveragePct < 70 ? "At Risk" : "Healthy";
   if (dueInDays <= 3 && coveragePct < 70) return "Critical";
   if (dueInDays <= 7 && coveragePct < 80) return "At Risk";
   return "Healthy";
@@ -141,13 +149,20 @@ const dueStyles = {
 };
 
 export default function BidRiskOverview({ projects = mockProjects, onCreateFirstBid, onOpenProject }: BidRiskOverviewProps) {
+  const router = useRouter();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<FilterMode>("all");
   const [sortMode, setSortMode] = useState<SortMode>("urgency");
 
   const prepared = useMemo(() => {
     const mapped = projects.map((project) => {
-      const coveragePct = project.tradesTotal > 0 ? Math.round((project.tradesWith2PlusBids / project.tradesTotal) * 100) : 0;
+      const fallbackDenominator = Math.max(project.tradesTotal * (project.targetBidsPerTrade ?? 3), 1);
+      const coverageDenominator = project.coverageDenominator ?? fallbackDenominator;
+      const coverageNumerator = project.coverageNumerator ?? project.tradesWith2PlusBids;
+      const coveragePct =
+        typeof project.coveragePct === "number"
+          ? project.coveragePct
+          : Math.max(0, Math.min(100, Math.round((coverageNumerator / coverageDenominator) * 100)));
       const dueInDays = computeDueInDays(project.dueDate);
       const status = getStatus(dueInDays, coveragePct);
       const riskChips = getRiskChips(project);
@@ -155,6 +170,8 @@ export default function BidRiskOverview({ projects = mockProjects, onCreateFirst
       return {
         ...project,
         coveragePct,
+        coverageNumerator,
+        coverageDenominator,
         dueInDays,
         status,
         riskChips,
@@ -183,6 +200,7 @@ export default function BidRiskOverview({ projects = mockProjects, onCreateFirst
     }
 
     console.log("TODO: route to project bid detail", projectId);
+    router.push(`/bidding?projectId=${encodeURIComponent(projectId)}`);
   };
 
   return (
@@ -261,7 +279,16 @@ export default function BidRiskOverview({ projects = mockProjects, onCreateFirst
 
                 <div>
                   <div className="mb-1 flex items-center justify-between text-xs text-slate-500">
-                    <span>Coverage</span>
+                    <span className="inline-flex items-center gap-1">
+                      Coverage
+                      <span
+                        title={`Coverage = submitted bids / (total trades × target bids per trade). Currently ${project.coverageNumerator}/${project.coverageDenominator}.`}
+                        className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-slate-200 bg-white text-[10px] text-slate-500"
+                        aria-label="Coverage formula"
+                      >
+                        i
+                      </span>
+                    </span>
                     <span className="font-semibold text-slate-700">{project.coveragePct}%</span>
                   </div>
                   <div className="h-2 rounded-full bg-slate-200">
