@@ -840,14 +840,7 @@ export default function BiddingPage() {
           throw new Error(payload?.error ?? "Failed to load directory companies.");
         }
         if (!active) return;
-        const companies: Array<{
-          id: string;
-          name: string;
-          primaryContact?: string | null;
-          email?: string | null;
-          phone?: string | null;
-          approvedVendor?: boolean | null;
-        }> = Array.isArray(payload?.companies) ? payload.companies : [];
+        const companies = Array.isArray(payload?.companies) ? payload.companies : [];
         setSubList(
           companies.map((company) => ({
             id: String(company.id),
