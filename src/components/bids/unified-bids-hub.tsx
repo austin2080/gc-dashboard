@@ -189,7 +189,7 @@ export default function UnifiedBidsHub() {
       <div className="mx-auto max-w-7xl space-y-6">
         <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-center gap-4">
-            <h1 className="text-2xl font-semibold text-slate-900">GC/Owner Bids</h1>
+            <h1 className="text-2xl font-semibold text-slate-900">Bid Analytics</h1>
             <div className="inline-flex rounded-2xl border border-slate-200 bg-white p-1.5 text-sm shadow-sm">
               <button
                 onClick={() => setMode("gc_owner")}
