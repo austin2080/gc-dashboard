@@ -11,14 +11,14 @@ const RECENT_PROJECTS_STORAGE_KEY = "recentProjectIds";
 const MOCK_PROJECT_ID = "mock-project-nav-test";
 
 const PROJECT_TOOL_ITEMS = [
-  { label: "Bid Management", href: "/bidding" },
-  { label: "WaiverDesk", href: "/waiverdesk/waivers" },
-  { label: "Project Management", href: "/dashboard" },
+  { label: "Bid Management", href: "/bidding", description: "Track bids, proposals, and award pipeline." },
+  { label: "WaiverDesk", href: "/waiverdesk/waivers", description: "Manage waivers and compliance status." },
+  { label: "Project Management", href: "/dashboard", description: "Monitor daily progress across active jobs." },
 ];
 
 const COMPANY_TOOL_ITEMS = [
-  { label: "Subs Directory", href: "/directory" },
-  { label: "Settings", href: "/settings" },
+  { label: "Subs Directory", href: "/directory", description: "Search subcontractors, trades, and contacts." },
+  { label: "Settings", href: "/settings", description: "Configure account, team, and company options." },
 ];
 
 function projectLabel(project: ProjectRow) {
@@ -347,26 +347,38 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
               <span className="text-xs opacity-70">▾</span>
             </button>
             {toolsOpen ? (
-              <div className="absolute left-0 top-full z-30 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-[#E5E7EB] bg-white p-2 text-black shadow-[0_10px_25px_rgba(0,0,0,0.12)]">
-                {toolSections.map((section) => (
-                  <div key={section.title} className="mb-2 last:mb-0">
-                    <div className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-black/45">
-                      {section.title}
-                    </div>
-                    <div className="space-y-1">
-                      {section.items.map((tool) => (
-                        <Link
-                          key={`${section.title}-${tool.label}`}
-                          href={tool.href}
-                          onClick={closeMenus}
-                          className="block rounded px-2 py-2 text-sm hover:bg-black/[0.04]"
-                        >
-                          {tool.label}
-                        </Link>
-                      ))}
-                    </div>
+              <div className="absolute left-0 top-full z-30 mt-1 w-[min(42rem,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] rounded-lg border border-[#E5E7EB] bg-white p-4 text-black shadow-[0_10px_25px_rgba(0,0,0,0.12)]">
+                <div className="mb-3 flex items-center justify-between border-b border-black/10 pb-3">
+                  <div>
+                    <div className="text-xs font-semibold uppercase tracking-wider text-black/45">Tools</div>
+                    <div className="text-sm font-semibold text-black/85">Choose a workspace</div>
                   </div>
-                ))}
+                  {activeProject ? (
+                    <div className="max-w-[14rem] truncate text-xs text-black/60">Project: {projectLabel(activeProject)}</div>
+                  ) : null}
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  {toolSections.map((section) => (
+                    <div key={section.title} className="rounded-md border border-black/10 bg-black/[0.015] p-2">
+                      <div className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-black/45">
+                        {section.title}
+                      </div>
+                      <div className="space-y-1">
+                        {section.items.map((tool) => (
+                          <Link
+                            key={`${section.title}-${tool.label}`}
+                            href={tool.href}
+                            onClick={closeMenus}
+                            className="block rounded-md px-2 py-2 hover:bg-black/[0.04]"
+                          >
+                            <div className="text-sm font-medium text-black/90">{tool.label}</div>
+                            <div className="mt-0.5 text-xs text-black/55">{tool.description}</div>
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : null}
           </div>

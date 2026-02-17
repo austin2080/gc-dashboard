@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import type {
   BidProjectDetail,
   BidProjectSummary,
@@ -174,44 +175,6 @@ function KpiCard({
         </div>
       </div>
     </article>
-  );
-}
-
-function ProjectTabs({
-  projects,
-  selectedId,
-  onSelect,
-}: {
-  projects: BidProjectSummary[];
-  selectedId: string;
-  onSelect: (id: string) => void;
-}) {
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-100/80 p-2">
-      <div className="flex flex-wrap gap-2">
-        {projects.map((project) => {
-          const active = project.id === selectedId;
-          const countdown = project.due_date ? `${daysUntil(project.due_date)}d` : "--";
-          return (
-            <button
-              key={project.id}
-              type="button"
-              onClick={() => onSelect(project.id)}
-              className={`inline-flex items-center gap-3 rounded-xl border px-4 py-2 text-sm font-semibold transition ${
-                active
-                  ? "border-slate-300 bg-white text-slate-900 shadow-sm"
-                  : "border-transparent bg-transparent text-slate-500 hover:border-slate-200 hover:bg-white/60"
-              }`}
-            >
-              {project.project_name}
-              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700">
-                {countdown}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
   );
 }
 
@@ -679,6 +642,8 @@ function buildProjectView(detail: BidProjectDetail | null): BidProjectView | nul
 }
 
 export default function BiddingPage() {
+  const searchParams = useSearchParams();
+  const queryProjectId = searchParams.get("project");
   const [projects, setProjects] = useState<BidProjectSummary[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [metrics, setMetrics] = useState<Metrics>(emptyMetrics);
@@ -789,6 +754,19 @@ export default function BiddingPage() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!projects.length) {
+      if (selectedProjectId) setSelectedProjectId("");
+      return;
+    }
+    if (selectedProjectId && projects.some((project) => project.id === selectedProjectId)) return;
+    if (queryProjectId && projects.some((project) => project.id === queryProjectId)) {
+      setSelectedProjectId(queryProjectId);
+      return;
+    }
+    setSelectedProjectId(projects[0].id);
+  }, [projects, queryProjectId, selectedProjectId]);
 
   useEffect(() => {
     let active = true;
@@ -1010,89 +988,10 @@ export default function BiddingPage() {
         <section className="rounded-2xl border border-slate-200 bg-white px-6 py-6 text-sm text-slate-500 shadow-sm">
           Loading bid projects...
         </section>
-      ) : projects.length ? (
-        <div className="space-y-3">
-          <ProjectTabs projects={projects} selectedId={selectedProjectId} onSelect={setSelectedProjectId} />
-          {!selectedProjectId ? (
-            <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-6 text-center text-sm text-slate-600 shadow-sm">
-              Select a project to view bid coverage.
-            </section>
-          ) : null}
-        </div>
-      ) : (
+      ) : !projects.length ? (
         <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-slate-500 shadow-sm">
           No bid projects yet. Create your first bid to start tracking coverage.
         </section>
-      )}
-
-      {projects.length ? (
-        loadingDetail ? (
-          <section className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center text-slate-500 shadow-sm">
-            Loading bid details...
-          </section>
-        ) : projectView ? (
-          <BidComparisonGrid
-            project={projectView}
-            onInviteExisting={(payload) => {
-              setInviteTarget(payload);
-              setNewSubTrade(null);
-              setInviteDraft({
-                status: "bidding",
-                bid_amount: "",
-                contact_name: "",
-                notes: "",
-                invitee_mode: "existing",
-                selected_sub_id: "",
-              });
-              setInviteError(null);
-              setInviteModalOpen(true);
-            }}
-            onAddSubForTrade={(payload) => {
-              setNewSubTrade(payload);
-              setNewSubDraft({
-                company_name: "",
-                primary_contact: "",
-                email: "",
-                phone: "",
-                status: "bidding",
-                bid_amount: "",
-                contact_name: "",
-              });
-              setInviteTarget(null);
-              setInviteDraft({
-                status: "bidding",
-                bid_amount: "",
-                contact_name: "",
-                notes: "",
-                invitee_mode: "existing",
-                selected_sub_id: "",
-              });
-              setInviteError(null);
-              setInviteModalOpen(true);
-            }}
-            onAddTrade={openEditTradesModal}
-            onEditBid={(bid) => {
-              setEditBidDraft({
-                bid_id: bid.bidId,
-                sub_id: bid.subId,
-                company_name: bid.company,
-                primary_contact: bid.contact,
-                email: bid.email ?? "",
-                phone: bid.phone ?? "",
-                status: bid.status,
-                bid_amount: bid.bidAmount ? String(bid.bidAmount) : "",
-                contact_name: bid.contact ?? "",
-                notes: bid.notes ?? "",
-              });
-              setEditBidError(null);
-              setEditBidModalOpen(true);
-            }}
-          />
-        ) : (
-          <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-slate-500 shadow-sm">
-            Select a project to view bid coverage.
-          </section>
-        )
       ) : null}
 
       {selectedProject ? (
