@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useMemo, useState, useEffect, useRef, useContext } from "react";
 import type { ProjectRow } from "@/lib/db/projects";
 import { ModeContext } from "@/components/mode-provider";
+import type { ModuleKey } from "@/lib/access/modules";
 
 const GLOBAL_TOOLS = [
   { label: "Home", href: "/dashboard" },
@@ -96,7 +97,19 @@ const WAIVER_NAV_ITEMS = [
   { label: "Settings", href: "/settings" },
 ];
 
-export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
+const BIDDING_NAV_ITEMS = [
+  { label: "Overview", href: "/bidding" },
+  { label: "Active Bids", href: "/bidding" },
+  { label: "Subs / Directory", href: "/subcontractors" },
+  { label: "Analytics", href: "/bids" },
+];
+
+type TopNavClientProps = {
+  projects: ProjectRow[];
+  moduleAccess: Record<ModuleKey, boolean>;
+};
+
+export default function TopNavClient({ projects, moduleAccess }: TopNavClientProps) {
   const { mode } = useContext(ModeContext);
   const { setMode } = useContext(ModeContext);
   const pathname = usePathname();
@@ -125,7 +138,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
   }));
 
   const withMode = (href: string) => {
-    if (mode !== "waiverdesk") return href;
+    if (currentMode !== "waiverdesk") return href;
     if (href.startsWith("/waiverdesk")) return href;
     return `/waiverdesk${href}`;
   };
@@ -153,7 +166,18 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
       )
     : GLOBAL_TOOLS;
 
-  const modeLabel = mode === "waiverdesk" ? "WaiverDesk" : mode === "bidding" ? "Bidding" : "Project Management";
+  const availableModes = ([
+    moduleAccess.bidding ? "bidding" : null,
+    moduleAccess.waiverdesk ? "waiverdesk" : null,
+    moduleAccess.pm ? "pm" : null,
+  ].filter(Boolean) as Array<"bidding" | "waiverdesk" | "pm">);
+  const currentMode =
+    availableModes.includes(mode) ? mode : availableModes[0] ?? "bidding";
+  const modeLabel =
+    currentMode === "waiverdesk" ? "WaiverDesk" : currentMode === "bidding" ? "Bidding" : "Project Management";
+  const modeHomeHref =
+    currentMode === "waiverdesk" ? "/waiverdesk/dashboard" : currentMode === "pm" ? "/dashboard" : "/bidding";
+  const isBiddingCore = moduleAccess.bidding && !moduleAccess.waiverdesk && !moduleAccess.pm;
 
   useEffect(() => {
     if (!toolsOpen && !projectsOpen && !profileOpen) return;
@@ -177,20 +201,20 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
   }, [toolsOpen, projectsOpen, profileOpen]);
 
   return (
-    <header className="sticky top-0 z-20 w-full border-b border-white/10 bg-[color:var(--brand)] text-white">
+    <header className="sticky top-0 z-[70] w-full border-b border-white/10 bg-[color:var(--brand)] text-white">
       <div className="px-4 py-3 md:px-6">
         <div className="flex items-center justify-between gap-3">
-          <Link href={withMode("/dashboard")} className="flex items-center gap-2">
+          <Link href={withMode(modeHomeHref)} className="flex items-center gap-2">
             <div className="text-xs uppercase tracking-widest opacity-70">
-              {mode === "waiverdesk" ? "WD" : "GC"}
+              {currentMode === "waiverdesk" ? "WD" : "GC"}
             </div>
             <div className="text-xl font-semibold">
-              {mode === "waiverdesk" ? "WaiverDesk" : "Dashboard"}
+              {currentMode === "waiverdesk" ? "WaiverDesk" : currentMode === "pm" ? "Dashboard" : "Bidding"}
             </div>
           </Link>
 
           <div className="hidden items-center gap-2 md:flex">
-            {mode === "waiverdesk" ? (
+            {currentMode === "waiverdesk" ? (
               <div className="relative" ref={toolsRef}>
                 <button
                   className="rounded-full border border-white/20 px-3 py-1 text-base cursor-pointer flex items-center gap-2"
@@ -210,7 +234,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                   </svg>
                 </button>
                 {toolsOpen ? (
-                  <div className="absolute left-0 top-full z-30 min-w-[260px] rounded-xl border border-[#E5E7EB] bg-white p-2 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
+                  <div className="absolute left-0 top-full z-[80] min-w-[260px] rounded-xl border border-[#E5E7EB] bg-white p-2 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
                     {WAIVER_NAV_ITEMS.map((item) => {
                       const href =
                         item.label === "Pay Apps"
@@ -234,6 +258,40 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                       </Link>
                     );
                     })}
+                  </div>
+                ) : null}
+              </div>
+            ) : currentMode === "bidding" && isBiddingCore ? (
+              <div className="relative" ref={toolsRef}>
+                <button
+                  className="rounded-full border border-white/20 px-3 py-1 text-base cursor-pointer flex items-center gap-2"
+                  type="button"
+                  onClick={() => setToolsOpen((open) => !open)}
+                >
+                  Bidding Menu
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="h-3 w-3 opacity-60"
+                  >
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </button>
+                {toolsOpen ? (
+                  <div className="absolute left-0 top-full z-[80] min-w-[260px] rounded-xl border border-[#E5E7EB] bg-white p-2 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
+                    {BIDDING_NAV_ITEMS.map((item) => (
+                      <Link
+                        key={item.label}
+                        href={item.href}
+                        onClick={closeAllMenus}
+                        className="block rounded px-2 py-2 text-sm text-black/80 hover:bg-black/[0.03]"
+                      >
+                        {item.label}
+                      </Link>
+                    ))}
                   </div>
                 ) : null}
               </div>
@@ -262,7 +320,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                     </svg>
                   </button>
                   {projectsOpen ? (
-                    <div className="absolute left-0 top-full z-30 min-w-[260px] rounded-xl border border-[#E5E7EB] bg-white p-2 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
+                    <div className="absolute left-0 top-full z-[80] min-w-[260px] rounded-xl border border-[#E5E7EB] bg-white p-2 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
                     <div className="px-2 py-1 text-sm uppercase tracking-wide text-black/50">Active Project</div>
                     <Link
                       href={withMode("/projects")}
@@ -308,7 +366,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                     </svg>
                   </button>
                   {toolsOpen ? (
-                    <div className="fixed left-0 right-0 top-16 z-30">
+                    <div className="fixed left-0 right-0 top-16 z-[80]">
                       <div className="mx-6 rounded-xl border border-[#E5E7EB] bg-white p-5 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
                         <div className="px-2 py-2">
                         <div className="text-sm uppercase tracking-wide text-black/50">
@@ -392,71 +450,79 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                 placeholder="Quick search projects, contracts, RFIs..."
               />
             </div>
-            <div className="relative" ref={modeRef}>
-              <button
-                className="rounded-full border border-white/20 px-3 py-2 text-base cursor-pointer flex items-center gap-2"
-                type="button"
-                onClick={() => setModeOpen((open) => !open)}
-              >
-                {modeLabel}
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="h-3 w-3 opacity-60"
+            {availableModes.length > 1 ? (
+              <div className="relative" ref={modeRef}>
+                <button
+                  className="rounded-full border border-white/20 px-3 py-2 text-base cursor-pointer flex items-center gap-2"
+                  type="button"
+                  onClick={() => setModeOpen((open) => !open)}
                 >
-                  <path d="m6 9 6 6 6-6" />
-                </svg>
-              </button>
-              {modeOpen ? (
-                <div className="absolute right-0 top-full z-30 min-w-[220px] rounded-xl border border-[#E5E7EB] bg-white p-2 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
-                  <button
-                    className="flex w-full items-center justify-between rounded px-2 py-2 text-sm hover:bg-black/[0.03]"
-                    type="button"
-                    onClick={async () => {
-                      await setMode("waiverdesk");
-                      closeAllMenus();
-                      router.push("/waiverdesk/dashboard");
-                    }}
+                  {modeLabel}
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    className="h-3 w-3 opacity-60"
                   >
-                    WaiverDesk
-                    {mode === "waiverdesk" ? (
-                      <span className="text-xs text-[color:var(--muted)]">Active</span>
+                    <path d="m6 9 6 6 6-6" />
+                  </svg>
+                </button>
+                {modeOpen ? (
+                  <div className="absolute right-0 top-full z-[80] min-w-[220px] rounded-xl border border-[#E5E7EB] bg-white p-2 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
+                    {moduleAccess.waiverdesk ? (
+                      <button
+                        className="flex w-full items-center justify-between rounded px-2 py-2 text-sm hover:bg-black/[0.03]"
+                        type="button"
+                        onClick={async () => {
+                          await setMode("waiverdesk");
+                          closeAllMenus();
+                          router.push("/waiverdesk/dashboard");
+                        }}
+                      >
+                        WaiverDesk
+                        {currentMode === "waiverdesk" ? (
+                          <span className="text-xs text-[color:var(--muted)]">Active</span>
+                        ) : null}
+                      </button>
                     ) : null}
-                  </button>
-                  <button
-                    className="flex w-full items-center justify-between rounded px-2 py-2 text-sm hover:bg-black/[0.03]"
-                    type="button"
-                    onClick={async () => {
-                      await setMode("pm");
-                      closeAllMenus();
-                      router.push("/dashboard");
-                    }}
-                  >
-                    Project Management
-                    {mode === "pm" ? (
-                      <span className="text-xs text-[color:var(--muted)]">Active</span>
+                    {moduleAccess.pm ? (
+                      <button
+                        className="flex w-full items-center justify-between rounded px-2 py-2 text-sm hover:bg-black/[0.03]"
+                        type="button"
+                        onClick={async () => {
+                          await setMode("pm");
+                          closeAllMenus();
+                          router.push("/dashboard");
+                        }}
+                      >
+                        Project Management
+                        {currentMode === "pm" ? (
+                          <span className="text-xs text-[color:var(--muted)]">Active</span>
+                        ) : null}
+                      </button>
                     ) : null}
-                  </button>
-                  <button
-                    className="flex w-full items-center justify-between rounded px-2 py-2 text-sm hover:bg-black/[0.03]"
-                    type="button"
-                    onClick={async () => {
-                      await setMode("bidding");
-                      closeAllMenus();
-                      router.push("/bidding");
-                    }}
-                  >
-                    Bidding
-                    {mode === "bidding" ? (
-                      <span className="text-xs text-[color:var(--muted)]">Active</span>
+                    {moduleAccess.bidding ? (
+                      <button
+                        className="flex w-full items-center justify-between rounded px-2 py-2 text-sm hover:bg-black/[0.03]"
+                        type="button"
+                        onClick={async () => {
+                          await setMode("bidding");
+                          closeAllMenus();
+                          router.push("/bidding");
+                        }}
+                      >
+                        Bidding
+                        {currentMode === "bidding" ? (
+                          <span className="text-xs text-[color:var(--muted)]">Active</span>
+                        ) : null}
+                      </button>
                     ) : null}
-                  </button>
-                </div>
-              ) : null}
-            </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
 
             <button
               className="relative rounded-full border border-white/20 px-3 py-2 text-base cursor-pointer"
@@ -487,7 +553,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                 </svg>
               </button>
               {profileOpen ? (
-                <div className="absolute right-0 top-full z-30 min-w-[180px] rounded-xl border border-[#E5E7EB] bg-white p-2 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
+                <div className="absolute right-0 top-full z-[80] min-w-[180px] rounded-xl border border-[#E5E7EB] bg-white p-2 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
                   <Link
                     href="/profile"
                     onClick={closeAllMenus}
@@ -551,44 +617,54 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
 
             <div className="space-y-2">
               <div className="text-xs uppercase tracking-widest text-white/70">Mode</div>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  className="rounded-lg border border-white/20 px-3 py-2 text-sm"
-                  type="button"
-                  onClick={async () => {
-                    await setMode("waiverdesk");
-                    closeAllMenus();
-                    router.push("/waiverdesk/dashboard");
-                  }}
-                >
-                  WaiverDesk
-                </button>
-                <button
-                  className="rounded-lg border border-white/20 px-3 py-2 text-sm"
-                  type="button"
-                  onClick={async () => {
-                    await setMode("pm");
-                    closeAllMenus();
-                    router.push("/dashboard");
-                  }}
-                >
-                  Project Management
-                </button>
-                <button
-                  className="rounded-lg border border-white/20 px-3 py-2 text-sm"
-                  type="button"
-                  onClick={async () => {
-                    await setMode("bidding");
-                    closeAllMenus();
-                    router.push("/bidding");
-                  }}
-                >
-                  Bidding
-                </button>
-              </div>
+              {availableModes.length > 1 ? (
+                <div className="grid grid-cols-2 gap-2">
+                  {moduleAccess.waiverdesk ? (
+                    <button
+                      className="rounded-lg border border-white/20 px-3 py-2 text-sm"
+                      type="button"
+                      onClick={async () => {
+                        await setMode("waiverdesk");
+                        closeAllMenus();
+                        router.push("/waiverdesk/dashboard");
+                      }}
+                    >
+                      WaiverDesk
+                    </button>
+                  ) : null}
+                  {moduleAccess.pm ? (
+                    <button
+                      className="rounded-lg border border-white/20 px-3 py-2 text-sm"
+                      type="button"
+                      onClick={async () => {
+                        await setMode("pm");
+                        closeAllMenus();
+                        router.push("/dashboard");
+                      }}
+                    >
+                      Project Management
+                    </button>
+                  ) : null}
+                  {moduleAccess.bidding ? (
+                    <button
+                      className="rounded-lg border border-white/20 px-3 py-2 text-sm"
+                      type="button"
+                      onClick={async () => {
+                        await setMode("bidding");
+                        closeAllMenus();
+                        router.push("/bidding");
+                      }}
+                    >
+                      Bidding
+                    </button>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-white/20 px-3 py-2 text-sm">{modeLabel}</div>
+              )}
             </div>
 
-            {mode === "waiverdesk" ? (
+            {currentMode === "waiverdesk" ? (
               <div className="space-y-2">
                 <div className="text-xs uppercase tracking-widest text-white/70">WaiverDesk menu</div>
                 <div className="grid grid-cols-1 gap-1">
@@ -603,6 +679,22 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                       {item.count !== undefined ? (
                         <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs">{item.count}</span>
                       ) : null}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ) : currentMode === "bidding" && isBiddingCore ? (
+              <div className="space-y-2">
+                <div className="text-xs uppercase tracking-widest text-white/70">Bidding menu</div>
+                <div className="grid grid-cols-1 gap-1">
+                  {BIDDING_NAV_ITEMS.map((item) => (
+                    <Link
+                      key={item.label}
+                      href={item.href}
+                      onClick={closeAllMenus}
+                      className="block rounded-lg px-3 py-2 text-sm hover:bg-white/[0.09]"
+                    >
+                      {item.label}
                     </Link>
                   ))}
                 </div>

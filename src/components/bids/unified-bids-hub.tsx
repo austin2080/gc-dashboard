@@ -1,20 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
-import {
-  bidFollowUps,
-  bidOpportunities,
-  bidSubmissions,
-  customers,
-  inviteEvents,
-  projectBids,
-  projects,
-  tradePackages,
-  users,
-} from "@/lib/bids/mock-data";
-import type { BidOpportunity, BidStage } from "@/lib/bids/types";
+import { bidFollowUps } from "@/lib/bids/mock-data";
+import { listBidAnalyticsData, listSubBidAnalyticsData } from "@/lib/bids/store";
+import type { BidOpportunity, BidStage, Customer, User } from "@/lib/bids/types";
 
 type Mode = "gc_owner" | "sub";
 
@@ -31,13 +23,11 @@ const stageLabel: Record<BidStage, string> = {
   no_decision: "No Decision",
 };
 
-
-const chart = [56, 43, 62, 70, 50, 77, 69, 58, 81, 64, 52, 73];
-
 const formatCurrency = (value: number) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
 
 export default function UnifiedBidsHub() {
+  const router = useRouter();
   const [mode, setMode] = useState<Mode>("gc_owner");
   const [search, setSearch] = useState("");
   const [dateFilter, setDateFilter] = useState<DateFilter>("last_30");
@@ -47,41 +37,129 @@ export default function UnifiedBidsHub() {
   const [selectedCities, setSelectedCities] = useState<string[]>([]);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [selectedBid, setSelectedBid] = useState<BidOpportunity | null>(null);
-  const [loading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [bidOpportunities, setBidOpportunities] = useState<BidOpportunity[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [subAnalytics, setSubAnalytics] = useState<{
+    kpis: {
+      activePackages: number;
+      tradesDueThisWeek: number;
+      responseRate: number;
+      ghostRate: number;
+      avgBidsPerTrade: number;
+      coverageComplete: number;
+    };
+    chartData: Array<{ month: string; responseRate: number; avgBids: number; ghostRate: number }>;
+    breakdownRows: Array<{ trade: string; invited: number; submitted: number; declined: number; ghosted: number }>;
+    atRiskTrades: Array<{ trade: string; dueDate: string; responseRate: number }>;
+    ghostedVendors: Array<{ name: string; ghosts: number }>;
+    activePackages: Array<{ id: string; projectName: string; location: string; dueDate: string | null }>;
+  }>({
+    kpis: {
+      activePackages: 0,
+      tradesDueThisWeek: 0,
+      responseRate: 0,
+      ghostRate: 0,
+      avgBidsPerTrade: 0,
+      coverageComplete: 0,
+    },
+    chartData: [],
+    breakdownRows: [],
+    atRiskTrades: [],
+    ghostedVendors: [],
+    activePackages: [],
+  });
+
+  useEffect(() => {
+    let active = true;
+    async function loadAnalytics() {
+      setLoading(true);
+      const [ownerData, subData] = await Promise.all([
+        listBidAnalyticsData(),
+        listSubBidAnalyticsData(),
+      ]);
+      if (!active) return;
+      setBidOpportunities(ownerData.opportunities);
+      setUsers(ownerData.users);
+      setCustomers(ownerData.customers);
+      setSubAnalytics(subData);
+      setLoading(false);
+    }
+
+    loadAnalytics();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const filteredBids = useMemo(() => {
+    return bidOpportunities.filter((bid) => {
+      if (search && !`${bid.projectName} ${bid.city}`.toLowerCase().includes(search.toLowerCase())) return false;
+      if (selectedPersons.length > 0 && !selectedPersons.includes(bid.personId)) return false;
+      if (selectedCustomerIds.length > 0 && !selectedCustomerIds.includes(bid.customerId)) return false;
+      if (selectedProjectTypes.length > 0 && !selectedProjectTypes.includes(bid.projectType)) return false;
+      if (selectedCities.length > 0 && !selectedCities.includes(bid.city)) return false;
+      if (selectedStatuses.length > 0 && !selectedStatuses.includes(bid.stage)) return false;
+      return true;
+    });
+  }, [bidOpportunities, search, selectedPersons, selectedCustomerIds, selectedProjectTypes, selectedCities, selectedStatuses]);
 
   const bidsSubmittedData = useMemo(() => {
-    const months = ["07", "08", "09", "10", "11", "12", "01", "02"];
-    const counts = [3, 3, 5, 3, 9, 0, 2, 0];
-    const data = months.map((month, idx) => ({
-      month,
-      count: Number(counts[idx] ?? 0),
-    }));
-    if (data.length === 0) {
-      return months.map((month) => ({ month, count: 0 }));
+    const buckets = new Map<string, number>();
+    const months: string[] = [];
+    const now = new Date();
+    for (let i = 7; i >= 0; i -= 1) {
+      const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = monthDate.toISOString().slice(0, 7);
+      const label = monthDate.toISOString().slice(5, 7);
+      buckets.set(key, 0);
+      months.push(label);
     }
-    return data;
-  }, []);
+
+    filteredBids.forEach((bid) => {
+      const source = bid.submittedDate ?? bid.createdAt;
+      if (!source) return;
+      const monthKey = source.slice(0, 7);
+      if (!buckets.has(monthKey)) return;
+      buckets.set(monthKey, (buckets.get(monthKey) ?? 0) + 1);
+    });
+
+    return Array.from(buckets.values()).map((count, index) => ({
+      month: months[index],
+      count,
+    }));
+  }, [filteredBids]);
 
   const awardedData = useMemo(() => {
-    const months = ["07", "08", "09", "10", "11", "12", "01", "02"];
-    const values = [0, 0, 6000, 4000, 0, 1500, 0, 0];
-    const data = months.map((month, idx) => ({
-      month,
-      value: Number(values[idx] ?? 0),
-    }));
-    if (data.length === 0) {
-      return months.map((month) => ({ month, value: 0 }));
+    const buckets = new Map<string, number>();
+    const months: string[] = [];
+    const now = new Date();
+    for (let i = 7; i >= 0; i -= 1) {
+      const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = monthDate.toISOString().slice(0, 7);
+      const label = monthDate.toISOString().slice(5, 7);
+      buckets.set(key, 0);
+      months.push(label);
     }
-    return data;
-  }, []);
 
-  const subChartData = [
-    { month: "Oct", responseRate: 42, avgBids: 1.4, ghostRate: 15 },
-    { month: "Nov", responseRate: 44, avgBids: 1.8, ghostRate: 19 },
-    { month: "Dec", responseRate: 68, avgBids: 3.0, ghostRate: 22 },
-    { month: "Jan", responseRate: 60, avgBids: 2.6, ghostRate: 17 },
-    { month: "Feb", responseRate: 52, avgBids: 2.2, ghostRate: 12 },
-  ];
+    filteredBids
+      .filter((bid) => bid.stage === "awarded")
+      .forEach((bid) => {
+        const source = bid.submittedDate ?? bid.createdAt;
+        if (!source) return;
+        const monthKey = source.slice(0, 7);
+        if (!buckets.has(monthKey)) return;
+        buckets.set(monthKey, (buckets.get(monthKey) ?? 0) + (bid.outcome?.awardedValue ?? bid.submittedValue));
+      });
+
+    return Array.from(buckets.values()).map((value, index) => ({
+      month: months[index],
+      value: Math.round(value / 1000),
+    }));
+  }, [filteredBids]);
+
+  const subChartData = subAnalytics.chartData;
 
   const pipelineCards = [
     {
@@ -142,18 +220,6 @@ export default function UnifiedBidsHub() {
     },
   ];
 
-  const filteredBids = useMemo(() => {
-    return bidOpportunities.filter((bid) => {
-      if (search && !`${bid.projectName} ${bid.city}`.toLowerCase().includes(search.toLowerCase())) return false;
-      if (selectedPersons.length > 0 && !selectedPersons.includes(bid.personId)) return false;
-      if (selectedCustomerIds.length > 0 && !selectedCustomerIds.includes(bid.customerId)) return false;
-      if (selectedProjectTypes.length > 0 && !selectedProjectTypes.includes(bid.projectType)) return false;
-      if (selectedCities.length > 0 && !selectedCities.includes(bid.city)) return false;
-      if (selectedStatuses.length > 0 && !selectedStatuses.includes(bid.stage)) return false;
-      return true;
-    });
-  }, [search, selectedPersons, selectedCustomerIds, selectedProjectTypes, selectedCities, selectedStatuses]);
-
   const gcKpis = useMemo(() => {
     const submitted = filteredBids.filter((b) => ["submitted", "negotiation", "awarded", "lost", "no_decision"].includes(b.stage));
     const awarded = filteredBids.filter((b) => b.stage === "awarded");
@@ -169,18 +235,8 @@ export default function UnifiedBidsHub() {
   }, [filteredBids]);
 
   const subKpis = useMemo(() => {
-    const invited = inviteEvents.length;
-    const submitted = inviteEvents.filter((i) => i.responseType === "submitted").length;
-    const ghosted = inviteEvents.filter((i) => i.responseType === "ghosted").length;
-    return {
-      activePackages: projectBids.length,
-      tradesDueThisWeek: tradePackages.slice(0, 7).length,
-      responseRate: invited ? (submitted / invited) * 100 : 0,
-      ghostRate: invited ? (ghosted / invited) * 100 : 0,
-      avgBidsPerTrade: tradePackages.length ? bidSubmissions.length / tradePackages.length : 0,
-      coverageComplete: 67,
-    };
-  }, []);
+    return subAnalytics.kpis;
+  }, [subAnalytics.kpis]);
 
   const staleBids = filteredBids.filter((b) => b.stage === "submitted" || b.stage === "negotiation").slice(0, 4);
 
@@ -264,7 +320,16 @@ export default function UnifiedBidsHub() {
                   </svg>
                 </span>
               </div>
-              <button className="inline-flex h-11 items-center gap-2 rounded-2xl bg-slate-900 px-5 text-sm font-semibold text-white shadow-sm">
+              <button
+                onClick={() => {
+                  if (mode === "gc_owner") {
+                    router.push("/bidding/owner-bids");
+                    return;
+                  }
+                  router.push("/bidding");
+                }}
+                className="inline-flex h-11 items-center gap-2 rounded-2xl bg-slate-900 px-5 text-sm font-semibold text-white shadow-sm"
+              >
                 <span className="text-lg leading-none">+</span>
                 <span>{mode === "gc_owner" ? "Create Bid" : "Create Bid Package"}</span>
               </button>
@@ -487,9 +552,9 @@ export default function UnifiedBidsHub() {
         </section>
 
         {mode === "gc_owner" ? (
-          <GcBreakdown bids={filteredBids} onOpen={setSelectedBid} />
+          <GcBreakdown bids={filteredBids} users={users} customers={customers} />
         ) : (
-          <SubBreakdown />
+          <SubBreakdown rows={subAnalytics.breakdownRows} />
         )}
 
         {mode === "gc_owner" && (
@@ -554,10 +619,10 @@ export default function UnifiedBidsHub() {
                 </span>
               </div>
               <div className="space-y-3">
-                {staleBids.map((item, idx) => (
+                {staleBids.map((item) => (
                   <div key={item.id} className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm">
                     <p className="font-semibold text-slate-800">{item.projectName}</p>
-                    <span className="text-sm font-semibold text-slate-500">${[2.2, 4.2, 7.3, 8.9, 7.9][idx] ?? 2.2}M</span>
+                    <span className="text-sm font-semibold text-slate-500">{formatCurrency(item.submittedValue)}</span>
                   </div>
                 ))}
               </div>
@@ -576,33 +641,39 @@ export default function UnifiedBidsHub() {
                 </span>
               </div>
               <div className="space-y-3">
-                {["Mechanical", "Plumbing", "Steel", "Drywall", "Roofing", "Painting", "Electrical", "Concrete", "Drywall"].map((trade, idx) => (
-                  <div key={`${trade}-${idx}`} className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm">
-                    <p className="font-semibold text-slate-800">{trade}</p>
-                    <span className="text-sm font-semibold text-slate-500">
-                      Due {idx < 6 ? "2026-02-28" : "2026-02-20"}
-                    </span>
+                {subAnalytics.atRiskTrades.length ? (
+                  subAnalytics.atRiskTrades.map((trade, idx) => (
+                    <div key={`${trade.trade}-${idx}`} className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm">
+                      <p className="font-semibold text-slate-800">{trade.trade}</p>
+                      <span className="text-sm font-semibold text-slate-500">
+                        Due {trade.dueDate || "TBD"}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl border border-dashed border-slate-200 px-4 py-3 text-sm text-slate-500">
+                    No at-risk trades found.
                   </div>
-                ))}
+                )}
               </div>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-white p-4">
               <h4 className="mb-3 text-base font-semibold text-slate-900">Most Ghosted Vendors</h4>
               <div className="space-y-3">
-                {[
-                  { name: "ColorPro Painting", ghosts: 2 },
-                  { name: "Volt Solutions", ghosts: 2 },
-                  { name: "Front Range Concrete", ghosts: 2 },
-                  { name: "Alpine Air Systems", ghosts: 1 },
-                  { name: "FlowTech Plumbing", ghosts: 1 },
-                ].map((vendor) => (
-                  <div key={vendor.name} className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm">
-                    <p className="font-semibold text-slate-800">{vendor.name}</p>
-                    <span className="text-sm font-semibold text-slate-500">
-                      {vendor.ghosts} {vendor.ghosts === 1 ? "ghost" : "ghosts"}
-                    </span>
+                {subAnalytics.ghostedVendors.length ? (
+                  subAnalytics.ghostedVendors.map((vendor) => (
+                    <div key={vendor.name} className="flex items-center justify-between rounded-xl border border-slate-200 px-4 py-3 text-sm">
+                      <p className="font-semibold text-slate-800">{vendor.name}</p>
+                      <span className="text-sm font-semibold text-slate-500">
+                        {vendor.ghosts} {vendor.ghosts === 1 ? "ghost" : "ghosts"}
+                      </span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-xl border border-dashed border-slate-200 px-4 py-3 text-sm text-slate-500">
+                    No ghosted vendors.
                   </div>
-                ))}
+                )}
               </div>
             </div>
           </section>
@@ -612,13 +683,12 @@ export default function UnifiedBidsHub() {
           <section className="rounded-2xl border border-slate-200 bg-white p-4">
             <h3 className="mb-3 font-semibold">Active Bid Packages</h3>
             <div className="grid gap-3 md:grid-cols-3">
-              {projectBids.map((pb) => {
-                const project = projects.find((p) => p.id === pb.projectId)!;
+              {subAnalytics.activePackages.map((project) => {
                 return (
-                  <Link key={pb.id} href={`/bids/sub/${project.id}`} className="rounded-xl border border-slate-200 p-3 hover:border-slate-300">
-                    <p className="font-medium text-slate-900">{project.name}</p>
-                    <p className="text-xs text-slate-500">{project.city} · {project.projectType}</p>
-                    <p className="mt-2 text-xs text-slate-500">Due {pb.dueDate}</p>
+                  <Link key={project.id} href={`/bids/sub/${project.id}`} className="rounded-xl border border-slate-200 p-3 hover:border-slate-300">
+                    <p className="font-medium text-slate-900">{project.projectName}</p>
+                    <p className="text-xs text-slate-500">{project.location}</p>
+                    <p className="mt-2 text-xs text-slate-500">Due {project.dueDate ?? "TBD"}</p>
                   </Link>
                 );
               })}
@@ -627,7 +697,9 @@ export default function UnifiedBidsHub() {
         )}
       </div>
 
-      {selectedBid && <BidOpportunityDrawer bid={selectedBid} onClose={() => setSelectedBid(null)} />}
+      {selectedBid && (
+        <BidOpportunityDrawer bid={selectedBid} users={users} customers={customers} onClose={() => setSelectedBid(null)} />
+      )}
     </main>
   );
 }
@@ -804,7 +876,15 @@ function SubKpis({ kpis }: { kpis: { activePackages: number; tradesDueThisWeek: 
   );
 }
 
-function GcBreakdown({ bids, onOpen }: { bids: BidOpportunity[]; onOpen: (b: BidOpportunity) => void }) {
+function GcBreakdown({
+  bids,
+  users,
+  customers,
+}: {
+  bids: BidOpportunity[];
+  users: User[];
+  customers: Customer[];
+}) {
   const [breakdownMode, setBreakdownMode] = useState<"estimator" | "project_type" | "client">("estimator");
 
   const grouped = Object.values(
@@ -891,14 +971,7 @@ function GcBreakdown({ bids, onOpen }: { bids: BidOpportunity[]; onOpen: (b: Bid
   );
 }
 
-function SubBreakdown() {
-  const rows = tradePackages.slice(0, 10).map((trade) => {
-    const invites = inviteEvents.filter((i) => i.tradePackageId === trade.id);
-    const submitted = invites.filter((i) => i.responseType === "submitted").length;
-    const declined = invites.filter((i) => i.responseType === "declined").length;
-    const ghosted = invites.filter((i) => i.responseType === "ghosted").length;
-    return { trade: trade.tradeName, invited: invites.length, submitted, declined, ghosted };
-  });
+function SubBreakdown({ rows }: { rows: Array<{ trade: string; invited: number; submitted: number; declined: number; ghosted: number }> }) {
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4">
       <h3 className="mb-4 text-base font-semibold text-slate-900">Breakdowns by Trade</h3>
@@ -915,18 +988,26 @@ function SubBreakdown() {
             </tr>
           </thead>
           <tbody>
-            {rows.map((row, index) => (
-              <tr key={`${row.trade}-${index}`} className="border-b border-slate-100">
-                <td className="px-4 py-4 text-base font-medium text-slate-900">{row.trade}</td>
-                <td className="px-4 py-4 text-right text-base font-semibold text-slate-900">{row.invited}</td>
-                <td className="px-4 py-4 text-right text-base font-semibold text-slate-900">{row.submitted}</td>
-                <td className="px-4 py-4 text-right text-base font-semibold text-slate-900">{row.declined}</td>
-                <td className="px-4 py-4 text-right text-base font-semibold text-slate-900">{row.ghosted}</td>
-                <td className="px-4 py-4 text-right text-base font-semibold text-slate-900">
-                  {row.invited ? `${((row.submitted / row.invited) * 100).toFixed(1)}%` : "0.0%"}
+            {rows.length ? (
+              rows.map((row, index) => (
+                <tr key={`${row.trade}-${index}`} className="border-b border-slate-100">
+                  <td className="px-4 py-4 text-base font-medium text-slate-900">{row.trade}</td>
+                  <td className="px-4 py-4 text-right text-base font-semibold text-slate-900">{row.invited}</td>
+                  <td className="px-4 py-4 text-right text-base font-semibold text-slate-900">{row.submitted}</td>
+                  <td className="px-4 py-4 text-right text-base font-semibold text-slate-900">{row.declined}</td>
+                  <td className="px-4 py-4 text-right text-base font-semibold text-slate-900">{row.ghosted}</td>
+                  <td className="px-4 py-4 text-right text-base font-semibold text-slate-900">
+                    {row.invited ? `${((row.submitted / row.invited) * 100).toFixed(1)}%` : "0.0%"}
+                  </td>
+                </tr>
+              ))
+            ) : (
+              <tr>
+                <td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-500">
+                  No trade response data yet.
                 </td>
               </tr>
-            ))}
+            )}
           </tbody>
         </table>
       </div>
@@ -934,7 +1015,17 @@ function SubBreakdown() {
   );
 }
 
-function BidOpportunityDrawer({ bid, onClose }: { bid: BidOpportunity; onClose: () => void }) {
+function BidOpportunityDrawer({
+  bid,
+  users,
+  customers,
+  onClose,
+}: {
+  bid: BidOpportunity;
+  users: User[];
+  customers: Customer[];
+  onClose: () => void;
+}) {
   const customer = customers.find((c) => c.id === bid.customerId)?.name ?? "Unknown";
   const person = users.find((u) => u.id === bid.personId)?.name ?? "Unknown";
   const followUps = bidFollowUps.filter((f) => f.bidOpportunityId === bid.id);

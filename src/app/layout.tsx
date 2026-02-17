@@ -3,7 +3,9 @@ import { Inter, Space_Grotesk } from "next/font/google";
 import TopNav from "@/components/top-nav";
 import { createClient } from "@/lib/supabase/server";
 import ModeProvider from "@/components/mode-provider";
-import { canAccessPm } from "@/lib/pm-access";
+import { hasModuleAccess } from "@/lib/access/modules";
+import { getRequiredModuleForPath } from "@/lib/access/route-guard";
+import { getCompanyForUser } from "@/lib/company/getCompanyForUser";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import "./globals.css";
@@ -32,13 +34,17 @@ export default async function RootLayout({
 }>) {
   const headerList = await headers();
   const currentPath = headerList.get("x-pathname") ?? "/";
-  const isWaiverPath = currentPath.startsWith("/waiverdesk");
   const isRequestAccess = currentPath.startsWith("/request-access");
+  const isUpgradePage = currentPath === "/upgrade" || currentPath.startsWith("/upgrade/");
+  const isAuthPage = currentPath === "/login" || currentPath.startsWith("/login/");
 
   const supabase = await createClient();
   const { data } = await supabase.auth.getUser();
   const userId = data.user?.id ?? null;
-  let activeMode: "waiverdesk" | "pm" = "waiverdesk";
+  const company = userId ? await getCompanyForUser() : null;
+  const hasWaiverdesk = hasModuleAccess(company, "waiverdesk");
+  const hasPm = hasModuleAccess(company, "pm");
+  let activeMode: "waiverdesk" | "pm" | "bidding" = "bidding";
 
   if (userId) {
     const { data: profile } = await supabase
@@ -46,14 +52,22 @@ export default async function RootLayout({
       .select("active_mode")
       .eq("id", userId)
       .single();
-    if (profile?.active_mode === "pm") {
-      activeMode = "pm";
-    }
+
+    if (profile?.active_mode === "waiverdesk" && hasWaiverdesk) activeMode = "waiverdesk";
+    else if (profile?.active_mode === "pm" && hasPm) activeMode = "pm";
+    else activeMode = "bidding";
   }
 
-  const isAllowedPm = canAccessPm(data.user?.email);
-  if (!isWaiverPath && !isRequestAccess && !isAllowedPm) {
-    redirect("/request-access");
+  const requiredModule = getRequiredModuleForPath(currentPath);
+  if (
+    userId &&
+    requiredModule &&
+    !isUpgradePage &&
+    !isRequestAccess &&
+    !isAuthPage &&
+    !hasModuleAccess(company, requiredModule)
+  ) {
+    redirect(`/upgrade?module=${requiredModule}`);
   }
 
   return (
