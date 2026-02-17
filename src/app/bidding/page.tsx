@@ -1019,7 +1019,6 @@ export default function BiddingPage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-4xl font-semibold text-slate-900">Bid Management</h1>
-            <p className="mt-1 text-lg text-slate-500">Track active bids, subcontractors &amp; due dates</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             {selectedProject ? (
