@@ -11,10 +11,18 @@ export default async function ProjectsPage() {
 
   const member = await getMyCompanyMember();
   const companyId = member.company_id;
-  const canViewAll = member.can_view_all_projects ?? false;
+  let projectsAll = [] as Awaited<ReturnType<typeof listProjects>>;
+  let projectsMine = [] as Awaited<ReturnType<typeof listProjects>>;
+  let canViewAll = true;
 
-  const projectsMine = await listProjects(companyId, { createdBy: data.user.id });
-  const projectsAll = canViewAll ? await listProjects(companyId) : projectsMine;
+  try {
+    projectsAll = await listProjects(companyId);
+    projectsMine = projectsAll;
+  } catch {
+    projectsMine = await listProjects(companyId, { createdBy: data.user.id });
+    projectsAll = projectsMine;
+    canViewAll = false;
+  }
 
   return (
     <main className="p-6 space-y-6">

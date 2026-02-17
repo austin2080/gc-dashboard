@@ -24,6 +24,7 @@ import {
   getBidProjectDetail,
   listBidProjects,
 } from "@/lib/bidding/store";
+import BidManagementViewToggle from "@/components/bid-management-view-toggle";
 
 type TradeSubBid = {
   bidId: string;
@@ -952,6 +953,7 @@ export default function BiddingPage() {
 
   return (
     <main className="space-y-6 bg-slate-50 p-4 sm:p-6">
+      <BidManagementViewToggle />
       <header className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -1368,6 +1370,19 @@ export default function BiddingPage() {
                 setSavingEdit(false);
               }}
             >
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                <div>
+                  <span className="font-semibold">Sub:</span>{" "}
+                  {inviteTarget?.company || (inviteDraft.selected_sub_id ? "Selected subcontractor" : "Not selected")}
+                </div>
+                <div>
+                  <span className="font-semibold">Status:</span> {inviteDraft.status}
+                </div>
+                <div>
+                  <span className="font-semibold">Quote:</span>{" "}
+                  {inviteDraft.bid_amount.trim() ? inviteDraft.bid_amount : "No quote entered"}
+                </div>
+              </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 sm:col-span-2">
                   Project name
@@ -1668,10 +1683,20 @@ export default function BiddingPage() {
         </div>
       ) : null}
       {inviteModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 py-6 overflow-y-auto overscroll-contain">
-          <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-xl">
+        <div className="fixed inset-0 z-50">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-950/40"
+            aria-label="Close bid drawer"
+            onClick={() => {
+              setInviteModalOpen(false);
+              setInviteTarget(null);
+              setNewSubTrade(null);
+            }}
+          />
+          <aside className="absolute right-0 top-0 h-full w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white shadow-2xl">
             <div className="border-b border-slate-200 px-6 py-4">
-              <h2 className="text-2xl font-semibold text-slate-900">Invite Sub to Trade</h2>
+              <h2 className="text-2xl font-semibold text-slate-900">Bid Details</h2>
               <p className="mt-1 text-sm text-slate-500">
                 {inviteTarget ? `${inviteTarget.company} · ${inviteTarget.tradeName}` : newSubTrade ? `New invite · ${newSubTrade.tradeName}` : ""}
               </p>
@@ -1807,6 +1832,18 @@ export default function BiddingPage() {
                 setSavingInvite(false);
               }}
             >
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                <div>
+                  <span className="font-semibold">Sub:</span> {editBidDraft.company_name}
+                </div>
+                <div>
+                  <span className="font-semibold">Status:</span> {editBidDraft.status}
+                </div>
+                <div>
+                  <span className="font-semibold">Quote:</span>{" "}
+                  {editBidDraft.bid_amount.trim() ? editBidDraft.bid_amount : "No quote entered"}
+                </div>
+              </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 {inviteTarget ? (
                   <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 sm:col-span-2">
@@ -1951,7 +1988,7 @@ export default function BiddingPage() {
                   />
                 </label>
                 <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 sm:col-span-2">
-                  Notes
+                  Inclusions / Exclusions Notes
                   <textarea
                     value={inviteDraft.notes}
                     onChange={(event) => setInviteDraft((prev) => ({ ...prev, notes: event.target.value }))}
@@ -1965,7 +2002,7 @@ export default function BiddingPage() {
                   {inviteError}
                 </p>
               ) : null}
-              <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 pt-4">
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 pt-4">
                 <button
                   type="button"
                   className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
@@ -1979,22 +2016,52 @@ export default function BiddingPage() {
                 </button>
                 <button
                   type="submit"
+                  onClick={() => setInviteDraft((prev) => ({ ...prev, status: "invited" }))}
                   disabled={savingInvite}
                   className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  {savingInvite ? "Adding..." : "Add to Trade"}
+                  {savingInvite ? "Saving..." : "Invite"}
+                </button>
+                <button
+                  type="submit"
+                  onClick={() => setInviteDraft((prev) => ({ ...prev, status: "bidding" }))}
+                  disabled={savingInvite}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  Remind
+                </button>
+                <button
+                  type="submit"
+                  onClick={() => setInviteDraft((prev) => ({ ...prev, status: "declined" }))}
+                  disabled={savingInvite}
+                  className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  Mark Declined
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setInviteError("Upload proposal is coming soon.")}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Upload proposal
                 </button>
               </div>
             </form>
-          </div>
+          </aside>
         </div>
       ) : null}
       {editBidModalOpen && editBidDraft ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white shadow-xl">
+        <div className="fixed inset-0 z-50">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-950/40"
+            aria-label="Close bid drawer"
+            onClick={() => setEditBidModalOpen(false)}
+          />
+          <aside className="absolute right-0 top-0 h-full w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white shadow-2xl">
             <div className="border-b border-slate-200 px-6 py-4">
-              <h2 className="text-2xl font-semibold text-slate-900">Edit Bid</h2>
-              <p className="mt-1 text-sm text-slate-500">Update bid status, amount, and contractor info.</p>
+              <h2 className="text-2xl font-semibold text-slate-900">Bid Details</h2>
+              <p className="mt-1 text-sm text-slate-500">Update status, quote, and scope notes.</p>
             </div>
             <form
               className="space-y-4 px-6 py-5"
@@ -2117,7 +2184,7 @@ export default function BiddingPage() {
                   />
                 </label>
                 <label className="flex flex-col gap-2 text-sm font-medium text-slate-700 sm:col-span-2">
-                  Notes
+                  Inclusions / Exclusions Notes
                   <textarea
                     value={editBidDraft.notes}
                     onChange={(event) =>
@@ -2133,7 +2200,7 @@ export default function BiddingPage() {
                   {editBidError}
                 </p>
               ) : null}
-              <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 pt-4">
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-slate-200 pt-4">
                 <button
                   type="button"
                   className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
@@ -2143,14 +2210,44 @@ export default function BiddingPage() {
                 </button>
                 <button
                   type="submit"
+                  onClick={() =>
+                    setEditBidDraft((prev) => (prev ? { ...prev, status: "invited" } : prev))
+                  }
                   disabled={savingBidEdit}
                   className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  {savingBidEdit ? "Saving..." : "Save Changes"}
+                  {savingBidEdit ? "Saving..." : "Invite"}
+                </button>
+                <button
+                  type="submit"
+                  onClick={() =>
+                    setEditBidDraft((prev) => (prev ? { ...prev, status: "bidding" } : prev))
+                  }
+                  disabled={savingBidEdit}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  Remind
+                </button>
+                <button
+                  type="submit"
+                  onClick={() =>
+                    setEditBidDraft((prev) => (prev ? { ...prev, status: "declined" } : prev))
+                  }
+                  disabled={savingBidEdit}
+                  className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  Mark Declined
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditBidError("Upload proposal is coming soon.")}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Upload proposal
                 </button>
               </div>
             </form>
-          </div>
+          </aside>
         </div>
       ) : null}
     </main>

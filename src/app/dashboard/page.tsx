@@ -26,14 +26,26 @@ export default async function DashboardPage() {
   const { data } = await supabase.auth.getUser();
   if (!data.user) redirect("/login");
 
-  const companyId = await getMyCompanyId();
-  const projects = await listProjects(companyId);
+  let projects = [] as Awaited<ReturnType<typeof listProjects>>;
+  try {
+    const companyId = await getMyCompanyId();
+    projects = await listProjects(companyId);
+  } catch {
+    projects = [];
+  }
 
   const projectIds = projects.map((p) => p.id);
-  const { data: primeContracts } = await supabase
-    .from("prime_contracts")
-    .select("project_id,estimated_buyout,schedule_of_values")
-    .in("project_id", projectIds);
+  let primeContracts:
+    | Array<{ project_id: string; estimated_buyout: number | null; schedule_of_values: unknown }>
+    | null = [];
+
+  if (projectIds.length > 0) {
+    const { data: primeContractsData } = await supabase
+      .from("prime_contracts")
+      .select("project_id,estimated_buyout,schedule_of_values")
+      .in("project_id", projectIds);
+    primeContracts = primeContractsData;
+  }
 
   const aggregates = (primeContracts ?? []).reduce<Record<string, { contract: number; ohp: number; buyout: number }>>(
     (acc, c) => {
@@ -77,10 +89,14 @@ export default async function DashboardPage() {
     .filter((p) => p.health !== "complete")
     .map((p) => p.id);
 
-  const { data: payApps } = await supabase
-    .from("pay_apps")
-    .select("project_id,due_date,amount,status")
-    .in("project_id", activeProjectIds);
+  let payApps: Array<{ project_id: string; due_date: string | null; amount: number | null; status: string | null }> | null = [];
+  if (activeProjectIds.length > 0) {
+    const { data: payAppsData } = await supabase
+      .from("pay_apps")
+      .select("project_id,due_date,amount,status")
+      .in("project_id", activeProjectIds);
+    payApps = payAppsData;
+  }
 
   const now = new Date();
   const thirtyDaysAgo = new Date(now);

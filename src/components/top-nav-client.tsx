@@ -1,128 +1,139 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { useMemo, useState, useEffect, useRef, useContext } from "react";
-import type { ProjectRow } from "@/lib/db/projects";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ModeContext } from "@/components/mode-provider";
+import type { ProjectRow } from "@/lib/db/projects";
 
-const GLOBAL_TOOLS = [
-  { label: "Home", href: "/dashboard" },
-  { label: "All Projects", href: "/projects" },
-  { label: "Main Directory", href: "/directory" },
-  { label: "Permissions", href: "/permissions" },
-  { label: "Workflows", href: "/workflows" },
-  { label: "Documents", href: "/documents" },
-  { label: "Financials", href: "/financials" },
-  { label: "ERP Integrations", href: "/integrations" },
-  { label: "Admin", href: "/admin" },
+const ACTIVE_PROJECT_STORAGE_KEY = "activeProjectId";
+const RECENT_PROJECTS_STORAGE_KEY = "recentProjectIds";
+const MOCK_PROJECT_ID = "mock-project-nav-test";
+
+const PROJECT_TOOL_ITEMS = [
+  { label: "Bid Management", href: "/bidding" },
+  { label: "WaiverDesk", href: "/waiverdesk/waivers" },
+  { label: "Project Management", href: "/dashboard" },
 ];
 
-const PROJECT_TOOL_GROUPS = [
-  {
-    title: "Directory",
-    description: "People and companies tied to the project",
-    items: [
-      { label: "Project Contacts", path: "directory" },
-      { label: "Subcontractors", path: "subcontractors" },
-      { label: "Consultants", path: "consultants" },
-    ],
-  },
-  {
-    title: "Project Management",
-    description: "Day-to-day execution and coordination tools",
-    items: [
-      { label: "RFIs", path: "rfis" },
-      { label: "Submittals", path: "submittals" },
-      { label: "Commitments", path: "commitments" },
-      { label: "Schedule", path: "schedule" },
-      { label: "Daily Log", path: "daily-log" },
-      { label: "Meeting Minutes", path: "meeting-minutes" },
-    ],
-  },
-  {
-    title: "Plans & Specs",
-    description: "Issued documents and design references",
-    items: [
-      { label: "Drawings", path: "drawings" },
-      { label: "Specifications", path: "specifications" },
-    ],
-  },
-  {
-    title: "Documents",
-    description: "Non-plan files and project records",
-    items: [
-      { label: "Project Files", path: "documents" },
-      { label: "Uploads", path: "uploads" },
-      { label: "Revisions", path: "revisions" },
-    ],
-  },
-  {
-    title: "Financials",
-    description: "Anything that affects money, contracts, and cost tracking",
-    items: [
-      { label: "Budget", path: "budget" },
-      { label: "Direct Costs", path: "direct-costs" },
-      { label: "Buyout", path: "buyout" },
-      { label: "Change Events", path: "change-events" },
-      { label: "Change Orders", path: "change-orders" },
-      { label: "Pay Apps / Invoicing", path: "pay-apps" },
-      { label: "Prime Contract", path: "contract" },
-    ],
-  },
-  {
-    title: "Field",
-    description: "Visual and on-site documentation",
-    items: [
-      { label: "Photos", path: "photos" },
-      { label: "Safety", path: "safety" },
-      { label: "Inspections", path: "inspections" },
-      { label: "Punch List", path: "punch-list" },
-    ],
-  },
-];
-
-const WAIVER_NAV_ITEMS = [
-  { label: "Dashboard", href: "/dashboard" },
-  { label: "Waiver Center", href: "/waiver-center" },
-  { label: "Missing waivers", href: "/waivers/missing", count: 12 },
-  { label: "Waivers received today", href: "/waivers/received-today", count: 3 },
-  { label: "Pay apps blocked", href: "/pay-apps/blocked", count: 5 },
-  { label: "Projects", href: "/projects" },
-  { label: "Vendors", href: "/vendors" },
-  { label: "Pay Apps", href: "/pay-apps" },
-  { label: "Waivers", href: "/waivers" },
-  { label: "Reports", href: "/reports" },
+const COMPANY_TOOL_ITEMS = [
+  { label: "Subs Directory", href: "/directory" },
   { label: "Settings", href: "/settings" },
 ];
 
+function projectLabel(project: ProjectRow) {
+  return project.project_number ? `${project.project_number} - ${project.name}` : project.name;
+}
+
+function statusMeta(project: ProjectRow): { label: "Active" | "Estimating" | "Closed"; className: string } {
+  if (project.health === "complete") {
+    return { label: "Closed", className: "bg-slate-100 text-slate-700 border-slate-200" };
+  }
+  if (project.health === "on_hold") {
+    return { label: "Estimating", className: "bg-amber-100 text-amber-800 border-amber-200" };
+  }
+  return { label: "Active", className: "bg-emerald-100 text-emerald-800 border-emerald-200" };
+}
+
+function appendProjectQuery(href: string, projectId: string | null) {
+  if (!projectId) return href;
+  const [path, rawQuery = ""] = href.split("?");
+  const params = new URLSearchParams(rawQuery);
+  if (!params.get("project")) params.set("project", projectId);
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
+function getPathProjectId(pathname: string) {
+  const match = pathname.match(/^(?:\/waiverdesk)?\/projects\/([^/]+)/);
+  return match ? match[1] : null;
+}
+
+function subscribeStorage(onStoreChange: () => void) {
+  if (typeof window === "undefined") return () => {};
+  const handleStorage = () => onStoreChange();
+  window.addEventListener("storage", handleStorage);
+  return () => window.removeEventListener("storage", handleStorage);
+}
+
+function getStoredProjectIdSnapshot() {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(ACTIVE_PROJECT_STORAGE_KEY);
+}
+
+function formatDateLabel(value: string | null) {
+  if (!value) return "No due date";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "No due date";
+  return date.toLocaleDateString();
+}
+
+function buildContextUrl(pathname: string, searchParams: URLSearchParams, projectId: string | null) {
+  const nextParams = new URLSearchParams(searchParams.toString());
+  if (projectId) nextParams.set("project", projectId);
+  else nextParams.delete("project");
+  return `${pathname}${nextParams.toString() ? `?${nextParams.toString()}` : ""}`;
+}
+
 export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
   const { mode } = useContext(ModeContext);
-  const { setMode } = useContext(ModeContext);
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   const router = useRouter();
-  const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
-  const [toolsOpen, setToolsOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
-  const [modeOpen, setModeOpen] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [projectSearch, setProjectSearch] = useState("");
+  const [recentProjectIds, setRecentProjectIds] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const rawRecent = localStorage.getItem(RECENT_PROJECTS_STORAGE_KEY);
+      const parsed = rawRecent ? (JSON.parse(rawRecent) as unknown) : [];
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((item): item is string => typeof item === "string").slice(0, 5);
+    } catch {
+      return [];
+    }
+  });
+  const [switchToast, setSwitchToast] = useState<{
+    message: string;
+    previousProjectId: string | null;
+    nextProjectId: string;
+  } | null>(null);
   const hasUnreadNotifications = true;
-  const toolsRef = useRef<HTMLDivElement | null>(null);
+
   const projectsRef = useRef<HTMLDivElement | null>(null);
+  const toolsRef = useRef<HTMLDivElement | null>(null);
   const profileRef = useRef<HTMLDivElement | null>(null);
-  const modeRef = useRef<HTMLDivElement | null>(null);
+  const storedProjectId = useSyncExternalStore(
+    subscribeStorage,
+    getStoredProjectIdSnapshot,
+    () => null
+  );
 
-  const activeProject = useMemo(() => {
-    const match = pathname.match(/^\/projects\/([^/]+)/);
-    if (!match) return null;
-    return projects.find((p) => p.id === match[1]) ?? null;
-  }, [pathname, projects]);
+  const queryProjectId = searchParams.get("project");
+  const pathProjectId = getPathProjectId(pathname);
+  const activeProjectId = queryProjectId ?? pathProjectId ?? storedProjectId;
+  const projectsForNav = useMemo(() => {
+    const mockProject: ProjectRow = {
+      id: MOCK_PROJECT_ID,
+      project_number: "MOCK-001",
+      name: "Mock Project - Nav Test",
+      city: "Phoenix",
+      health: "on_track",
+      start_date: null,
+      end_date: null,
+      contracted_value: 0,
+      estimated_profit: 0,
+      estimated_buyout: 0,
+      updated_at: new Date().toISOString(),
+    };
 
-  const projectLinks = projects.map((p) => ({
-    label: p.project_number ? `${p.project_number} - ${p.name}` : p.name,
-    href: `/projects/${p.id}`,
-  }));
+    if (projects.some((project) => project.id === mockProject.id)) return projects;
+    return [mockProject, ...projects];
+  }, [projects]);
+  const activeProject = activeProjectId ? projectsForNav.find((p) => p.id === activeProjectId) ?? null : null;
 
   const withMode = (href: string) => {
     if (mode !== "waiverdesk") return href;
@@ -130,399 +141,290 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
     return `/waiverdesk${href}`;
   };
 
-  const projectContextLabel = activeProject
-    ? activeProject.project_number
-      ? `${activeProject.project_number} - ${activeProject.name}`
-      : activeProject.name
-    : "No project selected";
+  const withContext = (href: string) => appendProjectQuery(withMode(href), activeProjectId);
 
-  const closeAllMenus = () => {
-    setToolsOpen(false);
+  const toolSections = useMemo(
+    () => [
+      {
+        title: "Project Tools",
+        items: PROJECT_TOOL_ITEMS.map((item) => ({
+          ...item,
+          href: appendProjectQuery(item.href, activeProjectId),
+        })),
+      },
+      {
+        title: "Company Tools",
+        items: COMPANY_TOOL_ITEMS.map((item) => ({
+          ...item,
+          href: appendProjectQuery(item.href, activeProjectId),
+        })),
+      },
+    ],
+    [activeProjectId]
+  );
+
+  const currentToolLabel = (() => {
+    const allTools = toolSections.flatMap((section) => section.items);
+    const exact = allTools.find((tool) => pathname === tool.href.split("?")[0]);
+    if (exact) return exact.label;
+    const partial = allTools.find((tool) => {
+      const path = tool.href.split("?")[0];
+      return pathname === path || pathname.startsWith(`${path}/`);
+    });
+    return partial?.label ?? "Select tool";
+  })();
+
+  const closeMenus = () => {
     setProjectsOpen(false);
+    setToolsOpen(false);
     setProfileOpen(false);
-    setModeOpen(false);
-    setMobileMenuOpen(false);
   };
 
-  const menuTools = activeProject
-    ? PROJECT_TOOL_GROUPS.flatMap((group) =>
-        group.items.map((item) => ({
-          label: item.label,
-          href: `/projects/${activeProject.id}/${item.path}`,
-        })),
-      )
-    : GLOBAL_TOOLS;
-
-  const modeLabel = mode === "waiverdesk" ? "WaiverDesk" : "Project Management";
-
   useEffect(() => {
-    if (!toolsOpen && !projectsOpen && !profileOpen) return;
+    if (!projectsOpen && !toolsOpen && !profileOpen) return;
     const handleClick = (event: MouseEvent) => {
       const target = event.target as Node;
-      if (toolsRef.current && !toolsRef.current.contains(target)) {
-        setToolsOpen(false);
-      }
-      if (projectsRef.current && !projectsRef.current.contains(target)) {
-        setProjectsOpen(false);
-      }
-      if (profileRef.current && !profileRef.current.contains(target)) {
-        setProfileOpen(false);
-      }
-      if (modeRef.current && !modeRef.current.contains(target)) {
-        setModeOpen(false);
-      }
+      if (projectsRef.current && !projectsRef.current.contains(target)) setProjectsOpen(false);
+      if (toolsRef.current && !toolsRef.current.contains(target)) setToolsOpen(false);
+      if (profileRef.current && !profileRef.current.contains(target)) setProfileOpen(false);
     };
     document.addEventListener("mousedown", handleClick);
     return () => document.removeEventListener("mousedown", handleClick);
-  }, [toolsOpen, projectsOpen, profileOpen]);
+  }, [projectsOpen, toolsOpen, profileOpen]);
+
+  const filteredProjects = useMemo(() => {
+    const query = projectSearch.trim().toLowerCase();
+    if (!query) return projectsForNav;
+    return projectsForNav.filter((project) => {
+      const haystack = `${project.project_number ?? ""} ${project.name} ${project.city ?? ""}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [projectSearch, projectsForNav]);
+
+  const recentProjects = recentProjectIds
+    .map((id) => projectsForNav.find((project) => project.id === id))
+    .filter((project): project is ProjectRow => Boolean(project));
+
+  const allProjects = filteredProjects.filter((project) => !recentProjectIds.includes(project.id));
+
+  const homeHref = withContext(mode === "waiverdesk" ? "/waiverdesk/dashboard" : "/dashboard");
+  const activeProjectLabel = activeProject ? projectLabel(activeProject) : "No project selected";
+
+  useEffect(() => {
+    if (!switchToast) return;
+    const timer = window.setTimeout(() => setSwitchToast(null), 3500);
+    return () => window.clearTimeout(timer);
+  }, [switchToast]);
+
+  const selectProjectContext = (projectId: string) => {
+    const previousProjectId = activeProjectId ?? null;
+    if (previousProjectId === projectId) {
+      closeMenus();
+      return;
+    }
+    const nextRecent = [projectId, ...recentProjectIds.filter((id) => id !== projectId)].slice(0, 5);
+    setRecentProjectIds(nextRecent);
+    localStorage.setItem(ACTIVE_PROJECT_STORAGE_KEY, projectId);
+    localStorage.setItem(RECENT_PROJECTS_STORAGE_KEY, JSON.stringify(nextRecent));
+    const selectedProject = projectsForNav.find((project) => project.id === projectId);
+    const selectedLabel = selectedProject ? selectedProject.name : "project";
+    setSwitchToast({
+      message: `Switched to ${selectedLabel}`,
+      previousProjectId,
+      nextProjectId: projectId,
+    });
+    router.replace(buildContextUrl(pathname, new URLSearchParams(searchParams.toString()), projectId));
+    closeMenus();
+  };
 
   return (
     <header className="sticky top-0 z-20 w-full border-b border-white/10 bg-[color:var(--brand)] text-white">
       <div className="px-4 py-3 md:px-6">
-        <div className="flex items-center justify-between gap-3">
-          <Link href={withMode("/dashboard")} className="flex items-center gap-2">
-            <div className="text-xs uppercase tracking-widest opacity-70">
-              {mode === "waiverdesk" ? "WD" : "GC"}
-            </div>
-            <div className="text-xl font-semibold">
-              {mode === "waiverdesk" ? "WaiverDesk" : "Dashboard"}
-            </div>
+        <div className="flex flex-wrap items-center gap-2 md:flex-nowrap">
+          <Link href={homeHref} className="min-w-fit rounded-lg px-2 py-1.5 hover:bg-white/10">
+            <span className="text-xs uppercase tracking-widest text-white/70">{mode === "waiverdesk" ? "WD" : "GC"}</span>
+            <div className="text-base font-semibold">{mode === "waiverdesk" ? "WaiverDesk" : "Dashboard"}</div>
           </Link>
 
-          <div className="hidden items-center gap-2 md:flex">
-            {mode === "waiverdesk" ? (
-              <div className="relative" ref={toolsRef}>
-                <button
-                  className="rounded-full border border-white/20 px-3 py-1 text-base cursor-pointer flex items-center gap-2"
-                  type="button"
-                  onClick={() => setToolsOpen((open) => !open)}
-                >
-                  WaiverDesk Menu
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    className="h-3 w-3 opacity-60"
-                  >
-                    <path d="m6 9 6 6 6-6" />
-                  </svg>
-                </button>
-                {toolsOpen ? (
-                  <div className="absolute left-0 top-full z-30 min-w-[260px] rounded-xl border border-[#E5E7EB] bg-white p-2 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
-                    {WAIVER_NAV_ITEMS.map((item) => {
-                      const href =
-                        item.label === "Pay Apps"
-                          ? activeProject
-                            ? `/projects/${activeProject.id}/pay-apps`
-                            : "/projects"
-                          : item.href;
+          <div className="relative min-w-[220px] flex-1 md:max-w-[360px]" ref={projectsRef}>
+            <button
+              type="button"
+              onClick={() => setProjectsOpen((open) => !open)}
+              className="flex w-full items-center justify-between rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-left text-sm"
+            >
+              <span className="truncate">{activeProjectLabel}</span>
+              <span className="text-xs opacity-70">▾</span>
+            </button>
+            {projectsOpen ? (
+              <div className="absolute left-0 top-full z-30 mt-1 max-h-[28rem] w-full overflow-auto rounded-lg border border-[#E5E7EB] bg-white p-2 text-black shadow-[0_10px_25px_rgba(0,0,0,0.12)]">
+                <input
+                  value={projectSearch}
+                  onChange={(event) => setProjectSearch(event.target.value)}
+                  className="mb-2 w-full rounded-md border border-black/15 px-3 py-2 text-sm"
+                  placeholder="Search projects..."
+                  aria-label="Search projects"
+                />
+
+                <div className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-black/45">Recent projects</div>
+                {recentProjects.length ? (
+                  <div className="space-y-1">
+                    {recentProjects.map((project) => {
+                      const status = statusMeta(project);
                       return (
-                      <Link
-                        key={item.label}
-                        href={withMode(href)}
-                        onClick={closeAllMenus}
-                        className="flex items-center justify-between rounded px-2 py-2 text-sm text-black/80 hover:bg-black/[0.03]"
-                      >
-                        <span>{item.label}</span>
-                        {item.count !== undefined ? (
-                          <span className="rounded-full bg-[color:var(--hover)] px-2 py-0.5 text-xs text-black/60">
-                            {item.count}
-                          </span>
-                        ) : null}
-                      </Link>
-                    );
+                        <button
+                          key={`recent-${project.id}`}
+                          type="button"
+                          onClick={() => selectProjectContext(project.id)}
+                          className={`w-full rounded-md border px-2 py-2 text-left hover:bg-black/[0.04] ${
+                            activeProjectId === project.id ? "border-black/25 bg-black/[0.03]" : "border-transparent"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="truncate text-sm font-medium">{projectLabel(project)}</div>
+                            <span className={`rounded-full border px-2 py-0.5 text-xs ${status.className}`}>{status.label}</span>
+                          </div>
+                          <div className="mt-0.5 truncate text-xs text-black/55">
+                            {project.city ?? "City TBD"} • Client TBD
+                          </div>
+                        </button>
+                      );
                     })}
                   </div>
-                ) : null}
-              </div>
-            ) : (
-              <>
-                <div className="relative" ref={projectsRef}>
-                  <button
-                    className={`rounded-full px-3 py-1 text-base cursor-pointer flex items-center gap-2 ${
-                      activeProject
-                        ? "border border-white/20"
-                        : "border border-white/15 bg-white/[0.04] text-white/70"
-                    }`}
-                    type="button"
-                    onClick={() => setProjectsOpen((open) => !open)}
-                  >
-                    {projectContextLabel}
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      className="h-3 w-3 opacity-60"
-                    >
-                      <path d="m6 9 6 6 6-6" />
-                    </svg>
-                  </button>
-                  {projectsOpen ? (
-                    <div className="absolute left-0 top-full z-30 min-w-[260px] rounded-xl border border-[#E5E7EB] bg-white p-2 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
-                    <div className="px-2 py-1 text-sm uppercase tracking-wide text-black/50">Active Project</div>
-                    <Link
-                      href={withMode("/projects")}
-                      onClick={closeAllMenus}
-                      className="block rounded px-2 py-1 text-base font-medium text-black/90 hover:bg-black/[0.03]"
-                    >
-                      View all projects
-                    </Link>
-                    <div className="my-1 border-t border-black/10" />
-                    {projectLinks.length ? (
-                      projectLinks.map((child) => (
-                        <Link
-                          key={child.href}
-                          href={withMode(child.href)}
-                          onClick={closeAllMenus}
-                          className="block rounded px-2 py-1 text-base text-black/80 hover:bg-black/[0.03]"
+                ) : (
+                  <div className="mb-2 rounded-md px-2 py-2 text-sm text-black/55">No recent projects</div>
+                )}
+
+                <div className="my-2 border-t border-black/10" />
+                <div className="mb-1 px-1 text-xs font-semibold uppercase tracking-wide text-black/45">All projects</div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    closeMenus();
+                    router.push(withContext("/projects"));
+                  }}
+                  className="mb-1 w-full rounded-md px-2 py-2 text-left text-sm hover:bg-black/[0.04]"
+                >
+                  View all projects
+                </button>
+                <div className="space-y-1">
+                  {allProjects.length ? (
+                    allProjects.map((project) => {
+                      const status = statusMeta(project);
+                      return (
+                        <button
+                          key={project.id}
+                          type="button"
+                          onClick={() => selectProjectContext(project.id)}
+                          className={`w-full rounded-md border px-2 py-2 text-left hover:bg-black/[0.04] ${
+                            activeProjectId === project.id ? "border-black/25 bg-black/[0.03]" : "border-transparent"
+                          }`}
                         >
-                          {child.label}
-                        </Link>
-                      ))
-                    ) : (
-                      <div className="px-2 py-1 text-base text-black/60">No active projects yet</div>
-                    )}
-                  </div>
-                  ) : null}
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="truncate text-sm font-medium">{projectLabel(project)}</div>
+                            <span className={`rounded-full border px-2 py-0.5 text-xs ${status.className}`}>{status.label}</span>
+                          </div>
+                          <div className="mt-0.5 truncate text-xs text-black/55">
+                            {project.city ?? "City TBD"} • Client TBD
+                          </div>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="rounded-md px-2 py-2 text-sm text-black/55">No projects match your search</div>
+                  )}
                 </div>
-                <div className="relative" ref={toolsRef}>
-                  <button
-                    className="rounded-full border border-white/20 px-3 py-1 text-base cursor-pointer flex items-center gap-2"
-                    type="button"
-                    onClick={() => setToolsOpen((open) => !open)}
-                  >
-                    {activeProject ? "Project Tools" : "Company Tools"}
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      className="h-3 w-3 opacity-60"
-                    >
-                      <path d="m6 9 6 6 6-6" />
-                    </svg>
-                  </button>
-                  {toolsOpen ? (
-                    <div className="fixed left-0 right-0 top-16 z-30">
-                      <div className="mx-6 rounded-xl border border-[#E5E7EB] bg-white p-5 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
-                        <div className="px-2 py-2">
-                        <div className="text-sm uppercase tracking-wide text-black/50">
-                          {activeProject ? "Project Tools" : "Company Tools"}
-                        </div>
-                        <div className="text-base font-semibold text-black/90">
-                          {activeProject ? projectContextLabel : "Company Overview"}
-                        </div>
-                      </div>
-                      {activeProject ? (
-                        <div className="grid grid-cols-3 gap-4">
-                          {PROJECT_TOOL_GROUPS.map((group) => (
-                            <div key={group.title} className="space-y-2">
-                              <div>
-                                <div className="text-sm font-semibold uppercase tracking-wide">
-                                  {group.title}
-                                </div>
-                                <div className="text-xs text-black/60 mt-1">
-                                  {group.description}
-                                </div>
-                              </div>
-                              <div className="space-y-1">
-                                {group.items.map((item) => (
-                                  <Link
-                                    key={item.label}
-                                    href={withMode(`/projects/${activeProject.id}/${item.path}`)}
-                                    onClick={closeAllMenus}
-                                    className="block rounded px-2 py-1 text-sm text-black/80 hover:bg-black/[0.03]"
-                                  >
-                                    {item.label}
-                                  </Link>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-2 gap-2">
-                          {GLOBAL_TOOLS.map((tool) => (
-                          <Link
-                            key={tool.label}
-                            href={withMode(tool.href)}
-                            onClick={closeAllMenus}
-                            className="rounded-lg px-3 py-2 text-xs font-medium text-black/80 hover:bg-black/[0.03]"
-                          >
-                            {tool.label}
-                          </Link>
-                          ))}
-                        </div>
-                      )}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              </>
-            )}
-          </div>
-
-
-          <button
-            type="button"
-            onClick={() => setMobileMenuOpen((open) => !open)}
-            className="inline-flex rounded-xl border border-white/20 px-3 py-2 text-base md:hidden"
-            aria-label="Toggle mobile menu"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className="h-5 w-5"
-            >
-              {mobileMenuOpen ? <path d="M18 6 6 18M6 6l12 12" /> : <path d="M4 7h16M4 12h16M4 17h16" />}
-            </svg>
-          </button>
-        </div>
-
-        <div className="mt-3 hidden flex-1 flex-wrap items-center justify-end gap-2 md:flex">
-          <div className="relative" ref={modeRef}>
-            <button
-              className="rounded-full border border-white/20 px-3 py-2 text-base cursor-pointer flex items-center gap-2"
-              type="button"
-              onClick={() => setModeOpen((open) => !open)}
-            >
-              {modeLabel}
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                className="h-3 w-3 opacity-60"
-              >
-                <path d="m6 9 6 6 6-6" />
-              </svg>
-            </button>
-            {modeOpen ? (
-              <div className="absolute right-0 top-full z-30 min-w-[220px] rounded-xl border border-[#E5E7EB] bg-white p-2 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
-                <button
-                  className="flex w-full items-center justify-between rounded px-2 py-2 text-sm hover:bg-black/[0.03]"
-                  type="button"
-                  onClick={async () => {
-                    await setMode("waiverdesk");
-                    closeAllMenus();
-                    router.push("/waiverdesk/dashboard");
-                  }}
-                >
-                  WaiverDesk
-                  {mode === "waiverdesk" ? (
-                    <span className="text-xs text-[color:var(--muted)]">Active</span>
-                  ) : null}
-                </button>
-                <button
-                  className="flex w-full items-center justify-between rounded px-2 py-2 text-sm hover:bg-black/[0.03]"
-                  type="button"
-                  onClick={async () => {
-                    await setMode("pm");
-                    closeAllMenus();
-                    router.push("/dashboard");
-                  }}
-                >
-                  Project Management
-                  {mode === "pm" ? (
-                    <span className="text-xs text-[color:var(--muted)]">Active</span>
-                  ) : null}
-                </button>
-                <button
-                  className="flex w-full items-center justify-between rounded px-2 py-2 text-sm hover:bg-black/[0.03]"
-                  type="button"
-                  onClick={async () => {
-                    await setMode("pm");
-                    closeAllMenus();
-                    router.push("/bidding");
-                  }}
-                >
-                  Bidding
-                </button>
               </div>
             ) : null}
           </div>
-          <button
-            type="button"
-            onClick={() => setMobileSearchOpen((v) => !v)}
-            className="rounded-xl border border-white/20 px-3 py-2 text-base md:hidden"
-            aria-label="Toggle search"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              className="h-4 w-4"
+
+          <div className="relative min-w-[180px] flex-1 md:max-w-[260px]" ref={toolsRef}>
+            <button
+              type="button"
+              onClick={() => setToolsOpen((open) => !open)}
+              className="flex w-full items-center justify-between rounded-lg border border-white/20 bg-white/5 px-3 py-2 text-left text-sm"
             >
-              <circle cx="11" cy="11" r="7" />
-              <path d="m20 20-3.5-3.5" />
-            </svg>
-          </button>
-          <div className="hidden min-w-[220px] max-w-[360px] flex-1 md:block">
-            <input
-              className="w-full rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-base text-white placeholder:text-white/60"
-              placeholder="Quick search projects, contracts, RFIs..."
-            />
+              <span className="truncate">{currentToolLabel}</span>
+              <span className="text-xs opacity-70">▾</span>
+            </button>
+            {toolsOpen ? (
+              <div className="absolute left-0 top-full z-30 mt-1 max-h-72 w-full overflow-auto rounded-lg border border-[#E5E7EB] bg-white p-2 text-black shadow-[0_10px_25px_rgba(0,0,0,0.12)]">
+                {toolSections.map((section) => (
+                  <div key={section.title} className="mb-2 last:mb-0">
+                    <div className="px-2 py-1 text-xs font-semibold uppercase tracking-wide text-black/45">
+                      {section.title}
+                    </div>
+                    <div className="space-y-1">
+                      {section.items.map((tool) => (
+                        <Link
+                          key={`${section.title}-${tool.label}`}
+                          href={tool.href}
+                          onClick={closeMenus}
+                          className="block rounded px-2 py-2 text-sm hover:bg-black/[0.04]"
+                        >
+                          {tool.label}
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
 
-          <button
-            className="relative rounded-full border border-white/20 px-3 py-2 text-base cursor-pointer"
-            aria-label="Notifications"
+          <form
+            className="min-w-[220px] flex-1"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const query = searchQuery.trim();
+              if (!query) return;
+              closeMenus();
+              router.push(withContext(`/search?q=${encodeURIComponent(query)}`));
+            }}
           >
-            🔔
-            {hasUnreadNotifications ? (
-              <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary ring-2 ring-[color:var(--brand)]" />
-            ) : null}
-          </button>
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              className="w-full rounded-lg border border-white/20 bg-white/10 px-3 py-2 text-sm text-white placeholder:text-white/65"
+              placeholder="Search projects, subs, bids, docs..."
+              aria-label="Global Search"
+            />
+          </form>
 
-          <div className="relative" ref={profileRef}>
+          <div className="relative ml-auto flex min-w-fit items-center gap-2" ref={profileRef}>
             <button
-              className="rounded-full border border-white/20 px-3 py-2 text-base cursor-pointer flex items-center gap-2"
+              type="button"
+              className="relative rounded-lg border border-white/20 px-3 py-2 text-sm"
+              aria-label="Notifications"
+            >
+              🔔
+              {hasUnreadNotifications ? (
+                <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-primary ring-2 ring-[color:var(--brand)]" />
+              ) : null}
+            </button>
+            <button
               type="button"
               onClick={() => setProfileOpen((open) => !open)}
+              className="flex items-center gap-2 rounded-lg border border-white/20 px-3 py-2 text-sm"
             >
               Profile
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                className="h-3 w-3 opacity-60"
-              >
-                <path d="m6 9 6 6 6-6" />
-              </svg>
+              <span className="text-xs opacity-70">▾</span>
             </button>
             {profileOpen ? (
-              <div className="absolute right-0 top-full z-30 min-w-[180px] rounded-xl border border-[#E5E7EB] bg-white p-2 text-black/80 shadow-[0_10px_25px_rgba(0,0,0,0.08)]">
-                <Link
-                  href="/profile"
-                  onClick={closeAllMenus}
-                  className="block rounded px-2 py-1 text-base text-black/80 hover:bg-black/[0.03]"
-                >
+              <div className="absolute right-0 top-full z-30 mt-1 min-w-[180px] rounded-lg border border-[#E5E7EB] bg-white p-2 text-black shadow-[0_10px_25px_rgba(0,0,0,0.12)]">
+                <Link href={withContext("/profile")} onClick={closeMenus} className="block rounded px-2 py-2 text-sm hover:bg-black/[0.04]">
                   Profile
                 </Link>
                 <Link
-                  href={withMode("/settings")}
-                  onClick={closeAllMenus}
-                  className="block rounded px-2 py-1 text-base text-black/80 hover:bg-black/[0.03]"
+                  href={withContext("/settings")}
+                  onClick={closeMenus}
+                  className="block rounded px-2 py-2 text-sm hover:bg-black/[0.04]"
                 >
                   Settings
                 </Link>
                 <Link
-                  href={withMode("/logout")}
-                  onClick={closeAllMenus}
-                  className="block rounded px-2 py-1 text-base text-black/80 hover:bg-black/[0.03]"
+                  href={withContext("/logout")}
+                  onClick={closeMenus}
+                  className="block rounded px-2 py-2 text-sm hover:bg-black/[0.04]"
                 >
                   Log out
                 </Link>
@@ -530,126 +432,76 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
             ) : null}
           </div>
         </div>
-        {mobileSearchOpen ? (
-          <div className="w-full md:hidden">
-            <input
-              className="w-full rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-base text-white placeholder:text-white/60"
-              placeholder="Quick search projects, contracts, RFIs..."
-            />
-          </div>
-        ) : null}
-
-        {mobileMenuOpen ? (
-          <div className="mt-3 space-y-3 rounded-xl border border-white/15 bg-white/[0.07] p-3 text-white md:hidden">
-            <input
-              className="w-full rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-base text-white placeholder:text-white/60"
-              placeholder="Quick search projects, contracts, RFIs..."
-            />
-
-            <div className="space-y-2">
-              <div className="text-xs uppercase tracking-widest text-white/70">Mode</div>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  className="rounded-lg border border-white/20 px-3 py-2 text-sm"
-                  type="button"
-                  onClick={async () => {
-                    await setMode("waiverdesk");
-                    closeAllMenus();
-                    router.push("/waiverdesk/dashboard");
-                  }}
-                >
-                  WaiverDesk
-                </button>
-                <button
-                  className="rounded-lg border border-white/20 px-3 py-2 text-sm"
-                  type="button"
-                  onClick={async () => {
-                    await setMode("pm");
-                    closeAllMenus();
-                    router.push("/dashboard");
-                  }}
-                >
-                  Project Management
-                </button>
-                <button
-                  className="rounded-lg border border-white/20 px-3 py-2 text-sm"
-                  type="button"
-                  onClick={async () => {
-                    await setMode("pm");
-                    closeAllMenus();
-                    router.push("/bidding");
-                  }}
-                >
-                  Bidding
-                </button>
-              </div>
-            </div>
-
-            {mode === "waiverdesk" ? (
-              <div className="space-y-2">
-                <div className="text-xs uppercase tracking-widest text-white/70">WaiverDesk menu</div>
-                <div className="grid grid-cols-1 gap-1">
-                  {WAIVER_NAV_ITEMS.map((item) => (
-                    <Link
-                      key={item.label}
-                      href={withMode(item.href)}
-                      onClick={closeAllMenus}
-                      className="flex items-center justify-between rounded-lg px-3 py-2 text-sm hover:bg-white/[0.09]"
-                    >
-                      <span>{item.label}</span>
-                      {item.count !== undefined ? (
-                        <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs">{item.count}</span>
-                      ) : null}
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <>
-                <div className="space-y-2">
-                  <div className="text-xs uppercase tracking-widest text-white/70">Project</div>
-                  <Link
-                    href={withMode("/projects")}
-                    onClick={closeAllMenus}
-                    className="block rounded-lg border border-white/20 px-3 py-2 text-sm"
-                  >
-                    {projectContextLabel}
-                  </Link>
-                </div>
-                <div className="space-y-2">
-                  <div className="text-xs uppercase tracking-widest text-white/70">
-                    {activeProject ? "Project tools" : "Company tools"}
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {menuTools.map((tool) => (
-                      <Link
-                        key={tool.label}
-                        href={withMode(tool.href)}
-                        onClick={closeAllMenus}
-                        className="rounded-lg border border-white/20 px-3 py-2 text-sm"
-                      >
-                        {tool.label}
-                      </Link>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
-
-            <div className="space-y-1 border-t border-white/15 pt-2">
-              <Link href="/profile" onClick={closeAllMenus} className="block rounded-lg px-3 py-2 text-sm hover:bg-white/[0.09]">
-                Profile
-              </Link>
-              <Link href={withMode("/settings")} onClick={closeAllMenus} className="block rounded-lg px-3 py-2 text-sm hover:bg-white/[0.09]">
-                Settings
-              </Link>
-              <Link href={withMode("/logout")} onClick={closeAllMenus} className="block rounded-lg px-3 py-2 text-sm hover:bg-white/[0.09]">
-                Log out
-              </Link>
-            </div>
-          </div>
-        ) : null}
       </div>
+      {activeProject ? (
+        <div className="border-t border-white/10 bg-white/95 text-slate-800 backdrop-blur">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2 md:px-6">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-slate-900">{activeProject.name}</div>
+              <div className="truncate text-xs text-slate-600">
+                Client TBD • Due {formatDateLabel(activeProject.end_date)} •{" "}
+                <span className="font-medium">{statusMeta(activeProject).label}</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-xs">
+              <Link
+                href={withContext(`/projects/${activeProject.id}/drawings`)}
+                className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Docs
+              </Link>
+              <Link
+                href={withContext(`/projects/${activeProject.id}/directory`)}
+                className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Contacts
+              </Link>
+              <Link
+                href={withContext(`/projects/${activeProject.id}`)}
+                className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Activity
+              </Link>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {switchToast ? (
+        <div className="pointer-events-none fixed bottom-5 right-5 z-40">
+          <div className="pointer-events-auto flex items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 shadow-lg">
+            <span>{switchToast.message}</span>
+            {switchToast.previousProjectId ? (
+              <button
+                type="button"
+                onClick={() => {
+                  const previousProjectId = switchToast.previousProjectId;
+                  if (!previousProjectId) return;
+                  const nextRecent = [previousProjectId, ...recentProjectIds.filter((id) => id !== previousProjectId)].slice(
+                    0,
+                    5
+                  );
+                  setRecentProjectIds(nextRecent);
+                  localStorage.setItem(ACTIVE_PROJECT_STORAGE_KEY, previousProjectId);
+                  localStorage.setItem(RECENT_PROJECTS_STORAGE_KEY, JSON.stringify(nextRecent));
+                  router.replace(buildContextUrl(pathname, new URLSearchParams(searchParams.toString()), previousProjectId));
+                  setSwitchToast(null);
+                }}
+                className="rounded-md px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+              >
+                Undo
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => setSwitchToast(null)}
+              className="rounded-md px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
+              aria-label="Dismiss project switch notification"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
     </header>
   );
 }
