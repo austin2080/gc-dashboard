@@ -124,7 +124,14 @@ type ProjectInfoDraft = {
   address: string;
 };
 
+type CalendarEntry = {
+  id: string;
+  date: string;
+  title: string;
+};
+
 const BID_PROJECT_INFO_STORAGE_KEY = "bidProjectInfoByBidProjectId";
+const BID_PROJECT_CALENDAR_STORAGE_KEY = "bidProjectCalendarByBidProjectId";
 
 const emptyProjectInfoDraft: ProjectInfoDraft = {
   estimator: "",
@@ -147,6 +154,10 @@ function daysUntil(isoDate: string): number {
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
+}
+
+function toYmd(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function StatusPill({ status }: { status: BidTradeStatus }) {
@@ -697,6 +708,13 @@ export default function BiddingPage() {
   const [editBidError, setEditBidError] = useState<string | null>(null);
   const [backfillComplete, setBackfillComplete] = useState(false);
   const [projectInfoDraft, setProjectInfoDraft] = useState<ProjectInfoDraft>(emptyProjectInfoDraft);
+  const [calendarEntries, setCalendarEntries] = useState<CalendarEntry[]>([]);
+  const [calendarDate, setCalendarDate] = useState("");
+  const [calendarTitle, setCalendarTitle] = useState("");
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
 
   useEffect(() => {
     let active = true;
@@ -976,6 +994,106 @@ export default function BiddingPage() {
       return next;
     });
   };
+
+  useEffect(() => {
+    if (!selectedProject?.id) {
+      setCalendarEntries([]);
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(BID_PROJECT_CALENDAR_STORAGE_KEY);
+      if (!raw) {
+        setCalendarEntries([]);
+        return;
+      }
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== "object") {
+        setCalendarEntries([]);
+        return;
+      }
+      const rows = (parsed as Record<string, CalendarEntry[]>)[selectedProject.id];
+      setCalendarEntries(Array.isArray(rows) ? rows : []);
+    } catch {
+      setCalendarEntries([]);
+    }
+  }, [selectedProject?.id]);
+
+  const saveCalendarEntries = (entries: CalendarEntry[]) => {
+    if (!selectedProject?.id) return;
+    try {
+      const raw = localStorage.getItem(BID_PROJECT_CALENDAR_STORAGE_KEY);
+      const parsed = raw ? (JSON.parse(raw) as unknown) : {};
+      const map = parsed && typeof parsed === "object" ? (parsed as Record<string, CalendarEntry[]>) : {};
+      map[selectedProject.id] = entries;
+      localStorage.setItem(BID_PROJECT_CALENDAR_STORAGE_KEY, JSON.stringify(map));
+    } catch {
+      // Ignore local storage errors and keep UI responsive.
+    }
+  };
+
+  const upsertCalendarEntry = () => {
+    const nextDate = calendarDate.trim();
+    const nextTitle = calendarTitle.trim();
+    if (!nextDate || !nextTitle) return;
+    const nextEntries = [
+      ...calendarEntries,
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        date: nextDate,
+        title: nextTitle,
+      },
+    ].sort((a, b) => a.date.localeCompare(b.date));
+    setCalendarEntries(nextEntries);
+    saveCalendarEntries(nextEntries);
+    setCalendarTitle("");
+  };
+
+  const updateCalendarEntry = (id: string, patch: Partial<Pick<CalendarEntry, "date" | "title">>) => {
+    const nextEntries = calendarEntries.map((entry) =>
+      entry.id === id ? { ...entry, ...patch } : entry
+    );
+    setCalendarEntries(nextEntries);
+    saveCalendarEntries(nextEntries);
+  };
+
+  const removeCalendarEntry = (id: string) => {
+    const nextEntries = calendarEntries.filter((entry) => entry.id !== id);
+    setCalendarEntries(nextEntries);
+    saveCalendarEntries(nextEntries);
+  };
+
+  const calendarEntriesByDate = useMemo(() => {
+    const map = new Map<string, CalendarEntry[]>();
+    for (const entry of calendarEntries) {
+      const key = entry.date;
+      const list = map.get(key) ?? [];
+      list.push(entry);
+      map.set(key, list);
+    }
+    map.forEach((list) => list.sort((a, b) => a.title.localeCompare(b.title)));
+    return map;
+  }, [calendarEntries]);
+
+  const calendarMonthLabel = useMemo(
+    () => calendarMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" }),
+    [calendarMonth]
+  );
+
+  const calendarCells = useMemo(() => {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const firstOfMonth = new Date(year, month, 1);
+    const startOffset = firstOfMonth.getDay();
+    return Array.from({ length: 42 }, (_, index) => {
+      const date = new Date(year, month, 1 - startOffset + index);
+      return {
+        key: toYmd(date),
+        date,
+        day: date.getDate(),
+        inMonth: date.getMonth() === month,
+      };
+    });
+  }, [calendarMonth]);
   const invitedSubIds = useMemo(
     () => new Set(detail?.projectSubs.map((item) => item.subcontractor_id) ?? []),
     [detail]
@@ -1150,7 +1268,127 @@ export default function BiddingPage() {
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-6">
             <h2 className="text-lg font-semibold text-slate-900">Calendar</h2>
-            <p className="mt-2 text-sm text-slate-500">Milestones, due dates, and timeline details will go here.</p>
+            <div className="mt-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))
+                  }
+                  className="rounded-md border border-slate-200 px-2 py-1 text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  Prev
+                </button>
+                <div className="text-sm font-semibold text-slate-800">{calendarMonthLabel}</div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))
+                  }
+                  className="rounded-md border border-slate-200 px-2 py-1 text-sm text-slate-700 hover:bg-slate-50"
+                >
+                  Next
+                </button>
+              </div>
+
+              <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => (
+                  <div key={day} className="py-1">
+                    {day}
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-1">
+                {calendarCells.map((cell) => {
+                  const entriesForDay = calendarEntriesByDate.get(cell.key) ?? [];
+                  const isSelected = calendarDate === cell.key;
+                  const isToday = cell.key === toYmd(new Date());
+                  return (
+                    <button
+                      key={cell.key}
+                      type="button"
+                      onClick={() => {
+                        setCalendarDate(cell.key);
+                        if (!cell.inMonth) {
+                          setCalendarMonth(new Date(cell.date.getFullYear(), cell.date.getMonth(), 1));
+                        }
+                      }}
+                      className={`min-h-[74px] rounded-md border p-1.5 text-left transition ${
+                        isSelected
+                          ? "border-slate-900 bg-slate-900/5"
+                          : cell.inMonth
+                            ? "border-slate-200 bg-white hover:bg-slate-50"
+                            : "border-slate-100 bg-slate-50 text-slate-400 hover:bg-slate-100"
+                      }`}
+                    >
+                      <div className={`text-xs font-semibold ${isToday ? "text-blue-700" : ""}`}>{cell.day}</div>
+                      {entriesForDay.slice(0, 2).map((entry) => (
+                        <div key={entry.id} className="mt-1 truncate rounded bg-slate-100 px-1 py-0.5 text-[10px] text-slate-700">
+                          {entry.title}
+                        </div>
+                      ))}
+                      {entriesForDay.length > 2 ? (
+                        <div className="mt-1 text-[10px] text-slate-500">+{entriesForDay.length - 2} more</div>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-[auto_1fr_auto]">
+                <input
+                  type="date"
+                  value={calendarDate}
+                  onChange={(event) => setCalendarDate(event.target.value)}
+                  className="rounded-md border border-slate-200 px-2.5 py-1.5 text-sm text-slate-700"
+                />
+                <input
+                  value={calendarTitle}
+                  onChange={(event) => setCalendarTitle(event.target.value)}
+                  className="rounded-md border border-slate-200 px-2.5 py-1.5 text-sm text-slate-700"
+                  placeholder="Add milestone or reminder"
+                />
+                <button
+                  type="button"
+                  onClick={upsertCalendarEntry}
+                  className="rounded-md bg-slate-900 px-3 py-1.5 text-sm font-semibold text-white hover:bg-slate-800"
+                >
+                  Add
+                </button>
+              </div>
+
+              {calendarEntries.length ? (
+                <div className="max-h-52 space-y-2 overflow-auto pr-1">
+                  {calendarEntries.map((entry) => (
+                    <div key={entry.id} className="grid gap-2 rounded-md border border-slate-200 p-2 sm:grid-cols-[auto_1fr_auto]">
+                      <input
+                        type="date"
+                        value={entry.date}
+                        onChange={(event) => updateCalendarEntry(entry.id, { date: event.target.value })}
+                        className="rounded-md border border-slate-200 px-2 py-1 text-sm text-slate-700"
+                      />
+                      <input
+                        value={entry.title}
+                        onChange={(event) => updateCalendarEntry(entry.id, { title: event.target.value })}
+                        className="rounded-md border border-slate-200 px-2 py-1 text-sm text-slate-700"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeCalendarEntry(entry.id)}
+                        className="rounded-md border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-md border border-dashed border-slate-300 px-3 py-3 text-sm text-slate-500">
+                  No calendar items yet.
+                </div>
+              )}
+            </div>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-12">
             <h2 className="text-lg font-semibold text-slate-900">Needs Attention</h2>
