@@ -32,7 +32,7 @@ const NAV: NavItem[] = [
   },
   {
     label: "Bidding",
-    href: "/bids",
+    href: "/bidding",
     children: [
       { label: "ITBs", comingSoon: true },
       { label: "Bid Leveling", comingSoon: true },
