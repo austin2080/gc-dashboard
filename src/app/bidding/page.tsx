@@ -12,7 +12,7 @@ import {
   createBidProject,
   createBidTrades,
   createBidSubcontractor,
-  ensureBidSubcontractor,
+  listBidSubcontractors,
   inviteSubToProject,
   createTradeBid,
   updateTradeBid,
@@ -745,14 +745,7 @@ export default function BiddingPage() {
   const [savingInvite, setSavingInvite] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [subList, setSubList] = useState<
-    Array<{
-      id: string;
-      company_name: string;
-      primary_contact: string | null;
-      email: string | null;
-      phone: string | null;
-      approved_vendor: boolean;
-    }>
+    Array<{ id: string; company_name: string; primary_contact: string | null; email: string | null; phone: string | null }>
   >([]);
   const [subListLoading, setSubListLoading] = useState(false);
   const [subSearch, setSubSearch] = useState("");
@@ -833,31 +826,10 @@ export default function BiddingPage() {
     async function loadSubList() {
       if (!inviteModalOpen) return;
       setSubListLoading(true);
-      try {
-        const res = await fetch("/api/directory/overview", { cache: "no-store" });
-        const payload = await res.json();
-        if (!res.ok) {
-          throw new Error(payload?.error ?? "Failed to load directory companies.");
-        }
-        if (!active) return;
-        const companies = Array.isArray(payload?.companies) ? payload.companies : [];
-        setSubList(
-          companies.map((company) => ({
-            id: String(company.id),
-            company_name: String(company.name ?? "").trim(),
-            primary_contact: company.primaryContact ?? null,
-            email: company.email ?? null,
-            phone: company.phone ?? null,
-            approved_vendor: Boolean(company.approvedVendor),
-          }))
-        );
-      } catch (err) {
-        console.error("Failed to load directory companies", err);
-        if (!active) return;
-        setSubList([]);
-      } finally {
-        if (active) setSubListLoading(false);
-      }
+      const data = await listBidSubcontractors();
+      if (!active) return;
+      setSubList(data);
+      setSubListLoading(false);
     }
 
     loadSubList();
@@ -937,42 +909,18 @@ export default function BiddingPage() {
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
     [projects, selectedProjectId]
   );
-  const normalizeName = (value: string) =>
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, " ")
-      .trim();
-  const normalizeEmail = (value: string) => value.toLowerCase().trim();
-  const normalizePhone = (value: string) => value.replace(/\D/g, "");
-
-  const invitedCompanyKeys = useMemo(() => {
-    const keys = new Set<string>();
-    (detail?.projectSubs ?? []).forEach((item) => {
-      const name = item.subcontractor?.company_name ? normalizeName(item.subcontractor.company_name) : "";
-      const email = item.subcontractor?.email ? normalizeEmail(item.subcontractor.email) : "";
-      const phone = item.subcontractor?.phone ? normalizePhone(item.subcontractor.phone) : "";
-      if (name) keys.add(`name:${name}`);
-      if (email) keys.add(`email:${email}`);
-      if (phone) keys.add(`phone:${phone}`);
-    });
-    return keys;
-  }, [detail]);
+  const invitedSubIds = useMemo(
+    () => new Set(detail?.projectSubs.map((item) => item.subcontractor_id) ?? []),
+    [detail]
+  );
   const availableSubs = useMemo(
     () =>
-      subList.filter((sub) => {
-        const nameKey = `name:${normalizeName(sub.company_name)}`;
-        const emailKey = sub.email ? `email:${normalizeEmail(sub.email)}` : "";
-        const phoneKey = sub.phone ? `phone:${normalizePhone(sub.phone)}` : "";
-        const isInvited =
-          invitedCompanyKeys.has(nameKey) ||
-          (emailKey && invitedCompanyKeys.has(emailKey)) ||
-          (phoneKey && invitedCompanyKeys.has(phoneKey));
-        if (isInvited) return false;
-        return `${sub.company_name} ${sub.primary_contact ?? ""} ${sub.email ?? ""}`
-          .toLowerCase()
-          .includes(subSearch.toLowerCase());
-      }),
-    [subList, invitedCompanyKeys, subSearch]
+      subList.filter(
+        (sub) =>
+          !invitedSubIds.has(sub.id) &&
+          `${sub.company_name} ${sub.primary_contact ?? ""}`.toLowerCase().includes(subSearch.toLowerCase())
+      ),
+    [subList, invitedSubIds, subSearch]
   );
   const tradeNamesLower = useMemo(
     () => new Set(tradeDrafts.map((trade) => trade.trade_name.trim().toLowerCase()).filter(Boolean)),
@@ -1753,31 +1701,13 @@ export default function BiddingPage() {
                     setSavingInvite(false);
                     return;
                   }
-                  const selectedCompany = subList.find((sub) => sub.id === inviteDraft.selected_sub_id);
-                  if (!selectedCompany) {
-                    setInviteError("Selected subcontractor not found in the directory.");
-                    setSavingInvite(false);
-                    return;
-                  }
                   const tradeId = newSubTrade.tradeId;
                   let resolvedProjectSubId = "";
                   if (!resolvedProjectSubId) {
                     const sortOrder = getNextSubSortOrder(detail?.projectSubs ?? []);
-                    const ensured = await ensureBidSubcontractor({
-                      company_name: selectedCompany.company_name,
-                      primary_contact: selectedCompany.primary_contact,
-                      email: selectedCompany.email,
-                      phone: selectedCompany.phone,
-                      approved_vendor: selectedCompany.approved_vendor,
-                    });
-                    if (!ensured) {
-                      setInviteError("Unable to add this subcontractor.");
-                      setSavingInvite(false);
-                      return;
-                    }
                     const projectSub = await inviteSubToProject({
                       project_id: selectedProject.id,
-                      subcontractor_id: ensured.id,
+                      subcontractor_id: inviteDraft.selected_sub_id,
                       sort_order: sortOrder,
                     });
                     if (!projectSub) {
@@ -1813,40 +1743,6 @@ export default function BiddingPage() {
                     return;
                   }
                   const tradeId = newSubTrade.tradeId;
-                  const companyPayload = {
-                    companies: [
-                      {
-                        name: newSubDraft.company_name.trim(),
-                        primaryContact: newSubDraft.primary_contact.trim() || undefined,
-                        email: newSubDraft.email.trim() || undefined,
-                        phone: newSubDraft.phone.trim() || undefined,
-                        isActive: true,
-                        approvedVendor: false,
-                      },
-                    ],
-                  };
-                  let createdCompanyId = "";
-                  try {
-                    const res = await fetch("/api/directory/companies", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify(companyPayload),
-                    });
-                    const payload = await res.json().catch(() => ({}));
-                    if (!res.ok) {
-                      throw new Error(payload?.error ?? "Failed to create directory company.");
-                    }
-                    const created =
-                      payload?.companies?.find(
-                        (company: { id?: string; name?: string }) =>
-                          company?.name?.toLowerCase() === newSubDraft.company_name.trim().toLowerCase()
-                      ) ?? null;
-                    createdCompanyId = created?.id ?? "";
-                  } catch (err) {
-                    setInviteError(err instanceof Error ? err.message : "Unable to create directory company.");
-                    setSavingInvite(false);
-                    return;
-                  }
                   const sub = await createBidSubcontractor({
                     company_name: newSubDraft.company_name,
                     primary_contact: newSubDraft.primary_contact.trim() || null,
@@ -1857,19 +1753,6 @@ export default function BiddingPage() {
                     setInviteError("Unable to create subcontractor.");
                     setSavingInvite(false);
                     return;
-                  }
-                  if (createdCompanyId) {
-                    setSubList((prev) => [
-                      ...prev,
-                      {
-                        id: createdCompanyId,
-                        company_name: newSubDraft.company_name.trim(),
-                        primary_contact: newSubDraft.primary_contact.trim() || null,
-                        email: newSubDraft.email.trim() || null,
-                        phone: newSubDraft.phone.trim() || null,
-                        approved_vendor: false,
-                      },
-                    ]);
                   }
                   const sortOrder = getNextSubSortOrder(detail?.projectSubs ?? []);
                   const projectSub = await inviteSubToProject({
@@ -1967,26 +1850,13 @@ export default function BiddingPage() {
                               <button
                                 key={sub.id}
                                 type="button"
-                                onClick={() =>
-                                  setInviteDraft((prev) => ({
-                                    ...prev,
-                                    selected_sub_id: sub.id,
-                                    contact_name: prev.contact_name || sub.primary_contact || "",
-                                  }))
-                                }
+                                onClick={() => setInviteDraft((prev) => ({ ...prev, selected_sub_id: sub.id }))}
                                 className={`flex w-full items-center justify-between px-3 py-2 text-left text-sm ${
                                   inviteDraft.selected_sub_id === sub.id ? "bg-slate-100 text-slate-900" : "hover:bg-slate-50"
                                 }`}
                               >
                                 <span className="font-medium">{sub.company_name}</span>
-                                <span className="flex items-center gap-2 text-xs text-slate-500">
-                                  {sub.approved_vendor ? (
-                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                                      Approved
-                                    </span>
-                                  ) : null}
-                                  <span>{sub.primary_contact ?? "—"}</span>
-                                </span>
+                                <span className="text-xs text-slate-500">{sub.primary_contact ?? "—"}</span>
                               </button>
                             ))
                           ) : (
@@ -1996,55 +1866,6 @@ export default function BiddingPage() {
                           <div className="px-3 py-2 text-sm text-slate-500">No subs found.</div>
                         )}
                       </div>
-                      {inviteDraft.selected_sub_id ? (
-                        (() => {
-                          const selected = subList.find((sub) => sub.id === inviteDraft.selected_sub_id);
-                          if (!selected) return null;
-                          return (
-                            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                              <div className="font-semibold text-slate-700">{selected.company_name}</div>
-                              <div>
-                                {selected.primary_contact ? `Contact: ${selected.primary_contact}` : "Contact: —"}
-                                {" · "}
-                                {selected.email ? `Email: ${selected.email}` : "Email: —"}
-                                {" · "}
-                                {selected.phone ? `Phone: ${selected.phone}` : "Phone: —"}
-                              </div>
-                              <label className="mt-2 inline-flex items-center gap-2 text-xs font-medium text-slate-600">
-                                <input
-                                  type="checkbox"
-                                  checked={selected.approved_vendor}
-                                  onChange={async (event) => {
-                                    const nextApproved = event.target.checked;
-                                    setSubList((prev) =>
-                                      prev.map((item) =>
-                                        item.id === selected.id ? { ...item, approved_vendor: nextApproved } : item
-                                      )
-                                    );
-                                    await fetch("/api/directory/companies", {
-                                      method: "POST",
-                                      headers: { "Content-Type": "application/json" },
-                                      body: JSON.stringify({
-                                        companies: [
-                                          {
-                                            id: selected.id,
-                                            name: selected.company_name,
-                                            primaryContact: selected.primary_contact ?? undefined,
-                                            email: selected.email ?? undefined,
-                                            phone: selected.phone ?? undefined,
-                                            approvedVendor: nextApproved,
-                                          },
-                                        ],
-                                      }),
-                                    });
-                                  }}
-                                />
-                                Approved Vendor
-                              </label>
-                            </div>
-                          );
-                        })()
-                      ) : null}
                     </div>
                   </label>
                 ) : !inviteTarget ? (

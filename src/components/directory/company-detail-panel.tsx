@@ -31,7 +31,6 @@ export default function CompanyDetailPanel({ company, assignedProjects, allProje
         <div><span className="opacity-60">Primary contact:</span> {company.primaryContact ?? "-"}</div>
         <div><span className="opacity-60">Email:</span> {company.email ?? "-"}</div>
         <div><span className="opacity-60">Phone:</span> {company.phone ?? "-"}</div>
-        <div><span className="opacity-60">Approved vendor:</span> {company.approvedVendor ? "Yes" : "No"}</div>
         <div className="md:col-span-2"><span className="opacity-60">Address:</span> {addressLabel}</div>
         <div><span className="opacity-60">Website:</span> {company.website ?? "-"}</div>
         <div><span className="opacity-60">Vendor type:</span> {company.vendorType ?? "-"}</div>

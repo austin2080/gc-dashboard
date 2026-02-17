@@ -20,7 +20,6 @@ type CompanyInput = {
   procoreCompanyId?: string;
   notes?: string;
   isActive?: boolean;
-  approvedVendor?: boolean;
 };
 
 function clean(value: unknown): string | null {
@@ -68,7 +67,7 @@ export async function POST(req: Request) {
           company.id;
 
         return {
-          id: idMatch ?? crypto.randomUUID(),
+          id: idMatch ?? undefined,
           tenant_company_id: companyId,
           name,
           trade: clean(company.trade),
@@ -87,7 +86,6 @@ export async function POST(req: Request) {
           procore_company_id: procoreCompanyId,
           notes: clean(company.notes),
           is_active: company.isActive ?? true,
-          approved_vendor: company.approvedVendor ?? false,
         };
       })
       .filter(Boolean);
