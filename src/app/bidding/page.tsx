@@ -114,6 +114,28 @@ type SelectableProject = {
   name: string;
 };
 
+type ProjectInfoDraft = {
+  estimator: string;
+  projectCoordinator: string;
+  projectType: string;
+  squareFeet: string;
+  bidDueDate: string;
+  subsBidsDue: string;
+  address: string;
+};
+
+const BID_PROJECT_INFO_STORAGE_KEY = "bidProjectInfoByBidProjectId";
+
+const emptyProjectInfoDraft: ProjectInfoDraft = {
+  estimator: "",
+  projectCoordinator: "",
+  projectType: "",
+  squareFeet: "",
+  bidDueDate: "",
+  subsBidsDue: "",
+  address: "",
+};
+
 function daysUntil(isoDate: string): number {
   if (!isoDate) return 0;
   const today = new Date();
@@ -674,6 +696,7 @@ export default function BiddingPage() {
   const [savingBidEdit, setSavingBidEdit] = useState(false);
   const [editBidError, setEditBidError] = useState<string | null>(null);
   const [backfillComplete, setBackfillComplete] = useState(false);
+  const [projectInfoDraft, setProjectInfoDraft] = useState<ProjectInfoDraft>(emptyProjectInfoDraft);
 
   useEffect(() => {
     let active = true;
@@ -901,6 +924,58 @@ export default function BiddingPage() {
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
     [projects, selectedProjectId]
   );
+
+  useEffect(() => {
+    if (!selectedProject?.id) {
+      setProjectInfoDraft(emptyProjectInfoDraft);
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(BID_PROJECT_INFO_STORAGE_KEY);
+      if (!raw) {
+        setProjectInfoDraft(emptyProjectInfoDraft);
+        return;
+      }
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== "object") {
+        setProjectInfoDraft(emptyProjectInfoDraft);
+        return;
+      }
+      const row = (parsed as Record<string, Partial<ProjectInfoDraft>>)[selectedProject.id];
+      if (!row || typeof row !== "object") {
+        setProjectInfoDraft(emptyProjectInfoDraft);
+        return;
+      }
+      setProjectInfoDraft({
+        estimator: row.estimator ?? "",
+        projectCoordinator: row.projectCoordinator ?? "",
+        projectType: row.projectType ?? "",
+        squareFeet: row.squareFeet ?? "",
+        bidDueDate: row.bidDueDate ?? "",
+        subsBidsDue: row.subsBidsDue ?? "",
+        address: row.address ?? "",
+      });
+    } catch {
+      setProjectInfoDraft(emptyProjectInfoDraft);
+    }
+  }, [selectedProject?.id]);
+
+  const updateProjectInfoField = (field: keyof ProjectInfoDraft, value: string) => {
+    setProjectInfoDraft((prev) => {
+      const next = { ...prev, [field]: value };
+      if (!selectedProject?.id) return next;
+      try {
+        const raw = localStorage.getItem(BID_PROJECT_INFO_STORAGE_KEY);
+        const parsed = raw ? (JSON.parse(raw) as unknown) : {};
+        const map = parsed && typeof parsed === "object" ? (parsed as Record<string, ProjectInfoDraft>) : {};
+        map[selectedProject.id] = next;
+        localStorage.setItem(BID_PROJECT_INFO_STORAGE_KEY, JSON.stringify(map));
+      } catch {
+        // Ignore local storage errors and keep UI responsive.
+      }
+      return next;
+    });
+  };
   const invitedSubIds = useMemo(
     () => new Set(detail?.projectSubs.map((item) => item.subcontractor_id) ?? []),
     [detail]
@@ -1000,6 +1075,87 @@ export default function BiddingPage() {
       ) : queryProjectId && !selectedProject ? (
         <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-8 text-center text-slate-600 shadow-sm">
           No bid package is linked to this selected project yet. Click <span className="font-semibold">New Bid Package</span>.
+        </section>
+      ) : null}
+
+      {selectedProject ? (
+        <section className="grid gap-4 lg:grid-cols-12">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-6">
+            <h2 className="text-lg font-semibold text-slate-900">Project Info</h2>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Estimator</div>
+                <input
+                  value={projectInfoDraft.estimator}
+                  onChange={(event) => updateProjectInfoField("estimator", event.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-200 px-2.5 py-1.5 text-sm text-slate-700"
+                  placeholder="Enter estimator"
+                />
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Project Coordinator</div>
+                <input
+                  value={projectInfoDraft.projectCoordinator}
+                  onChange={(event) => updateProjectInfoField("projectCoordinator", event.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-200 px-2.5 py-1.5 text-sm text-slate-700"
+                  placeholder="Enter coordinator"
+                />
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Project Type</div>
+                <input
+                  value={projectInfoDraft.projectType}
+                  onChange={(event) => updateProjectInfoField("projectType", event.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-200 px-2.5 py-1.5 text-sm text-slate-700"
+                  placeholder="Enter project type"
+                />
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Square Feet</div>
+                <input
+                  value={projectInfoDraft.squareFeet}
+                  onChange={(event) => updateProjectInfoField("squareFeet", event.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-200 px-2.5 py-1.5 text-sm text-slate-700"
+                  placeholder="Enter square feet"
+                />
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Bid Due Date</div>
+                <input
+                  value={projectInfoDraft.bidDueDate}
+                  onChange={(event) => updateProjectInfoField("bidDueDate", event.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-200 px-2.5 py-1.5 text-sm text-slate-700"
+                  placeholder="Enter bid due date"
+                />
+              </div>
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Subs Bids Due</div>
+                <input
+                  value={projectInfoDraft.subsBidsDue}
+                  onChange={(event) => updateProjectInfoField("subsBidsDue", event.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-200 px-2.5 py-1.5 text-sm text-slate-700"
+                  placeholder="Enter subs bids due"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Address</div>
+                <input
+                  value={projectInfoDraft.address}
+                  onChange={(event) => updateProjectInfoField("address", event.target.value)}
+                  className="mt-1 w-full rounded-md border border-slate-200 px-2.5 py-1.5 text-sm text-slate-700"
+                  placeholder="Enter address"
+                />
+              </div>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-6">
+            <h2 className="text-lg font-semibold text-slate-900">Calendar</h2>
+            <p className="mt-2 text-sm text-slate-500">Milestones, due dates, and timeline details will go here.</p>
+          </div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-12">
+            <h2 className="text-lg font-semibold text-slate-900">Needs Attention</h2>
+            <p className="mt-2 text-sm text-slate-500">Actionable alerts and blockers will go here.</p>
+          </div>
         </section>
       ) : null}
 
