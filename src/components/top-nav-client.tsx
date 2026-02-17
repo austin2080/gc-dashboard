@@ -316,11 +316,11 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                   type="button"
                   onClick={() => {
                     closeMenus();
-                    router.push(withContext("/projects"));
+                    router.push("/bidding/all");
                   }}
                   className="mb-1 w-full rounded-md px-2 py-2 text-left text-sm hover:bg-black/[0.04]"
                 >
-                  View all projects
+                  View All Bids
                 </button>
                 <div className="space-y-1">
                   {allProjects.length ? (
