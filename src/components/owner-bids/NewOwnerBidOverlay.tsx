@@ -1,19 +1,43 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { listOwnerBidAssignees } from "@/lib/bidding/owner-bids-store";
-import type {
-  NewOwnerBidInput,
-  OwnerBidLostReason,
-  OwnerBidProjectType,
-  OwnerBidStatus,
-  OwnerBidType,
-} from "@/lib/bidding/owner-bids-types";
+
+type OwnerBidProjectType = "TI" | "Ground-Up" | "Design-Build" | "Budget" | "GMP" | "Other";
+type OwnerBidType = "Hard Bid" | "Negotiated" | "Budget" | "GMP";
+export type OwnerBidStatus = "Draft" | "Submitted" | "Awarded" | "Lost";
+export type OwnerBidLostReason = "Price" | "Schedule" | "Qualifications" | "Client Ghosted" | "Competitor" | "Other";
+
+export type OwnerBid = {
+  id: string;
+  name: string;
+  client: string;
+  projectType: OwnerBidProjectType;
+  address: string;
+  squareFeet: number | null;
+  dueDate: string | null;
+  bidType: OwnerBidType;
+  status: OwnerBidStatus;
+  assignedTo: string;
+  probability: number;
+  estCost: number | null;
+  ohpAmount: number | null;
+  markupPct: number | null;
+  bidAmount: number | null;
+  expectedProfit: number | null;
+  marginPct: number | null;
+  lostReason: OwnerBidLostReason | null;
+  lostNotes: string;
+  convertToProject: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewOwnerBidInput = Omit<OwnerBid, "id" | "createdAt" | "updatedAt">;
 
 type NewOwnerBidOverlayProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (payload: NewOwnerBidInput) => Promise<void> | void;
+  onSubmit: (payload: NewOwnerBidInput) => void;
   mode?: "create" | "edit";
   initialValues?: NewOwnerBidInput | null;
 };
@@ -22,6 +46,8 @@ const projectTypeOptions: OwnerBidProjectType[] = ["TI", "Ground-Up", "Design-Bu
 const bidTypeOptions: OwnerBidType[] = ["Hard Bid", "Negotiated", "Budget", "GMP"];
 const statusOptions: OwnerBidStatus[] = ["Draft", "Submitted", "Awarded", "Lost"];
 const lostReasonOptions: OwnerBidLostReason[] = ["Price", "Schedule", "Qualifications", "Client Ghosted", "Competitor", "Other"];
+
+const assigneeOptions = ["Alex Carter", "Morgan Lee", "Jordan Smith", "Casey Nguyen"]; // TODO: replace with real users list.
 
 function parseMoneyInput(value: string): number | null {
   const cleaned = value.replace(/[^\d.]/g, "");
@@ -60,10 +86,6 @@ function formatWithCommas(value: number | null): string {
 function formatPercentInput(value: number | null): string {
   if (value === null || Number.isNaN(value)) return "";
   return value.toFixed(2);
-}
-
-function normalizeAssigneeLabel(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
 function getDefaultFormState() {
@@ -129,10 +151,6 @@ export function NewOwnerBidOverlay({
 }: NewOwnerBidOverlayProps) {
   const [isMobile, setIsMobile] = useState(false);
   const [form, setForm] = useState(() => getFormStateFromValues(initialValues));
-  const [saving, setSaving] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [assigneeOptions, setAssigneeOptions] = useState<string[]>([]);
-  const [assigneeLoading, setAssigneeLoading] = useState(false);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 767px)");
@@ -141,34 +159,6 @@ export function NewOwnerBidOverlay({
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
-
-  useEffect(() => {
-    let active = true;
-    async function loadAssignees() {
-      if (!open) return;
-      setAssigneeLoading(true);
-      const names = await listOwnerBidAssignees();
-      if (!active) return;
-      setAssigneeOptions(names);
-      setAssigneeLoading(false);
-    }
-
-    loadAssignees();
-    return () => {
-      active = false;
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!form.assignedTo || !assigneeOptions.length) return;
-    const selectedNormalized = normalizeAssigneeLabel(form.assignedTo);
-    if (!selectedNormalized) return;
-    const canonical = assigneeOptions.find(
-      (option) => normalizeAssigneeLabel(option) === selectedNormalized
-    );
-    if (!canonical || canonical === form.assignedTo) return;
-    setForm((prev) => ({ ...prev, assignedTo: canonical }));
-  }, [assigneeOptions, form.assignedTo]);
 
   const isValid = form.name.trim().length > 0 && form.client.trim().length > 0;
   const calculatedOhpAmount =
@@ -189,52 +179,39 @@ export function NewOwnerBidOverlay({
     ? "Update this bid record for tracking submissions, win/loss, margin, and analytics."
     : "Create a bid record for tracking submissions, win/loss, margin, and analytics.";
   const submitLabel = isEditing ? "Save Changes" : "Save";
-  const availableAssignees =
-    form.assignedTo && !assigneeOptions.includes(form.assignedTo)
-      ? [form.assignedTo, ...assigneeOptions]
-      : assigneeOptions;
 
   function close() {
     setForm(getFormStateFromValues(initialValues));
-    setSubmitError(null);
     onOpenChange(false);
   }
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
+  function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!isValid || saving) return;
+    if (!isValid) return;
 
-    setSubmitError(null);
-    setSaving(true);
-    try {
-      await onSubmit({
-        name: form.name.trim(),
-        client: form.client.trim(),
-        projectType: form.projectType,
-        address: form.address.trim(),
-        squareFeet: form.squareFeet,
-        dueDate: form.dueDate || null,
-        bidType: form.bidType,
-        status: form.status,
-        assignedTo: form.assignedTo,
-        probability: form.probability,
-        estCost: form.estCost,
-        ohpAmount: calculatedOhpAmount,
-        markupPct: form.markupPct,
-        bidAmount: form.bidAmount,
-        expectedProfit: totalEstimateProfit,
-        marginPct: estimatedProfitPct,
-        lostReason: form.status === "Lost" ? form.lostReason : null,
-        lostNotes: form.status === "Lost" ? form.lostNotes.trim() : "",
-        convertToProject: form.status === "Awarded" ? form.convertToProject : false,
-      });
-      close();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to save owner bid.";
-      setSubmitError(message);
-    } finally {
-      setSaving(false);
-    }
+    onSubmit({
+      name: form.name.trim(),
+      client: form.client.trim(),
+      projectType: form.projectType,
+      address: form.address.trim(),
+      squareFeet: form.squareFeet,
+      dueDate: form.dueDate || null,
+      bidType: form.bidType,
+      status: form.status,
+      assignedTo: form.assignedTo,
+      probability: form.probability,
+      estCost: form.estCost,
+      ohpAmount: calculatedOhpAmount,
+      markupPct: form.markupPct,
+      bidAmount: form.bidAmount,
+      expectedProfit: totalEstimateProfit,
+      marginPct: estimatedProfitPct,
+      lostReason: form.status === "Lost" ? form.lostReason : null,
+      lostNotes: form.status === "Lost" ? form.lostNotes.trim() : "",
+      convertToProject: form.status === "Awarded" ? form.convertToProject : false,
+    });
+
+    close();
   }
 
   if (!open) return null;
@@ -257,13 +234,9 @@ export function NewOwnerBidOverlay({
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  if (saving) return;
-                  close();
-                }}
+                onClick={close}
                 aria-label="Close"
-                className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={saving}
+                className="rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-100"
               >
                 ✕
               </button>
@@ -395,15 +368,13 @@ export function NewOwnerBidOverlay({
                     className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm text-slate-800"
                   >
                     <option value="">Select assignee</option>
-                    {availableAssignees.map((option) => (
+                    {assigneeOptions.map((option) => (
                       <option key={option} value={option}>
                         {option}
                       </option>
                     ))}
                   </select>
-                  {assigneeLoading ? (
-                    <p className="text-xs text-slate-500">Loading assignees...</p>
-                  ) : null}
+                  <p className="text-xs text-slate-500">TODO: Wire this to the real users directory.</p>
                 </label>
               </div>
 
@@ -584,31 +555,21 @@ export function NewOwnerBidOverlay({
             </section>
           </div>
 
-          {submitError ? (
-            <div className="mx-5 mb-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
-              {submitError}
-            </div>
-          ) : null}
-
           <footer className="border-t border-slate-200 bg-white px-5 py-3">
             <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
-                onClick={() => {
-                  if (saving) return;
-                  close();
-                }}
-                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={saving}
+                onClick={close}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                disabled={!isValid || saving}
+                disabled={!isValid}
                 className="rounded-xl bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {saving ? "Saving..." : submitLabel}
+                {submitLabel}
               </button>
             </div>
           </footer>
