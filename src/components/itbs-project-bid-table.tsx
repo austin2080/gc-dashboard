@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import type { BidProjectDetail, BidProjectSummary, BidTradeStatus } from "@/lib/bidding/types";
-import { getBidProjectDetail, listBidProjects } from "@/lib/bidding/store";
+import type { BidProjectDetail, BidTradeStatus } from "@/lib/bidding/types";
+import { getBidProjectDetail } from "@/lib/bidding/store";
+import { getBidProjectIdForProject } from "@/lib/bidding/project-links";
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
@@ -28,70 +29,76 @@ function StatusPill({ status }: { status: BidTradeStatus }) {
 export default function ItbsProjectBidTable() {
   const searchParams = useSearchParams();
   const queryProjectId = searchParams.get("project");
-  const [projects, setProjects] = useState<BidProjectSummary[]>([]);
+  const [mappedBidProjectId, setMappedBidProjectId] = useState<string | null>(null);
   const [detail, setDetail] = useState<BidProjectDetail | null>(null);
-  const [loadingProjects, setLoadingProjects] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [resolvedBidProjectId, setResolvedBidProjectId] = useState<string | null>(null);
+  const [hasResolvedLookup, setHasResolvedLookup] = useState(false);
 
   useEffect(() => {
-    let active = true;
-    async function loadProjects() {
-      setLoadingProjects(true);
-      const rows = await listBidProjects();
-      if (!active) return;
-      setProjects(rows);
-      setLoadingProjects(false);
-    }
-    loadProjects();
-    return () => {
-      active = false;
+    const refreshMappedProject = () => {
+      setMappedBidProjectId(getBidProjectIdForProject(queryProjectId));
     };
-  }, []);
-
-  const selectedProjectId = useMemo(() => {
-    if (!projects.length) return "";
-    if (queryProjectId && projects.some((project) => project.id === queryProjectId)) {
-      return queryProjectId;
-    }
-    return projects[0].id;
-  }, [projects, queryProjectId]);
+    refreshMappedProject();
+    window.addEventListener("storage", refreshMappedProject);
+    return () => {
+      window.removeEventListener("storage", refreshMappedProject);
+    };
+  }, [queryProjectId]);
 
   useEffect(() => {
     let active = true;
     async function loadDetail() {
-      if (!selectedProjectId) {
+      if (!queryProjectId) {
         setDetail(null);
+        setResolvedBidProjectId(null);
+        setHasResolvedLookup(true);
         return;
       }
+      setHasResolvedLookup(false);
       setLoadingDetail(true);
-      const row = await getBidProjectDetail(selectedProjectId);
+      const candidates = [mappedBidProjectId, queryProjectId].filter(
+        (id, index, arr): id is string => Boolean(id) && arr.indexOf(id) === index
+      );
+      let loadedDetail: BidProjectDetail | null = null;
+      let loadedId: string | null = null;
+      for (const candidateId of candidates) {
+        const row = await getBidProjectDetail(candidateId);
+        if (row) {
+          loadedDetail = row;
+          loadedId = candidateId;
+          break;
+        }
+      }
       if (!active) return;
-      setDetail(row);
+      setDetail(loadedDetail);
+      setResolvedBidProjectId(loadedId);
       setLoadingDetail(false);
+      setHasResolvedLookup(true);
     }
     loadDetail();
     return () => {
       active = false;
     };
-  }, [selectedProjectId]);
+  }, [mappedBidProjectId, queryProjectId]);
 
-  if (loadingProjects) {
+  if (!queryProjectId) {
     return (
       <section className="rounded-2xl border border-slate-200 bg-white px-6 py-6 text-sm text-slate-500 shadow-sm">
-        Loading projects...
+        Select a project to view invites.
       </section>
     );
   }
 
-  if (!projects.length) {
+  if (hasResolvedLookup && !loadingDetail && !resolvedBidProjectId) {
     return (
-      <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-slate-500 shadow-sm">
-        No bid projects yet.
+      <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-slate-600 shadow-sm">
+        No bid package is linked to this selected project yet.
       </section>
     );
   }
 
-  if (loadingDetail || !detail) {
+  if (loadingDetail || !hasResolvedLookup || !detail) {
     return (
       <section className="rounded-2xl border border-slate-200 bg-white px-6 py-10 text-center text-slate-500 shadow-sm">
         Loading bid details...

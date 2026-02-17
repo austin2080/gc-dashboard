@@ -5,10 +5,10 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ModeContext } from "@/components/mode-provider";
 import type { ProjectRow } from "@/lib/db/projects";
+import { listBidProjects } from "@/lib/bidding/store";
 
 const ACTIVE_PROJECT_STORAGE_KEY = "activeProjectId";
 const RECENT_PROJECTS_STORAGE_KEY = "recentProjectIds";
-const MOCK_PROJECT_ID = "mock-project-nav-test";
 
 const PROJECT_TOOL_ITEMS = [
   { label: "Bid Management", href: "/bidding", description: "Track bids, proposals, and award pipeline." },
@@ -85,6 +85,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [projectSearch, setProjectSearch] = useState("");
+  const [bidProjectsForNav, setBidProjectsForNav] = useState<ProjectRow[]>([]);
   const [recentProjectIds, setRecentProjectIds] = useState<string[]>(() => {
     if (typeof window === "undefined") return [];
     try {
@@ -116,24 +117,12 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
   const pathProjectId = getPathProjectId(pathname);
   const activeProjectId = queryProjectId ?? pathProjectId ?? storedProjectId;
   const projectsForNav = useMemo(() => {
-    const mockProject: ProjectRow = {
-      id: MOCK_PROJECT_ID,
-      project_number: "MOCK-001",
-      name: "Mock Project - Nav Test",
-      city: "Phoenix",
-      health: "on_track",
-      start_date: null,
-      end_date: null,
-      contracted_value: 0,
-      estimated_profit: 0,
-      estimated_buyout: 0,
-      updated_at: new Date().toISOString(),
-    };
-
-    if (projects.some((project) => project.id === mockProject.id)) return projects;
-    return [mockProject, ...projects];
-  }, [projects]);
+    const ids = new Set(projects.map((project) => project.id));
+    const bidOnly = bidProjectsForNav.filter((project) => !ids.has(project.id));
+    return [...projects, ...bidOnly];
+  }, [projects, bidProjectsForNav]);
   const activeProject = activeProjectId ? projectsForNav.find((p) => p.id === activeProjectId) ?? null : null;
+  const activeProjectIsRegular = activeProject ? projects.some((project) => project.id === activeProject.id) : false;
 
   const withMode = (href: string) => {
     if (mode !== "waiverdesk") return href;
@@ -215,6 +204,33 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
     const timer = window.setTimeout(() => setSwitchToast(null), 3500);
     return () => window.clearTimeout(timer);
   }, [switchToast]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadBidProjectsForNav() {
+      const rows = await listBidProjects();
+      if (!active) return;
+      setBidProjectsForNav(
+        rows.map((project) => ({
+          id: project.id,
+          project_number: "BID",
+          name: project.project_name,
+          city: project.location ?? null,
+          health: "on_track",
+          start_date: null,
+          end_date: project.due_date ?? null,
+          contracted_value: project.budget ?? 0,
+          estimated_profit: 0,
+          estimated_buyout: 0,
+          updated_at: new Date().toISOString(),
+        }))
+      );
+    }
+    loadBidProjectsForNav();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const selectProjectContext = (projectId: string) => {
     const previousProjectId = activeProjectId ?? null;
@@ -445,7 +461,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
           </div>
         </div>
       </div>
-      {activeProject ? (
+      {activeProject && activeProjectIsRegular ? (
         <div className="border-t border-white/10 bg-white/95 text-slate-800 backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2 md:px-6">
             <div className="min-w-0">

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import type {
   BidProjectDetail,
   BidProjectSummary,
@@ -9,7 +9,6 @@ import type {
   BidTradeStatus,
 } from "@/lib/bidding/types";
 import {
-  countBidProjectSubs,
   createBidProject,
   createBidTrades,
   createBidSubcontractor,
@@ -21,11 +20,11 @@ import {
   updateBidProject,
   updateBidTrades,
   archiveBidProject,
-  countGhostedBids,
   getBidProjectDetail,
   listBidProjects,
 } from "@/lib/bidding/store";
 import BidManagementViewToggle from "@/components/bid-management-view-toggle";
+import { getBidProjectIdForProject, getProjectIdForBidProject, setBidProjectLink } from "@/lib/bidding/project-links";
 
 type TradeSubBid = {
   bidId: string;
@@ -54,13 +53,6 @@ type BidProjectView = {
   dueDate: string | null;
   subs: Array<{ id: string; company: string; contact: string }>;
   trades: TradeRow[];
-};
-
-type Metrics = {
-  activeBids: number;
-  totalSubs: number;
-  ghosted: number;
-  nearestDueProject: BidProjectSummary | null;
 };
 
 type ProjectDraft = {
@@ -117,6 +109,11 @@ type TradeEditDraft = {
   sort_order: number;
 };
 
+type SelectableProject = {
+  id: string;
+  name: string;
+};
+
 function daysUntil(isoDate: string): number {
   if (!isoDate) return 0;
   const today = new Date();
@@ -124,11 +121,6 @@ function daysUntil(isoDate: string): number {
   const msPerDay = 1000 * 60 * 60 * 24;
   const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
   return Math.max(0, Math.ceil((due.getTime() - todayMidnight) / msPerDay));
-}
-
-function safeDaysUntil(isoDate: string | null | undefined): number | null {
-  if (!isoDate) return null;
-  return daysUntil(isoDate);
 }
 
 function formatCurrency(value: number): string {
@@ -148,33 +140,6 @@ function StatusPill({ status }: { status: BidTradeStatus }) {
     <span className={`inline-flex rounded-md px-2 py-1 text-[11px] font-semibold tracking-[0.08em] ${styles[status]}`}>
       {status.toUpperCase()}
     </span>
-  );
-}
-
-function KpiCard({
-  icon,
-  label,
-  value,
-  sublabel,
-}: {
-  icon: string;
-  label: string;
-  value: string;
-  sublabel?: string;
-}) {
-  return (
-    <article className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
-      <div className="flex items-start gap-3">
-        <span className="text-xl" aria-hidden>
-          {icon}
-        </span>
-        <div>
-          <p className="text-3xl font-semibold leading-none text-slate-900">{value}</p>
-          <p className="mt-2 text-sm font-medium text-slate-600">{label}</p>
-          {sublabel ? <p className="mt-1 text-xs text-slate-500">{sublabel}</p> : null}
-        </div>
-      </div>
-    </article>
   );
 }
 
@@ -574,13 +539,6 @@ function BidComparisonGrid({
   );
 }
 
-const emptyMetrics: Metrics = {
-  activeBids: 0,
-  totalSubs: 0,
-  ghosted: 0,
-  nearestDueProject: null,
-};
-
 function buildProjectView(detail: BidProjectDetail | null): BidProjectView | null {
   if (!detail) return null;
   const subs = detail.projectSubs
@@ -642,11 +600,11 @@ function buildProjectView(detail: BidProjectDetail | null): BidProjectView | nul
 }
 
 export default function BiddingPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const queryProjectId = searchParams.get("project");
   const [projects, setProjects] = useState<BidProjectSummary[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState("");
-  const [metrics, setMetrics] = useState<Metrics>(emptyMetrics);
   const [detail, setDetail] = useState<BidProjectDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
@@ -715,6 +673,7 @@ export default function BiddingPage() {
   const [editBidDraft, setEditBidDraft] = useState<EditBidDraft | null>(null);
   const [savingBidEdit, setSavingBidEdit] = useState(false);
   const [editBidError, setEditBidError] = useState<string | null>(null);
+  const [backfillComplete, setBackfillComplete] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -723,29 +682,6 @@ export default function BiddingPage() {
       const projectData = await listBidProjects();
       if (!active) return;
       setProjects(projectData);
-
-      if (projectData.length) {
-        const projectIds = projectData.map((project) => project.id);
-        const [totalSubs, ghosted] = await Promise.all([
-          countBidProjectSubs(projectIds),
-          countGhostedBids(projectIds),
-        ]);
-        if (!active) return;
-
-        const nearestDueProject =
-          [...projectData]
-            .filter((project) => project.due_date)
-            .sort((a, b) => (safeDaysUntil(a.due_date) ?? 999999) - (safeDaysUntil(b.due_date) ?? 999999))[0] ?? null;
-
-        setMetrics({
-          activeBids: projectData.length,
-          totalSubs,
-          ghosted,
-          nearestDueProject,
-        });
-      } else {
-        setMetrics(emptyMetrics);
-      }
       setLoading(false);
     }
 
@@ -761,12 +697,93 @@ export default function BiddingPage() {
       return;
     }
     if (selectedProjectId && projects.some((project) => project.id === selectedProjectId)) return;
+    if (queryProjectId) {
+      const mappedBidProjectId = getBidProjectIdForProject(queryProjectId);
+      if (mappedBidProjectId && projects.some((project) => project.id === mappedBidProjectId)) {
+        setSelectedProjectId(mappedBidProjectId);
+        return;
+      }
+    }
     if (queryProjectId && projects.some((project) => project.id === queryProjectId)) {
       setSelectedProjectId(queryProjectId);
       return;
     }
-    setSelectedProjectId(projects[0].id);
+    if (queryProjectId) {
+      setSelectedProjectId("");
+      return;
+    }
+    setSelectedProjectId(projects[0]?.id ?? "");
   }, [projects, queryProjectId, selectedProjectId]);
+
+  useEffect(() => {
+    if (loading || !projects.length || backfillComplete) return;
+    let active = true;
+    async function backfillExistingBidPackages() {
+      let selectableProjects: SelectableProject[] = [];
+      try {
+        const selectableResponse = await fetch("/api/projects/selectable", { cache: "no-store" });
+        if (selectableResponse.ok) {
+          const payload = (await selectableResponse.json()) as { projects?: SelectableProject[] };
+          selectableProjects = Array.isArray(payload.projects) ? payload.projects : [];
+        }
+      } catch {
+        selectableProjects = [];
+      }
+
+      let updatedAnyLinks = false;
+      for (const bidProject of projects) {
+        if (!active) return;
+        const existingLinkedProjectId = getProjectIdForBidProject(bidProject.id);
+        if (existingLinkedProjectId && selectableProjects.some((project) => project.id === existingLinkedProjectId)) {
+          continue;
+        }
+
+        const matchedByName = selectableProjects.find(
+          (project) => project.name.trim().toLowerCase() === bidProject.project_name.trim().toLowerCase()
+        );
+        if (matchedByName) {
+          setBidProjectLink(matchedByName.id, bidProject.id);
+          updatedAnyLinks = true;
+          continue;
+        }
+
+        try {
+          const createResponse = await fetch("/api/projects/from-bid-package", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: bidProject.project_name,
+              city: bidProject.location ?? null,
+            }),
+          });
+          if (!createResponse.ok) continue;
+          const createPayload = (await createResponse.json()) as { project?: { id?: string; name?: string } };
+          const createdProjectId = createPayload.project?.id;
+          if (!createdProjectId) continue;
+          setBidProjectLink(createdProjectId, bidProject.id);
+          selectableProjects = [
+            ...selectableProjects,
+            { id: createdProjectId, name: createPayload.project?.name ?? bidProject.project_name },
+          ];
+          updatedAnyLinks = true;
+        } catch {
+          // Continue backfill loop even if one package fails.
+        }
+      }
+
+      if (!active) return;
+      if (updatedAnyLinks) {
+        window.dispatchEvent(new Event("storage"));
+        router.refresh();
+      }
+      setBackfillComplete(true);
+    }
+
+    backfillExistingBidPackages();
+    return () => {
+      active = false;
+    };
+  }, [backfillComplete, loading, projects, router]);
 
   useEffect(() => {
     let active = true;
@@ -931,9 +948,8 @@ export default function BiddingPage() {
 
   return (
     <main className="space-y-6 bg-slate-50 p-4 sm:p-6">
-      <BidManagementViewToggle />
-      <header className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-4">
+      <header className="-mx-4 border-b border-slate-200 bg-white sm:-mx-6">
+        <div className="flex flex-wrap items-start justify-between gap-4 px-6 py-1">
           <div>
             <h1 className="text-4xl font-semibold text-slate-900">Bid Management</h1>
             <p className="mt-1 text-lg text-slate-500">Track active bids, subcontractors &amp; due dates</p>
@@ -966,23 +982,12 @@ export default function BiddingPage() {
               className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
             >
               <span aria-hidden>＋</span>
-              New Project
+              New Bid Package
             </button>
           </div>
         </div>
       </header>
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard icon="📄" label="Active Bids" value={String(metrics.activeBids)} />
-        <KpiCard icon="👷" label="Total Subs" value={String(metrics.totalSubs)} />
-        <KpiCard icon="⏰" label="Ghosted" value={String(metrics.ghosted)} />
-        <KpiCard
-          icon="📅"
-          label="Next Due"
-          value={metrics.nearestDueProject?.due_date ? `${daysUntil(metrics.nearestDueProject.due_date)}d` : "--"}
-          sublabel={metrics.nearestDueProject?.project_name ?? ""}
-        />
-      </section>
+      <BidManagementViewToggle />
 
       {loading ? (
         <section className="rounded-2xl border border-slate-200 bg-white px-6 py-6 text-sm text-slate-500 shadow-sm">
@@ -991,6 +996,10 @@ export default function BiddingPage() {
       ) : !projects.length ? (
         <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center text-slate-500 shadow-sm">
           No bid projects yet. Create your first bid to start tracking coverage.
+        </section>
+      ) : queryProjectId && !selectedProject ? (
+        <section className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-8 text-center text-slate-600 shadow-sm">
+          No bid package is linked to this selected project yet. Click <span className="font-semibold">New Bid Package</span>.
         </section>
       ) : null}
 
@@ -1010,10 +1019,6 @@ export default function BiddingPage() {
                 const next = projects.filter((project) => project.id !== selectedProject.id)[0]?.id ?? "";
                 return next;
               });
-              setMetrics((prev) => ({
-                ...prev,
-                activeBids: Math.max(prev.activeBids - 1, 0),
-              }));
             }}
             className="inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700 shadow-sm transition hover:bg-rose-100"
           >
@@ -1059,18 +1064,41 @@ export default function BiddingPage() {
                   }));
                   await createBidTrades(created.id, tradePayload);
                 }
+                let linkedProjectId =
+                  queryProjectId && queryProjectId !== "mock-project-nav-test" ? queryProjectId : null;
+                if (linkedProjectId) {
+                  const selectableResponse = await fetch("/api/projects/selectable", { cache: "no-store" });
+                  if (selectableResponse.ok) {
+                    const selectablePayload = (await selectableResponse.json()) as { projects?: Array<{ id: string }> };
+                    const isRealProject = (selectablePayload.projects ?? []).some((project) => project.id === linkedProjectId);
+                    if (!isRealProject) linkedProjectId = null;
+                  }
+                }
+                if (!linkedProjectId) {
+                  const linkedProjectResponse = await fetch("/api/projects/from-bid-package", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      name: draft.project_name,
+                      city: draft.location.trim() || null,
+                    }),
+                  });
+                  if (linkedProjectResponse.ok) {
+                    const linkedPayload = (await linkedProjectResponse.json()) as { project?: { id?: string } };
+                    linkedProjectId = linkedPayload?.project?.id ?? null;
+                  }
+                }
+
+                if (linkedProjectId) {
+                  setBidProjectLink(linkedProjectId, created.id);
+                  localStorage.setItem("activeProjectId", linkedProjectId);
+                  window.dispatchEvent(new Event("storage"));
+                  const nextParams = new URLSearchParams(searchParams.toString());
+                  nextParams.set("project", linkedProjectId);
+                  router.replace(`/bidding?${nextParams.toString()}`, { scroll: false });
+                  router.refresh();
+                }
                 setProjects((prev) => [created, ...prev]);
-                setMetrics((prev) => {
-                  const prevDays = safeDaysUntil(prev.nearestDueProject?.due_date ?? null);
-                  const nextDays = safeDaysUntil(created.due_date ?? null);
-                  const shouldReplace =
-                    nextDays !== null && (prevDays === null || nextDays < prevDays);
-                  return {
-                    ...prev,
-                    activeBids: prev.activeBids + 1,
-                    nearestDueProject: shouldReplace ? created : prev.nearestDueProject,
-                  };
-                });
                 setSelectedProjectId(created.id);
                 setModalOpen(false);
                 setSaving(false);

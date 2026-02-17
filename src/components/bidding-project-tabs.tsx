@@ -2,8 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import type { BidProjectSummary } from "@/lib/bidding/types";
-import { listBidProjects } from "@/lib/bidding/store";
+type SelectableProject = {
+  id: string;
+  name: string;
+  end_date: string | null;
+};
 
 function daysUntil(isoDate: string): number {
   if (!isoDate) return 0;
@@ -19,16 +22,22 @@ export default function BiddingProjectTabs() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryProjectId = searchParams.get("project");
-  const [projects, setProjects] = useState<BidProjectSummary[]>([]);
+  const [projects, setProjects] = useState<SelectableProject[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
     async function loadProjects() {
       setLoading(true);
-      const rows = await listBidProjects();
-      if (!active) return;
-      setProjects(rows);
+      try {
+        const response = await fetch("/api/projects/selectable", { cache: "no-store" });
+        const payload = (await response.json().catch(() => null)) as { projects?: SelectableProject[] } | null;
+        if (!active) return;
+        setProjects(Array.isArray(payload?.projects) ? payload.projects : []);
+      } catch {
+        if (!active) return;
+        setProjects([]);
+      }
       setLoading(false);
     }
     loadProjects();
@@ -60,7 +69,7 @@ export default function BiddingProjectTabs() {
       <div className="flex flex-wrap gap-2">
         {projects.map((project) => {
           const active = project.id === selectedProjectId;
-          const countdown = project.due_date ? `${daysUntil(project.due_date)}d` : "--";
+          const countdown = project.end_date ? `${daysUntil(project.end_date)}d` : "--";
           return (
             <button
               key={project.id}
@@ -76,7 +85,7 @@ export default function BiddingProjectTabs() {
                   : "border-transparent bg-transparent text-slate-500 hover:border-slate-200 hover:bg-white/60"
               }`}
             >
-              {project.project_name}
+              {project.name}
               <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-700">
                 {countdown}
               </span>

@@ -33,6 +33,9 @@ export async function listProjects(
 
   const { data, error } = await query.order("updated_at", { ascending: false });
 
-  if (error) throw error;
+  if (error) {
+    console.error("Failed to list projects", error);
+    return [];
+  }
   return (data ?? []) as ProjectRow[];
 }
