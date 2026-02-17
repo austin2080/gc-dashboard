@@ -27,7 +27,7 @@ function BidManagementLayoutShell({ children }: { children: React.ReactNode }) {
                 href="/bidding"
                 className={isBidding ? "border-b-2 border-slate-900 pb-3 text-slate-900" : "pb-3 text-slate-500 hover:text-slate-700"}
               >
-                Sub Bids
+                Active Bids
               </Link>
               <Link
                 href="/bidding/owner-bids"
