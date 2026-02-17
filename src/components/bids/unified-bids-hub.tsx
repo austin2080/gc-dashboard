@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
-import BidRiskOverview from "@/components/bidding/BidRiskOverview";
 import {
   bidFollowUps,
   bidOpportunities,
@@ -49,10 +48,6 @@ export default function UnifiedBidsHub() {
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [selectedBid, setSelectedBid] = useState<BidOpportunity | null>(null);
   const [loading] = useState(false);
-
-  const handleCreateBidAction = () => {
-    console.log("TODO: wire create bid/package action");
-  };
 
   const bidsSubmittedData = useMemo(() => {
     const months = ["07", "08", "09", "10", "11", "12", "01", "02"];
@@ -173,6 +168,20 @@ export default function UnifiedBidsHub() {
     };
   }, [filteredBids]);
 
+  const subKpis = useMemo(() => {
+    const invited = inviteEvents.length;
+    const submitted = inviteEvents.filter((i) => i.responseType === "submitted").length;
+    const ghosted = inviteEvents.filter((i) => i.responseType === "ghosted").length;
+    return {
+      activePackages: projectBids.length,
+      tradesDueThisWeek: tradePackages.slice(0, 7).length,
+      responseRate: invited ? (submitted / invited) * 100 : 0,
+      ghostRate: invited ? (ghosted / invited) * 100 : 0,
+      avgBidsPerTrade: tradePackages.length ? bidSubmissions.length / tradePackages.length : 0,
+      coverageComplete: 67,
+    };
+  }, []);
+
   const staleBids = filteredBids.filter((b) => b.stage === "submitted" || b.stage === "negotiation").slice(0, 4);
 
   return (
@@ -255,10 +264,7 @@ export default function UnifiedBidsHub() {
                   </svg>
                 </span>
               </div>
-              <button
-                onClick={handleCreateBidAction}
-                className="inline-flex h-11 items-center gap-2 rounded-2xl bg-slate-900 px-5 text-sm font-semibold text-white shadow-sm"
-              >
+              <button className="inline-flex h-11 items-center gap-2 rounded-2xl bg-slate-900 px-5 text-sm font-semibold text-white shadow-sm">
                 <span className="text-lg leading-none">+</span>
                 <span>{mode === "gc_owner" ? "Create Bid" : "Create Bid Package"}</span>
               </button>
@@ -273,13 +279,7 @@ export default function UnifiedBidsHub() {
           </div>
         </section>
 
-        {loading ? (
-          <SkeletonGrid />
-        ) : mode === "gc_owner" ? (
-          <GcKpis kpis={gcKpis} />
-        ) : (
-          <BidRiskOverview onCreateFirstBid={handleCreateBidAction} />
-        )}
+        {loading ? <SkeletonGrid /> : mode === "gc_owner" ? <GcKpis kpis={gcKpis} /> : <SubKpis kpis={subKpis} />}
 
         <section className="grid gap-4 lg:grid-cols-3">
           {mode === "gc_owner" ? (
@@ -710,6 +710,87 @@ function GcKpis({ kpis }: { kpis: { bidsSubmitted: number; submittedValue: numbe
     <section className="flex w-full flex-wrap justify-between gap-3">
       {items.map((item) => (
         <div key={item.label} className="w-full rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:w-[180px]">
+          <div className="flex items-center gap-2 text-slate-500">
+            <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+              {item.icon}
+            </span>
+            <p className="text-sm font-medium text-slate-500">{item.label}</p>
+          </div>
+          <p className="mt-3 text-2xl font-semibold text-slate-900">{item.value}</p>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function SubKpis({ kpis }: { kpis: { activePackages: number; tradesDueThisWeek: number; responseRate: number; ghostRate: number; avgBidsPerTrade: number; coverageComplete: number } }) {
+  const items = [
+    {
+      label: "Active Bids",
+      value: `${kpis.activePackages}`,
+      icon: (
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4.5 w-4.5">
+          <path d="M4 20V5m5 15V9m5 11V13m5 7V7" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+        </svg>
+      ),
+    },
+    {
+      label: "Due This Week",
+      value: `${kpis.tradesDueThisWeek}`,
+      icon: (
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4.5 w-4.5">
+          <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="1.8" />
+          <path d="M12 8v5l3 2" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+        </svg>
+      ),
+    },
+    {
+      label: "Response Rate",
+      value: `${kpis.responseRate.toFixed(1)}%`,
+      icon: (
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4.5 w-4.5">
+          <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="1.8" />
+          <path d="m8 12 2.5 2.5L16 9" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+        </svg>
+      ),
+    },
+    {
+      label: "Ghost Rate",
+      value: `${kpis.ghostRate.toFixed(1)}%`,
+      icon: (
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4.5 w-4.5">
+          <path d="M6 18a6 6 0 1 1 12 0v2l-2-1-2 1-2-1-2 1-2-1-2 1Z" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+          <path d="M9 9h.01M15 9h.01" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" />
+        </svg>
+      ),
+    },
+    {
+      label: "Avg Bids/Trade",
+      value: kpis.avgBidsPerTrade.toFixed(1),
+      icon: (
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4.5 w-4.5">
+          <path d="M7 10a4 4 0 1 1 8 0" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+          <path d="M4 20a4 4 0 0 1 8 0M12 20a4 4 0 0 1 8 0" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
+        </svg>
+      ),
+    },
+    {
+      label: "Coverage ≥3",
+      value: `${kpis.coverageComplete.toFixed(1)}%`,
+      icon: (
+        <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4.5 w-4.5">
+          <circle cx="12" cy="12" r="8" fill="none" stroke="currentColor" strokeWidth="1.8" />
+          <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" strokeWidth="1.8" />
+          <circle cx="12" cy="12" r="1" fill="currentColor" />
+        </svg>
+      ),
+    },
+  ];
+
+  return (
+    <section className="flex w-full flex-wrap justify-between gap-3">
+      {items.map((item) => (
+        <div key={item.label} className="w-full rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:w-[200px]">
           <div className="flex items-center gap-2 text-slate-500">
             <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
               {item.icon}
