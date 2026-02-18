@@ -1084,15 +1084,21 @@ export default function BiddingPage() {
     const month = calendarMonth.getMonth();
     const firstOfMonth = new Date(year, month, 1);
     const startOffset = firstOfMonth.getDay();
-    return Array.from({ length: 42 }, (_, index) => {
-      const date = new Date(year, month, 1 - startOffset + index);
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const leadingBlanks = Array.from({ length: startOffset }, (_, index) => ({
+      key: `blank-${year}-${month}-${index}`,
+      date: null,
+      day: null,
+    }));
+    const days = Array.from({ length: daysInMonth }, (_, index) => {
+      const date = new Date(year, month, index + 1);
       return {
         key: toYmd(date),
         date,
         day: date.getDate(),
-        inMonth: date.getMonth() === month,
       };
     });
+    return [...leadingBlanks, ...days];
   }, [calendarMonth]);
   const invitedSubIds = useMemo(
     () => new Set(detail?.projectSubs.map((item) => item.subcontractor_id) ?? []),
@@ -1197,10 +1203,11 @@ export default function BiddingPage() {
       ) : null}
 
       {selectedProject ? (
-        <section className="grid gap-4 lg:grid-cols-12">
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-6">
-            <h2 className="text-lg font-semibold text-slate-900">Project Info</h2>
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <section className="grid items-start gap-4 lg:grid-cols-12">
+          <div className="self-start rounded-2xl border border-slate-200 bg-white px-5 pb-4 pt-5 shadow-sm lg:col-span-6 lg:aspect-[1/1]">
+            <div className="h-full overflow-y-auto pr-1">
+              <h2 className="text-lg font-semibold text-slate-900">Project Info</h2>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div>
                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Estimator</div>
                 <input
@@ -1264,11 +1271,13 @@ export default function BiddingPage() {
                   placeholder="Enter address"
                 />
               </div>
+              </div>
             </div>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-6">
-            <h2 className="text-lg font-semibold text-slate-900">Calendar</h2>
-            <div className="mt-4 space-y-3">
+          <div className="self-start rounded-2xl border border-slate-200 bg-white p-4 shadow-sm lg:col-span-6 lg:aspect-[1/1]">
+            <div className="h-full overflow-y-auto pr-1">
+              <h2 className="text-lg font-semibold text-slate-900">Calendar</h2>
+              <div className="mt-3 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <button
                   type="button"
@@ -1301,6 +1310,9 @@ export default function BiddingPage() {
 
               <div className="grid grid-cols-7 gap-1">
                 {calendarCells.map((cell) => {
+                  if (!cell.date || !cell.day) {
+                    return <div key={cell.key} className="min-h-[60px]" aria-hidden />;
+                  }
                   const entriesForDay = calendarEntriesByDate.get(cell.key) ?? [];
                   const isSelected = calendarDate === cell.key;
                   const isToday = cell.key === toYmd(new Date());
@@ -1310,16 +1322,11 @@ export default function BiddingPage() {
                       type="button"
                       onClick={() => {
                         setCalendarDate(cell.key);
-                        if (!cell.inMonth) {
-                          setCalendarMonth(new Date(cell.date.getFullYear(), cell.date.getMonth(), 1));
-                        }
                       }}
-                      className={`min-h-[74px] rounded-md border p-1.5 text-left transition ${
+                      className={`min-h-[60px] rounded-md border p-1.5 text-left transition ${
                         isSelected
                           ? "border-slate-900 bg-slate-900/5"
-                          : cell.inMonth
-                            ? "border-slate-200 bg-white hover:bg-slate-50"
-                            : "border-slate-100 bg-slate-50 text-slate-400 hover:bg-slate-100"
+                          : "border-slate-200 bg-white hover:bg-slate-50"
                       }`}
                     >
                       <div className={`text-xs font-semibold ${isToday ? "text-blue-700" : ""}`}>{cell.day}</div>
@@ -1359,7 +1366,7 @@ export default function BiddingPage() {
               </div>
 
               {calendarEntries.length ? (
-                <div className="max-h-52 space-y-2 overflow-auto pr-1">
+                <div className="max-h-36 space-y-2 overflow-auto pr-1">
                   {calendarEntries.map((entry) => (
                     <div key={entry.id} className="grid gap-2 rounded-md border border-slate-200 p-2 sm:grid-cols-[auto_1fr_auto]">
                       <input
@@ -1388,6 +1395,7 @@ export default function BiddingPage() {
                   No calendar items yet.
                 </div>
               )}
+              </div>
             </div>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-12">
