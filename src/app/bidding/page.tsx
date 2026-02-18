@@ -737,23 +737,23 @@ export default function BiddingPage() {
       if (selectedProjectId) setSelectedProjectId("");
       return;
     }
-    if (selectedProjectId && projects.some((project) => project.id === selectedProjectId)) return;
+
     if (queryProjectId) {
       const mappedBidProjectId = getBidProjectIdForProject(queryProjectId);
       if (mappedBidProjectId && projects.some((project) => project.id === mappedBidProjectId)) {
-        setSelectedProjectId(mappedBidProjectId);
+        if (selectedProjectId !== mappedBidProjectId) setSelectedProjectId(mappedBidProjectId);
         return;
       }
-    }
-    if (queryProjectId && projects.some((project) => project.id === queryProjectId)) {
-      setSelectedProjectId(queryProjectId);
+      if (projects.some((project) => project.id === queryProjectId)) {
+        if (selectedProjectId !== queryProjectId) setSelectedProjectId(queryProjectId);
+        return;
+      }
       return;
     }
-    if (queryProjectId) {
-      setSelectedProjectId("");
-      return;
-    }
-    setSelectedProjectId(projects[0]?.id ?? "");
+
+    if (selectedProjectId && projects.some((project) => project.id === selectedProjectId)) return;
+    const fallbackProjectId = projects[0]?.id ?? "";
+    if (selectedProjectId !== fallbackProjectId) setSelectedProjectId(fallbackProjectId);
   }, [projects, queryProjectId, selectedProjectId]);
 
   useEffect(() => {
@@ -1150,7 +1150,9 @@ export default function BiddingPage() {
       <header className="-mx-4 border-b border-slate-200 bg-white sm:-mx-6">
         <div className="flex flex-wrap items-start justify-between gap-4 px-6 py-1">
           <div>
-            <h1 className="text-4xl font-semibold text-slate-900">Bid Management</h1>
+            <h1 className="text-4xl font-semibold text-slate-900">
+              {selectedProject ? selectedProject.project_name : "Bid Management"}
+            </h1>
             <p className="mt-1 text-lg text-slate-500">Track active bids, subcontractors &amp; due dates</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
