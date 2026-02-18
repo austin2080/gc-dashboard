@@ -27,6 +27,7 @@ function StatusPill({ status }: { status: BidTradeStatus }) {
 }
 
 export default function ItbsProjectBidTable() {
+  const DEFAULT_VISIBLE_SUB_COLUMNS = 3;
   const searchParams = useSearchParams();
   const queryProjectId = searchParams.get("project");
   const [mappedBidProjectId, setMappedBidProjectId] = useState<string | null>(null);
@@ -34,6 +35,7 @@ export default function ItbsProjectBidTable() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [resolvedBidProjectId, setResolvedBidProjectId] = useState<string | null>(null);
   const [hasResolvedLookup, setHasResolvedLookup] = useState(false);
+  const [visibleSubColumns, setVisibleSubColumns] = useState(DEFAULT_VISIBLE_SUB_COLUMNS);
 
   useEffect(() => {
     const refreshMappedProject = () => {
@@ -82,6 +84,10 @@ export default function ItbsProjectBidTable() {
     };
   }, [mappedBidProjectId, queryProjectId]);
 
+  useEffect(() => {
+    setVisibleSubColumns(DEFAULT_VISIBLE_SUB_COLUMNS);
+  }, [resolvedBidProjectId]);
+
   if (!queryProjectId) {
     return (
       <section className="rounded-2xl border border-slate-200 bg-white px-6 py-6 text-sm text-slate-500 shadow-sm">
@@ -106,18 +112,32 @@ export default function ItbsProjectBidTable() {
     );
   }
 
-  const subs = detail.projectSubs.map((sub) => ({
-    id: sub.id,
-    company: sub.subcontractor?.company_name ?? "Unknown subcontractor",
-    contact: sub.subcontractor?.primary_contact ?? "-",
-  }));
-
   const bidsByTrade = new Map<string, Map<string, (typeof detail.tradeBids)[number]>>();
   detail.tradeBids.forEach((bid) => {
     const tradeMap = bidsByTrade.get(bid.trade_id) ?? new Map<string, (typeof detail.tradeBids)[number]>();
     tradeMap.set(bid.project_sub_id, bid);
     bidsByTrade.set(bid.trade_id, tradeMap);
   });
+
+  const subs = [...detail.projectSubs]
+    .sort((a, b) => {
+      const aOrder = a.sort_order ?? Number.MAX_SAFE_INTEGER;
+      const bOrder = b.sort_order ?? Number.MAX_SAFE_INTEGER;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return a.id.localeCompare(b.id);
+    })
+    .map((sub) => ({
+      id: sub.id,
+      company: sub.subcontractor?.company_name ?? "Unknown subcontractor",
+      contact: sub.subcontractor?.primary_contact ?? "-",
+    }));
+  const totalSubColumns = Math.max(DEFAULT_VISIBLE_SUB_COLUMNS, visibleSubColumns);
+  const maxTradeBidCount = detail.trades.reduce((max, trade) => {
+    const tradeMap = bidsByTrade.get(trade.id);
+    const count = tradeMap ? tradeMap.size : 0;
+    return Math.max(max, count);
+  }, 0);
+  const hiddenSubColumns = Math.max(0, maxTradeBidCount - totalSubColumns);
 
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -126,6 +146,21 @@ export default function ItbsProjectBidTable() {
         <p className="mt-1 text-sm text-slate-600">Invitation and bid status by trade.</p>
       </div>
 
+      {hiddenSubColumns > 0 ? (
+        <div className="border-b border-slate-200 bg-white px-4 py-2">
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => setVisibleSubColumns((prev) => prev + 1)}
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+            >
+              Show next sub column
+              <span className="text-slate-400">({hiddenSubColumns} hidden)</span>
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="overflow-x-auto">
         <table className="min-w-[920px] w-full border-separate border-spacing-0">
           <thead>
@@ -133,54 +168,54 @@ export default function ItbsProjectBidTable() {
               <th className="sticky left-0 z-10 border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-700">
                 Trade
               </th>
-              {subs.length ? (
-                subs.map((sub, index) => (
-                  <th
-                    key={`sub-header-${sub.id}`}
-                    className="border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-700"
-                  >
-                    Sub {index + 1}
-                  </th>
-                ))
-              ) : (
-                <th className="border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-700">
-                  Subs
+              {Array.from({ length: totalSubColumns }, (_, index) => (
+                <th
+                  key={`sub-header-${index + 1}`}
+                  className="border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-700"
+                >
+                  Sub {index + 1}
                 </th>
-              )}
+              ))}
             </tr>
           </thead>
           <tbody>
             {detail.trades.map((trade) => {
               const tradeMap = bidsByTrade.get(trade.id) ?? new Map<string, (typeof detail.tradeBids)[number]>();
+              const orderedTradeBids = subs
+                .map((sub) => ({ sub, bid: tradeMap.get(sub.id) ?? null }))
+                .filter((entry): entry is { sub: (typeof subs)[number]; bid: (typeof detail.tradeBids)[number] } => Boolean(entry.bid));
               return (
                 <tr key={trade.id}>
                   <th className="sticky left-0 z-10 border-b border-r border-slate-200 bg-white px-4 py-4 text-left text-sm font-semibold text-slate-900">
                     {trade.trade_name}
                   </th>
-                  {subs.length ? (
-                    subs.map((sub) => {
-                      const bid = tradeMap.get(sub.id) ?? null;
+                  {Array.from({ length: totalSubColumns }, (_, columnIndex) => {
+                    const entry = orderedTradeBids[columnIndex] ?? null;
+                    if (!entry) {
                       return (
-                        <td key={`${trade.id}-${sub.id}`} className="border-b border-r border-slate-200 px-4 py-4 align-top">
-                          {bid ? (
-                            <div className="space-y-2">
-                              <p className="text-sm font-semibold text-slate-900">{sub.company}</p>
-                              <p className="text-xs text-slate-500">{bid.contact_name ?? sub.contact}</p>
-                              <StatusPill status={bid.status} />
-                              {bid.bid_amount !== null ? (
-                                <p className="text-sm font-semibold text-slate-900">{formatCurrency(bid.bid_amount)}</p>
-                              ) : null}
-                              {bid.notes ? <p className="text-xs text-slate-500">{bid.notes}</p> : null}
-                            </div>
-                          ) : (
-                            <span className="text-sm text-slate-400">Not invited yet</span>
-                          )}
+                        <td
+                          key={`${trade.id}-sub-slot-${columnIndex + 1}`}
+                          className="border-b border-r border-slate-200 px-4 py-4 align-top"
+                        >
+                          <span className="text-sm text-slate-400">Not invited yet</span>
                         </td>
                       );
-                    })
-                  ) : (
-                    <td className="border-b border-r border-slate-200 px-4 py-4 text-sm text-slate-400">No subs invited yet</td>
-                  )}
+                    }
+                    const { sub, bid } = entry;
+                    return (
+                      <td key={`${trade.id}-${sub.id}`} className="border-b border-r border-slate-200 px-4 py-4 align-top">
+                        <div className="space-y-2">
+                          <p className="text-sm font-semibold text-slate-900">{sub.company}</p>
+                          <p className="text-xs text-slate-500">{bid.contact_name ?? sub.contact}</p>
+                          <StatusPill status={bid.status} />
+                          {bid.bid_amount !== null ? (
+                            <p className="text-sm font-semibold text-slate-900">{formatCurrency(bid.bid_amount)}</p>
+                          ) : null}
+                          {bid.notes ? <p className="text-xs text-slate-500">{bid.notes}</p> : null}
+                        </div>
+                      </td>
+                    );
+                  })}
                 </tr>
               );
             })}

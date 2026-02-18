@@ -132,6 +132,7 @@ type CalendarEntry = {
 
 const BID_PROJECT_INFO_STORAGE_KEY = "bidProjectInfoByBidProjectId";
 const BID_PROJECT_CALENDAR_STORAGE_KEY = "bidProjectCalendarByBidProjectId";
+const DEFAULT_VISIBLE_SUB_COLUMNS = 3;
 
 const emptyProjectInfoDraft: ProjectInfoDraft = {
   estimator: "",
@@ -158,6 +159,20 @@ function formatCurrency(value: number): string {
 
 function toYmd(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function getNextProjectSubSortOrder(
+  projectSubs: Array<{ sort_order: number | null }> | undefined
+): number {
+  if (!projectSubs?.length) return 1;
+  const used = new Set(
+    projectSubs
+      .map((sub) => sub.sort_order)
+      .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value > 0)
+  );
+  let next = 1;
+  while (used.has(next)) next += 1;
+  return next;
 }
 
 function StatusPill({ status }: { status: BidTradeStatus }) {
@@ -195,6 +210,7 @@ function BidComparisonGrid({
   onEditBid: (bid: TradeSubBid) => void;
 }) {
   const [openTrades, setOpenTrades] = useState<Record<string, boolean>>({});
+  const [visibleSubColumns, setVisibleSubColumns] = useState(DEFAULT_VISIBLE_SUB_COLUMNS);
 
   useEffect(() => {
     const next: Record<string, boolean> = {};
@@ -209,7 +225,12 @@ function BidComparisonGrid({
     setOpenTrades((prev) => ({ ...prev, [tradeId]: !prev[tradeId] }));
   };
 
-  const totalSubColumns = project.subs.length ? project.subs.length : 1;
+  useEffect(() => {
+    setVisibleSubColumns(DEFAULT_VISIBLE_SUB_COLUMNS);
+  }, [project.id]);
+
+  const totalSubColumns = Math.max(DEFAULT_VISIBLE_SUB_COLUMNS, visibleSubColumns);
+  const hiddenSubColumns = Math.max(0, project.subs.length - totalSubColumns);
 
   const getTradeCounts = (row: TradeRow) => {
     let received = 0;
@@ -368,29 +389,34 @@ function BidComparisonGrid({
       </div>
 
       <div className="hidden overflow-x-auto md:block">
+        {hiddenSubColumns > 0 ? (
+          <div className="border-b border-slate-200 bg-white px-4 py-2">
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setVisibleSubColumns((prev) => prev + 1)}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Show next sub column
+                <span className="text-slate-400">({hiddenSubColumns} hidden)</span>
+              </button>
+            </div>
+          </div>
+        ) : null}
         <table className="min-w-[920px] w-full border-separate border-spacing-0">
           <thead className="sticky top-0 z-20">
             <tr>
               <th className="sticky left-0 z-30 border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-xl font-semibold text-slate-600">
                 Trade
               </th>
-              {project.subs.length ? (
-                project.subs.map((sub, index) => (
-                  <th
-                    key={`sub-header-${sub.id}`}
-                    className="border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-600"
-                  >
-                    <div className="text-base font-semibold text-slate-700">Sub {index + 1}</div>
-                  </th>
-                ))
-              ) : (
+              {Array.from({ length: totalSubColumns }, (_, index) => (
                 <th
-                  key="sub-header-placeholder"
-                  className="border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-xl font-semibold text-slate-600"
+                  key={`sub-header-${index + 1}`}
+                  className="border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-600"
                 >
-                  Sub 1
+                  <div className="text-base font-semibold text-slate-700">Sub {index + 1}</div>
                 </th>
-              )}
+              ))}
               <th className="border-b border-slate-200 bg-slate-100 px-3 py-3 text-center text-sm font-semibold text-slate-600">&nbsp;</th>
             </tr>
           </thead>
@@ -492,8 +518,22 @@ function BidComparisonGrid({
                       </div>
                     </div>
                   </th>
-                  {project.subs.length ? (
-                    project.subs.map((sub) => {
+                  {Array.from({ length: totalSubColumns }, (_, columnIndex) => {
+                    const sub = project.subs[columnIndex] ?? null;
+                    if (!sub) {
+                      return (
+                        <td key={`${row.trade}-sub-slot-${columnIndex + 1}`} className="border-b border-r border-slate-200 px-4 py-4">
+                          <button
+                            type="button"
+                            onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
+                            className="flex h-full min-h-24 w-full items-center rounded-lg border border-dashed border-slate-200 px-3 text-left text-sm text-slate-400 hover:border-slate-300 hover:bg-slate-50"
+                          >
+                            Not invited yet — click to add
+                          </button>
+                        </td>
+                      );
+                    }
+
                       const bid = row.bidsBySubId[sub.id] ?? null;
                       return (
                         <td key={`${row.trade}-${sub.id}`} className="border-b border-r border-slate-200 px-4 py-4">
@@ -530,18 +570,7 @@ function BidComparisonGrid({
                           )}
                         </td>
                       );
-                    })
-                  ) : (
-                    <td key={`${row.trade}-sub-empty`} className="border-b border-r border-slate-200 px-4 py-4">
-                      <button
-                        type="button"
-                        onClick={() => onAddSubForTrade({ tradeId: row.tradeId, tradeName: row.trade })}
-                        className="flex h-full min-h-24 w-full items-center rounded-lg border border-dashed border-slate-200 px-3 text-left text-sm text-slate-400 hover:border-slate-300 hover:bg-slate-50"
-                      >
-                        No subs yet — click to invite
-                      </button>
-                    </td>
-                  )}
+                    })}
                   <td className="border-b border-slate-200 px-2 text-center align-middle">
                     <button
                       type="button"
@@ -2070,7 +2099,7 @@ export default function BiddingPage() {
                   const tradeId = newSubTrade.tradeId;
                   let resolvedProjectSubId = "";
                   if (!resolvedProjectSubId) {
-                    const sortOrder = detail?.projectSubs.length ? detail.projectSubs.length + 1 : 1;
+                    const sortOrder = getNextProjectSubSortOrder(detail?.projectSubs);
                     const projectSub = await inviteSubToProject({
                       project_id: selectedProject.id,
                       subcontractor_id: inviteDraft.selected_sub_id,
@@ -2120,7 +2149,7 @@ export default function BiddingPage() {
                     setSavingInvite(false);
                     return;
                   }
-                  const sortOrder = detail?.projectSubs.length ? detail.projectSubs.length + 1 : 1;
+                  const sortOrder = getNextProjectSubSortOrder(detail?.projectSubs);
                   const projectSub = await inviteSubToProject({
                     project_id: selectedProject.id,
                     subcontractor_id: sub.id,
