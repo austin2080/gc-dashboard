@@ -3,11 +3,35 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { BidProjectDetail, BidTradeStatus } from "@/lib/bidding/types";
-import { getBidProjectDetail } from "@/lib/bidding/store";
+import { createTradeBid, getBidProjectDetail, updateBidSubcontractor, updateTradeBid } from "@/lib/bidding/store";
 import { getBidProjectIdForProject } from "@/lib/bidding/project-links";
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
+}
+
+function formatDueDate(value: string | null): string {
+  if (!value) return "No due date";
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return "No due date";
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatDateTime(value: string | null): string {
+  if (!value) return "Not available";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Not available";
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function StatusPill({ status }: { status: BidTradeStatus }) {
@@ -26,6 +50,55 @@ function StatusPill({ status }: { status: BidTradeStatus }) {
   );
 }
 
+type DrawerBidState = {
+  bidId: string | null;
+  tradeId: string;
+  tradeName: string;
+  projectSubId: string;
+  subCompany: string;
+  subContact: string;
+};
+
+type DirectoryCompanyMeta = {
+  city: string;
+  state: string;
+  trade: string;
+};
+
+function normalizeCompanyName(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function hasTradeMatch(tradeName: string, companyTrade: string): boolean {
+  const trade = tradeName.trim().toLowerCase();
+  const company = companyTrade.trim().toLowerCase();
+  if (!trade || !company) return false;
+  return trade.includes(company) || company.includes(trade);
+}
+
+const PROPOSAL_DUE_STORAGE_KEY = "bidProposalDueDatesByCell";
+
+function readProposalDueMap(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(PROPOSAL_DUE_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    return Object.entries(parsed).reduce<Record<string, string>>((acc, [key, value]) => {
+      if (typeof key === "string" && typeof value === "string") acc[key] = value;
+      return acc;
+    }, {});
+  } catch {
+    return {};
+  }
+}
+
+function writeProposalDueMap(map: Record<string, string>) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(PROPOSAL_DUE_STORAGE_KEY, JSON.stringify(map));
+}
+
 export default function ItbsProjectBidTable() {
   const DEFAULT_VISIBLE_SUB_COLUMNS = 3;
   const searchParams = useSearchParams();
@@ -36,6 +109,19 @@ export default function ItbsProjectBidTable() {
   const [resolvedBidProjectId, setResolvedBidProjectId] = useState<string | null>(null);
   const [hasResolvedLookup, setHasResolvedLookup] = useState(false);
   const [visibleSubColumns, setVisibleSubColumns] = useState(DEFAULT_VISIBLE_SUB_COLUMNS);
+  const [drawerState, setDrawerState] = useState<DrawerBidState | null>(null);
+  const [statusDraft, setStatusDraft] = useState<BidTradeStatus>("invited");
+  const [bidAmountDraft, setBidAmountDraft] = useState("");
+  const [contactDraft, setContactDraft] = useState("");
+  const [emailDraft, setEmailDraft] = useState("");
+  const [phoneDraft, setPhoneDraft] = useState("");
+  const [proposalDueDateDraft, setProposalDueDateDraft] = useState("");
+  const [notesDraft, setNotesDraft] = useState("");
+  const [subSearch, setSubSearch] = useState("");
+  const [selectedProjectSubId, setSelectedProjectSubId] = useState("");
+  const [directoryByCompany, setDirectoryByCompany] = useState<Record<string, DirectoryCompanyMeta>>({});
+  const [savingDrawer, setSavingDrawer] = useState(false);
+  const [drawerError, setDrawerError] = useState<string | null>(null);
 
   useEffect(() => {
     const refreshMappedProject = () => {
@@ -88,6 +174,38 @@ export default function ItbsProjectBidTable() {
     setVisibleSubColumns(DEFAULT_VISIBLE_SUB_COLUMNS);
   }, [resolvedBidProjectId]);
 
+  useEffect(() => {
+    let active = true;
+    async function loadDirectoryMeta() {
+      try {
+        const response = await fetch("/api/directory/overview", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = (await response.json()) as {
+          companies?: Array<{ name?: string; city?: string; state?: string; trade?: string }>;
+        };
+        if (!active) return;
+        const next: Record<string, DirectoryCompanyMeta> = {};
+        for (const company of payload.companies ?? []) {
+          if (!company?.name) continue;
+          const key = normalizeCompanyName(company.name);
+          next[key] = {
+            city: company.city ?? "",
+            state: company.state ?? "",
+            trade: company.trade ?? "",
+          };
+        }
+        setDirectoryByCompany(next);
+      } catch {
+        if (!active) return;
+        setDirectoryByCompany({});
+      }
+    }
+    loadDirectoryMeta();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   if (!queryProjectId) {
     return (
       <section className="rounded-2xl border border-slate-200 bg-white px-6 py-6 text-sm text-slate-500 shadow-sm">
@@ -128,16 +246,53 @@ export default function ItbsProjectBidTable() {
     })
     .map((sub) => ({
       id: sub.id,
+      subcontractorId: sub.subcontractor_id,
+      invitedAt: sub.invited_at,
       company: sub.subcontractor?.company_name ?? "Unknown subcontractor",
       contact: sub.subcontractor?.primary_contact ?? "-",
+      email: sub.subcontractor?.email ?? "",
+      phone: sub.subcontractor?.phone ?? "",
     }));
   const totalSubColumns = Math.max(DEFAULT_VISIBLE_SUB_COLUMNS, visibleSubColumns);
-  const maxTradeBidCount = detail.trades.reduce((max, trade) => {
-    const tradeMap = bidsByTrade.get(trade.id);
-    const count = tradeMap ? tradeMap.size : 0;
-    return Math.max(max, count);
-  }, 0);
-  const hiddenSubColumns = Math.max(0, maxTradeBidCount - totalSubColumns);
+  const hiddenSubColumns = Math.max(0, subs.length - totalSubColumns);
+  const selectedSub = subs.find((sub) => sub.id === selectedProjectSubId) ?? null;
+  const filteredSubs = subs.filter((sub) => sub.company.toLowerCase().includes(subSearch.trim().toLowerCase()));
+
+  const openDrawer = (payload: {
+    tradeId: string;
+    tradeName: string;
+    projectSubId: string;
+    subCompany: string;
+    subContact: string;
+    bid: (typeof detail.tradeBids)[number] | null;
+  }) => {
+    setDrawerState({
+      bidId: payload.bid?.id ?? null,
+      tradeId: payload.tradeId,
+      tradeName: payload.tradeName,
+      projectSubId: payload.projectSubId,
+      subCompany: payload.subCompany,
+      subContact: payload.subContact,
+    });
+    setStatusDraft(payload.bid?.status ?? "invited");
+    setBidAmountDraft(payload.bid?.bid_amount !== null && payload.bid?.bid_amount !== undefined ? String(payload.bid.bid_amount) : "");
+    setContactDraft(payload.bid?.contact_name ?? payload.subContact ?? "");
+    setEmailDraft(subs.find((sub) => sub.id === payload.projectSubId)?.email ?? "");
+    setPhoneDraft(subs.find((sub) => sub.id === payload.projectSubId)?.phone ?? "");
+    const proposalDueMap = readProposalDueMap();
+    const proposalDueKey = `${detail.project.id}:${payload.tradeId}:${payload.projectSubId}`;
+    setProposalDueDateDraft(proposalDueMap[proposalDueKey] ?? detail.project.due_date ?? "");
+    setNotesDraft(payload.bid?.notes ?? "");
+    setSelectedProjectSubId(payload.projectSubId);
+    setSubSearch(payload.subCompany);
+    setDrawerError(null);
+  };
+
+  const closeDrawer = () => {
+    setDrawerState(null);
+    setDrawerError(null);
+    setSavingDrawer(false);
+  };
 
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -181,38 +336,61 @@ export default function ItbsProjectBidTable() {
           <tbody>
             {detail.trades.map((trade) => {
               const tradeMap = bidsByTrade.get(trade.id) ?? new Map<string, (typeof detail.tradeBids)[number]>();
-              const orderedTradeBids = subs
-                .map((sub) => ({ sub, bid: tradeMap.get(sub.id) ?? null }))
-                .filter((entry): entry is { sub: (typeof subs)[number]; bid: (typeof detail.tradeBids)[number] } => Boolean(entry.bid));
+              const tradeSlots = subs
+                .map((sub, index) => ({ sub, bid: tradeMap.get(sub.id) ?? null, index }))
+                .sort((a, b) => {
+                  if (a.bid && !b.bid) return -1;
+                  if (!a.bid && b.bid) return 1;
+                  return a.index - b.index;
+                });
               return (
                 <tr key={trade.id}>
                   <th className="sticky left-0 z-10 border-b border-r border-slate-200 bg-white px-4 py-4 text-left text-sm font-semibold text-slate-900">
                     {trade.trade_name}
                   </th>
                   {Array.from({ length: totalSubColumns }, (_, columnIndex) => {
-                    const entry = orderedTradeBids[columnIndex] ?? null;
+                    const entry = tradeSlots[columnIndex] ?? null;
                     if (!entry) {
                       return (
                         <td
                           key={`${trade.id}-sub-slot-${columnIndex + 1}`}
                           className="border-b border-r border-slate-200 px-4 py-4 align-top"
                         >
-                          <span className="text-sm text-slate-400">Not invited yet</span>
+                          <span className="text-sm text-slate-400">No sub assigned</span>
                         </td>
                       );
                     }
                     const { sub, bid } = entry;
                     return (
                       <td key={`${trade.id}-${sub.id}`} className="border-b border-r border-slate-200 px-4 py-4 align-top">
-                        <div className="space-y-2">
-                          <p className="text-sm font-semibold text-slate-900">{sub.company}</p>
-                          <p className="text-xs text-slate-500">{bid.contact_name ?? sub.contact}</p>
-                          <StatusPill status={bid.status} />
-                          {bid.bid_amount !== null ? (
-                            <p className="text-sm font-semibold text-slate-900">{formatCurrency(bid.bid_amount)}</p>
-                          ) : null}
-                          {bid.notes ? <p className="text-xs text-slate-500">{bid.notes}</p> : null}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openDrawer({
+                              tradeId: trade.id,
+                              tradeName: trade.trade_name,
+                              projectSubId: sub.id,
+                              subCompany: sub.company,
+                              subContact: sub.contact,
+                              bid,
+                            })
+                          }
+                          className="w-full rounded-md p-1 text-left transition hover:bg-slate-50"
+                        >
+                          {bid ? (
+                            <div className="space-y-2">
+                              <p className="text-sm font-semibold text-slate-900">{sub.company}</p>
+                              <p className="text-xs text-slate-500">{bid.contact_name ?? sub.contact}</p>
+                              <StatusPill status={bid.status} />
+                              {bid.bid_amount !== null ? (
+                                <p className="text-sm font-semibold text-slate-900">{formatCurrency(bid.bid_amount)}</p>
+                              ) : null}
+                              {bid.notes ? <p className="text-xs text-slate-500">{bid.notes}</p> : null}
+                            </div>
+                          ) : (
+                            <span className="text-sm text-slate-400">Not invited yet</span>
+                          )}
+                        </button>
                       </td>
                     );
                   })}
@@ -222,6 +400,282 @@ export default function ItbsProjectBidTable() {
           </tbody>
         </table>
       </div>
+      {drawerState ? (
+        <div className="fixed inset-0 z-50">
+          <button type="button" className="absolute inset-0 bg-slate-950/40" onClick={closeDrawer} aria-label="Close bid details drawer" />
+          <aside className="absolute right-0 top-0 h-full w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white shadow-2xl">
+            <div className="border-b border-slate-200 px-6 py-4">
+              <h2 className="text-2xl font-semibold text-slate-900">Invite Subcontractor</h2>
+              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                <div>
+                  <span className="font-semibold">Trade:</span> {drawerState.tradeName}
+                </div>
+                <div>
+                  <span className="font-semibold">Project:</span> {detail.project.project_name}
+                </div>
+                <div>
+                  <span className="font-semibold">Due:</span> {formatDueDate(detail.project.due_date)}
+                </div>
+              </div>
+            </div>
+            <form
+              className="space-y-4 px-6 py-5"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                setSavingDrawer(true);
+                setDrawerError(null);
+                if (!selectedProjectSubId) {
+                  setDrawerError("Select a subcontractor.");
+                  setSavingDrawer(false);
+                  return;
+                }
+                if (!emailDraft.trim()) {
+                  setDrawerError("Email is required.");
+                  setSavingDrawer(false);
+                  return;
+                }
+                if (drawerState.bidId && selectedProjectSubId !== drawerState.projectSubId) {
+                  setDrawerError("To change subcontractor, open an empty cell for the desired sub.");
+                  setSavingDrawer(false);
+                  return;
+                }
+                if (selectedSub?.subcontractorId) {
+                  const synced = await updateBidSubcontractor({
+                    id: selectedSub.subcontractorId,
+                    company_name: selectedSub.company,
+                    primary_contact: contactDraft.trim() || null,
+                    email: emailDraft.trim() || null,
+                    phone: phoneDraft.trim() || null,
+                  });
+                  if (!synced) {
+                    setDrawerError("Unable to save contact info.");
+                    setSavingDrawer(false);
+                    return;
+                  }
+                }
+                const bidAmount = bidAmountDraft.trim() ? Number(bidAmountDraft) : null;
+                const payload = {
+                  status: statusDraft,
+                  bid_amount: Number.isFinite(bidAmount) ? bidAmount : null,
+                  contact_name: contactDraft.trim() || null,
+                  notes: notesDraft.trim() || null,
+                };
+                const ok = drawerState.bidId
+                  ? await updateTradeBid({ id: drawerState.bidId, ...payload })
+                  : await createTradeBid({
+                      project_id: detail.project.id,
+                      trade_id: drawerState.tradeId,
+                      project_sub_id: selectedProjectSubId,
+                      ...payload,
+                    });
+                if (!ok) {
+                  setDrawerError("Unable to save bid details.");
+                  setSavingDrawer(false);
+                  return;
+                }
+                const proposalDueMap = readProposalDueMap();
+                const proposalDueKey = `${detail.project.id}:${drawerState.tradeId}:${selectedProjectSubId}`;
+                if (proposalDueDateDraft.trim()) {
+                  proposalDueMap[proposalDueKey] = proposalDueDateDraft.trim();
+                } else {
+                  delete proposalDueMap[proposalDueKey];
+                }
+                writeProposalDueMap(proposalDueMap);
+                const refreshed = await getBidProjectDetail(detail.project.id);
+                if (refreshed) setDetail(refreshed);
+                closeDrawer();
+              }}
+            >
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                <div>
+                  <span className="font-semibold">Sub:</span> {selectedSub?.company ?? drawerState.subCompany}
+                </div>
+                <div>
+                  <span className="font-semibold">Trade:</span> {drawerState.tradeName}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-slate-700">Subcontractor</label>
+                <input
+                  value={subSearch}
+                  onChange={(event) => {
+                    setSubSearch(event.target.value);
+                    if (selectedSub && event.target.value !== selectedSub.company) {
+                      setSelectedProjectSubId("");
+                    }
+                  }}
+                  placeholder="Search subcontractors"
+                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                />
+                <div className="max-h-48 overflow-auto rounded-lg border border-slate-200">
+                  {filteredSubs.length ? (
+                    filteredSubs.map((sub) => {
+                      const meta = directoryByCompany[normalizeCompanyName(sub.company)];
+                      const cityLabel = meta ? [meta.city, meta.state].filter(Boolean).join(", ") : "";
+                      const isMatch = hasTradeMatch(drawerState.tradeName, meta?.trade ?? "");
+                      const isSelected = sub.id === selectedProjectSubId;
+                      return (
+                        <button
+                          key={sub.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedProjectSubId(sub.id);
+                            setSubSearch(sub.company);
+                            setContactDraft(sub.contact === "-" ? "" : sub.contact);
+                            setEmailDraft(sub.email ?? "");
+                            setPhoneDraft(sub.phone ?? "");
+                          }}
+                          className={`w-full border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50 ${
+                            isSelected ? "bg-slate-100" : ""
+                          }`}
+                        >
+                          <div className="text-sm font-semibold text-slate-900">{sub.company}</div>
+                          <div className="mt-0.5 text-xs text-slate-500">{cityLabel || "City unavailable"}</div>
+                          <div className="mt-1 flex items-center gap-2">
+                            <span
+                              className={`inline-flex rounded-md px-2 py-0.5 text-[10px] font-semibold tracking-[0.08em] ${
+                                isMatch ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"
+                              }`}
+                            >
+                              {isMatch ? "TRADE MATCH" : "NO TRADE MATCH"}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <div className="px-3 py-2 text-sm text-slate-500">No subcontractors found.</div>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-3">
+                <div className="text-sm font-semibold text-slate-800">Contact Info</div>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                  Contact Name
+                  <input
+                    value={contactDraft}
+                    onChange={(event) => setContactDraft(event.target.value)}
+                    placeholder="Estimator name"
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                  />
+                </label>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                  Email
+                  <input
+                    type="email"
+                    required
+                    value={emailDraft}
+                    onChange={(event) => setEmailDraft(event.target.value)}
+                    placeholder="estimator@company.com"
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                  />
+                </label>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                  Phone
+                  <input
+                    value={phoneDraft}
+                    onChange={(event) => setPhoneDraft(event.target.value)}
+                    placeholder="(555) 555-5555"
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                  />
+                </label>
+              </div>
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                Proposal Due Date
+                <input
+                  type="date"
+                  value={proposalDueDateDraft}
+                  onChange={(event) => setProposalDueDateDraft(event.target.value)}
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                />
+              </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                Status
+                <select
+                  value={statusDraft}
+                  onChange={(event) => setStatusDraft(event.target.value as BidTradeStatus)}
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                >
+                  <option value="invited">Invited</option>
+                  <option value="bidding">Bidding</option>
+                  <option value="submitted">Submitted</option>
+                  <option value="ghosted">Ghosted</option>
+                  <option value="declined">Declined</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                Quote Amount
+                <input
+                  value={bidAmountDraft}
+                  onChange={(event) => setBidAmountDraft(event.target.value)}
+                  placeholder="55000"
+                  inputMode="decimal"
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                />
+              </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                Notes
+                <textarea
+                  value={notesDraft}
+                  onChange={(event) => setNotesDraft(event.target.value)}
+                  rows={5}
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                />
+              </label>
+              <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="text-sm font-semibold text-slate-800">Future Actions</div>
+                <div className="text-sm text-slate-700">
+                  <span className="font-semibold">Last invited date:</span> {formatDateTime(selectedSub?.invitedAt ?? null)}
+                </div>
+                <div>
+                  <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Invite history timeline</div>
+                  <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                    Timeline tracking coming soon.
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDrawerError("Remind workflow is coming soon.")}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+                  >
+                    Remind
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDrawerError("Mark Declined shortcut is coming soon.")}
+                    className="rounded-lg border border-rose-200 bg-white px-3 py-1.5 text-sm font-semibold text-rose-700 hover:bg-rose-50"
+                  >
+                    Mark Declined
+                  </button>
+                </div>
+                <div className="text-xs text-slate-500">
+                  Auto-track opened email: planned for future integration.
+                </div>
+              </div>
+              {drawerError ? (
+                <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{drawerError}</p>
+              ) : null}
+              <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-4">
+                <button
+                  type="button"
+                  onClick={closeDrawer}
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingDrawer}
+                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {savingDrawer ? "Saving..." : "Save"}
+                </button>
+              </div>
+            </form>
+          </aside>
+        </div>
+      ) : null}
     </section>
   );
 }
