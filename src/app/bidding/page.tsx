@@ -2273,14 +2273,14 @@ export default function BiddingPage() {
             >
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
                 <div>
-                  <span className="font-semibold">Sub:</span> {editBidDraft.company_name}
+                  <span className="font-semibold">Sub:</span> {editBidDraft?.company_name ?? "Not selected"}
                 </div>
                 <div>
-                  <span className="font-semibold">Status:</span> {editBidDraft.status}
+                  <span className="font-semibold">Status:</span> {editBidDraft?.status ?? "Not set"}
                 </div>
                 <div>
                   <span className="font-semibold">Quote:</span>{" "}
-                  {editBidDraft.bid_amount.trim() ? editBidDraft.bid_amount : "No quote entered"}
+                  {editBidDraft?.bid_amount?.trim() ? editBidDraft.bid_amount : "No quote entered"}
                 </div>
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
