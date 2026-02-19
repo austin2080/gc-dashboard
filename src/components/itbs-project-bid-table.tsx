@@ -301,16 +301,24 @@ export default function ItbsProjectBidTable() {
         <p className="mt-1 text-sm text-slate-600">Invitation and bid status by trade.</p>
       </div>
 
-      {hiddenSubColumns > 0 ? (
+      {hiddenSubColumns > 0 || visibleSubColumns > DEFAULT_VISIBLE_SUB_COLUMNS ? (
         <div className="border-b border-slate-200 bg-white px-4 py-2">
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            {visibleSubColumns > DEFAULT_VISIBLE_SUB_COLUMNS ? (
+              <button
+                type="button"
+                onClick={() => setVisibleSubColumns((prev) => Math.max(DEFAULT_VISIBLE_SUB_COLUMNS, prev - 1))}
+                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Remove Sub Column
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => setVisibleSubColumns((prev) => prev + 1)}
               className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
             >
-              Show next sub column
-              <span className="text-slate-400">({hiddenSubColumns} hidden)</span>
+              Add Sub Column
             </button>
           </div>
         </div>

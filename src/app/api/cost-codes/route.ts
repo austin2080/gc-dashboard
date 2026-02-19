@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/db/tenant";
+import { createClient } from "@/lib/supabase/server";
 
 type CostCodeRow = {
   id: string;
@@ -11,7 +12,28 @@ type CostCodeRow = {
 
 export async function GET() {
   try {
-    const { supabase, companyId } = await getTenantContext();
+    let supabase: Awaited<ReturnType<typeof createClient>>;
+    let companyId: string;
+    try {
+      const tenant = await getTenantContext();
+      supabase = tenant.supabase;
+      companyId = tenant.companyId;
+    } catch {
+      // Fallback for users who can access Bid Management but lack an "active" membership flag.
+      supabase = await createClient();
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError || !authData.user) throw new Error("Not authenticated");
+      const { data: member, error: memberError } = await supabase
+        .from("company_members")
+        .select("company_id")
+        .eq("user_id", authData.user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (memberError || !member?.company_id) throw new Error("No company membership");
+      companyId = member.company_id as string;
+    }
 
     const { data, error } = await supabase
       .from("cost_codes")

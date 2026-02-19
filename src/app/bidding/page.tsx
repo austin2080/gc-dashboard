@@ -692,6 +692,7 @@ export default function BiddingPage() {
   const [costCodeQuery, setCostCodeQuery] = useState("");
   const [tradeCostCodeQuery, setTradeCostCodeQuery] = useState("");
   const [loadingCostCodes, setLoadingCostCodes] = useState(false);
+  const [costCodeLoadError, setCostCodeLoadError] = useState<string | null>(null);
   const [tradeDrafts, setTradeDrafts] = useState<TradeEditDraft[]>([]);
   const [saving, setSaving] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
@@ -860,18 +861,28 @@ export default function BiddingPage() {
     async function loadCostCodes() {
       if (!modalOpen && !editTradesModalOpen) return;
       setLoadingCostCodes(true);
+      setCostCodeLoadError(null);
       try {
         const response = await fetch("/api/cost-codes");
-        const payload = await response.json();
+        let payload: { costCodes?: unknown; error?: string } = {};
+        try {
+          payload = (await response.json()) as { costCodes?: unknown; error?: string };
+        } catch {
+          payload = {};
+        }
         if (!response.ok) {
-          throw new Error(payload?.error ?? "Failed to load cost codes");
+          if (!active) return;
+          setCostCodes([]);
+          setCostCodeLoadError(payload.error ?? "Cost codes unavailable. You can still add manual trades.");
+          return;
         }
         if (!active) return;
         setCostCodes(Array.isArray(payload.costCodes) ? payload.costCodes : []);
       } catch (err) {
-        console.error("Failed to load cost codes", err);
+        console.warn("Unable to load cost codes", err);
         if (!active) return;
         setCostCodes([]);
+        setCostCodeLoadError("Unable to load cost codes right now. You can still add manual trades.");
       } finally {
         if (active) setLoadingCostCodes(false);
       }
@@ -1968,6 +1979,11 @@ export default function BiddingPage() {
                     Add From Cost Codes
                   </div>
                   <div className="space-y-2 p-3">
+                    {costCodeLoadError ? (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                        {costCodeLoadError}
+                      </div>
+                    ) : null}
                     <input
                       value={tradeCostCodeQuery}
                       onChange={(event) => setTradeCostCodeQuery(event.target.value)}
