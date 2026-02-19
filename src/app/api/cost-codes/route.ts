@@ -50,7 +50,10 @@ export async function GET() {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Not authenticated";
-    const status = message === "Not authenticated" ? 401 : 403;
-    return NextResponse.json({ error: message }, { status });
+    if (message === "Not authenticated") {
+      return NextResponse.json({ error: message }, { status: 401 });
+    }
+    // Keep Edit Trades usable even when tenant membership flags are inconsistent.
+    return NextResponse.json({ costCodes: [] as CostCodeRow[] }, { status: 200 });
   }
 }

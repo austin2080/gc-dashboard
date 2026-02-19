@@ -873,7 +873,12 @@ export default function BiddingPage() {
         if (!response.ok) {
           if (!active) return;
           setCostCodes([]);
-          setCostCodeLoadError(payload.error ?? "Cost codes unavailable. You can still add manual trades.");
+          const rawError = (payload.error ?? "").toLowerCase();
+          if (rawError.includes("no active company membership")) {
+            setCostCodeLoadError("Cost codes unavailable. You can still add manual trades.");
+          } else {
+            setCostCodeLoadError(payload.error ?? "Cost codes unavailable. You can still add manual trades.");
+          }
           return;
         }
         if (!active) return;
