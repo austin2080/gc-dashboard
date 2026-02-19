@@ -601,9 +601,24 @@ export default function DirectoryPageClient() {
                           </button>
                           <button
                             onClick={async () => {
-                              await fetch(`/api/directory/companies/${company.id}`, { method: "DELETE" });
+                              const res = await fetch(`/api/directory/companies/${company.id}`, { method: "DELETE" });
+                              if (!res.ok) {
+                                const raw = await res.text();
+                                let payload: { error?: string } = {};
+                                try {
+                                  payload = raw ? (JSON.parse(raw) as { error?: string }) : {};
+                                } catch {
+                                  payload = {};
+                                }
+                                const message =
+                                  payload.error ??
+                                  (raw ? `Failed to remove company (${res.status}): ${raw}` : `Failed to remove company (${res.status}).`);
+                                showToast(message, "error");
+                                return;
+                              }
                               if (detailCompanyId === company.id) setDetailCompanyId(null);
                               await fetchDirectory();
+                              showToast("Company removed.", "success");
                             }}
                             className="underline text-red-600"
                           >
