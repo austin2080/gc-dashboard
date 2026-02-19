@@ -22,7 +22,12 @@ export function useDirectoryData(): DirectoryState {
       const res = await fetch("/api/directory/overview", { cache: "no-store" });
       if (!res.ok) {
         const payload = await res.json().catch(() => ({}));
-        throw new Error(payload?.error ?? "Failed to load directory.");
+        const message = payload?.error ?? "Failed to load directory.";
+        if (typeof message === "string" && message.toLowerCase().includes("membership")) {
+          setData({ companies: [], projects: [], projectCompanies: [] });
+          return;
+        }
+        throw new Error(message);
       }
       const payload = (await res.json()) as DirectoryData;
       setData(payload);

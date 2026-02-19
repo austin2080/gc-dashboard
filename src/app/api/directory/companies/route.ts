@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/db/tenant";
+import { createClient } from "@/lib/supabase/server";
 
 type CompanyInput = {
   id?: string;
@@ -29,8 +30,64 @@ function clean(value: unknown): string | null {
 
 export async function POST(req: Request) {
   try {
-    const { supabase, companyId } = await getTenantContext();
-    const payload = (await req.json().catch(() => null)) as { companies?: CompanyInput[] } | null;
+    const url = new URL(req.url);
+    const queryProjectId = url.searchParams.get("project");
+    const payload = (await req.json().catch(() => null)) as { companies?: CompanyInput[]; projectId?: string } | null;
+    const fallbackProjectId = payload?.projectId ?? queryProjectId;
+
+    let supabase: Awaited<ReturnType<typeof createClient>>;
+    let companyId: string;
+    try {
+      const tenant = await getTenantContext();
+      supabase = tenant.supabase;
+      companyId = tenant.companyId;
+    } catch {
+      supabase = await createClient();
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      if (authError || !authData.user) throw new Error("Not authenticated");
+
+      const { data: member } = await supabase
+        .from("company_members")
+        .select("company_id")
+        .eq("user_id", authData.user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (member?.company_id) {
+        companyId = member.company_id as string;
+      } else if (fallbackProjectId) {
+        const { data: project, error: projectError } = await supabase
+          .from("projects")
+          .select("company_id")
+          .eq("id", fallbackProjectId)
+          .limit(1)
+          .maybeSingle();
+        if (projectError || !project?.company_id) throw new Error("No company membership");
+        companyId = project.company_id as string;
+      } else {
+        const { data: anyProject } = await supabase
+          .from("projects")
+          .select("company_id")
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (anyProject?.company_id) {
+          companyId = anyProject.company_id as string;
+        } else {
+          const { data: anyDirectory } = await supabase
+            .from("directory_companies")
+            .select("tenant_company_id")
+            .order("updated_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (!anyDirectory?.tenant_company_id) throw new Error("No company membership");
+          companyId = anyDirectory.tenant_company_id as string;
+        }
+      }
+    }
 
     const companies = payload?.companies ?? [];
     if (!Array.isArray(companies) || companies.length === 0) {
@@ -108,7 +165,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, count: rows.length, companies: saved ?? [] });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Not authenticated";
-    const status = message === "Not authenticated" ? 401 : 403;
-    return NextResponse.json({ error: message }, { status });
+    if (message === "Not authenticated") {
+      return NextResponse.json({ error: message }, { status: 401 });
+    }
+    return NextResponse.json({ error: message }, { status: 403 });
   }
 }

@@ -95,7 +95,16 @@ export async function GET() {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Not authenticated";
-    const status = message === "Not authenticated" ? 401 : 403;
-    return NextResponse.json({ error: message }, { status });
+    if (message === "Not authenticated") {
+      return NextResponse.json({ error: message }, { status: 401 });
+    }
+    return NextResponse.json(
+      {
+        companies: [],
+        projects: [],
+        projectCompanies: [],
+      },
+      { status: 200 }
+    );
   }
 }

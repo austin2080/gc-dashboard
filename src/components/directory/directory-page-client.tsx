@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Company } from "@/lib/directory/types";
 import CompanyFormModal from "@/components/directory/company-form-modal";
 import CompanyDetailPanel from "@/components/directory/company-detail-panel";
@@ -40,6 +41,10 @@ function toDraft(company?: Company): CompanyDraft {
 }
 
 export default function DirectoryPageClient() {
+  const searchParams = useSearchParams();
+  const [storedProjectId, setStoredProjectId] = useState<string | null>(null);
+  const queryProjectId = searchParams.get("project");
+  const projectId = queryProjectId ?? storedProjectId;
   const { data, loading, error, refresh } = useDirectoryData();
   const companies = useMemo(() => data?.companies ?? [], [data?.companies]);
   const projects = useMemo(() => data?.projects ?? [], [data?.projects]);
@@ -60,6 +65,22 @@ export default function DirectoryPageClient() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importError, setImportError] = useState("");
   const [importing, setImporting] = useState(false);
+
+  useEffect(() => {
+    const refreshStoredProject = () => {
+      try {
+        const value = localStorage.getItem("activeProjectId");
+        setStoredProjectId(value);
+      } catch {
+        setStoredProjectId(null);
+      }
+    };
+    refreshStoredProject();
+    window.addEventListener("storage", refreshStoredProject);
+    return () => {
+      window.removeEventListener("storage", refreshStoredProject);
+    };
+  }, []);
 
   const tradeOptions = useMemo(() => {
     const set = new Set(companies.map((c) => c.trade).filter(Boolean));
@@ -102,6 +123,7 @@ export default function DirectoryPageClient() {
     }
     setFormError("");
     const payload = {
+      projectId: projectId ?? undefined,
       companies: [
         {
           id: editingCompanyId ?? undefined,
@@ -116,7 +138,7 @@ export default function DirectoryPageClient() {
       ],
     };
 
-    const res = await fetch("/api/directory/companies", {
+    const res = await fetch(`/api/directory/companies${projectId ? `?project=${encodeURIComponent(projectId)}` : ""}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -254,10 +276,10 @@ export default function DirectoryPageClient() {
         throw new Error("No valid company rows found.");
       }
 
-      const res = await fetch("/api/directory/companies", {
+      const res = await fetch(`/api/directory/companies${projectId ? `?project=${encodeURIComponent(projectId)}` : ""}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ companies: mapped }),
+        body: JSON.stringify({ companies: mapped, projectId: projectId ?? undefined }),
       });
 
       if (!res.ok) {
@@ -419,10 +441,11 @@ export default function DirectoryPageClient() {
                           <button onClick={() => openEditModal(company)} className="underline">Edit</button>
                           <button
                             onClick={async () => {
-                              await fetch("/api/directory/companies", {
+                              await fetch(`/api/directory/companies${projectId ? `?project=${encodeURIComponent(projectId)}` : ""}`, {
                                 method: "POST",
                                 headers: { "Content-Type": "application/json" },
                                 body: JSON.stringify({
+                                  projectId: projectId ?? undefined,
                                   companies: [
                                     {
                                       id: company.id,
