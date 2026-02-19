@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Company } from "@/lib/directory/types";
+import { Company, ProjectCompany, ProjectDirectoryEntry } from "@/lib/directory/types";
 import CompanyFormModal from "@/components/directory/company-form-modal";
 import CompanyDetailPanel from "@/components/directory/company-detail-panel";
-import { useDirectoryData } from "@/components/directory/use-directory-data";
 
 type CompanyDraft = {
   companyName: string;
@@ -46,19 +45,22 @@ export default function DirectoryPageClient() {
   const [storedProjectId, setStoredProjectId] = useState<string | null>(null);
   const queryProjectId = searchParams.get("project");
   const projectId = queryProjectId ?? storedProjectId;
-  const { data, loading, error, refresh } = useDirectoryData();
-  const companies = useMemo(() => data?.companies ?? [], [data?.companies]);
-  const projects = useMemo(() => data?.projects ?? [], [data?.projects]);
-  const relations = useMemo(() => data?.projectCompanies ?? [], [data?.projectCompanies]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [projects, setProjects] = useState<ProjectDirectoryEntry[]>([]);
+  const [relations, setRelations] = useState<ProjectCompany[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   const [query, setQuery] = useState("");
   const [tradeFilter, setTradeFilter] = useState("all");
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("active");
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
   const [draft, setDraft] = useState<CompanyDraft>(EMPTY_DRAFT);
   const [formError, setFormError] = useState("");
+  const [savingCompany, setSavingCompany] = useState(false);
+  const [toast, setToast] = useState<{ message: string; type: "error" | "success" } | null>(null);
 
   const [detailCompanyId, setDetailCompanyId] = useState<string | null>(null);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
@@ -82,6 +84,51 @@ export default function DirectoryPageClient() {
       window.removeEventListener("storage", refreshStoredProject);
     };
   }, []);
+
+  const showToast = useCallback((message: string, type: "error" | "success" = "error") => {
+    setToast({ message, type });
+  }, []);
+
+  const fetchDirectory = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/directory/overview", { cache: "no-store" });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => ({}));
+        const message = payload?.error ?? "Failed to load directory.";
+        if (typeof message === "string" && message.toLowerCase().includes("membership")) {
+          setCompanies([]);
+          setProjects([]);
+          setRelations([]);
+          return;
+        }
+        throw new Error(message);
+      }
+      const payload = (await res.json()) as {
+        companies?: Company[];
+        projects?: ProjectDirectoryEntry[];
+        projectCompanies?: ProjectCompany[];
+      };
+      setCompanies(payload.companies ?? []);
+      setProjects(payload.projects ?? []);
+      setRelations(payload.projectCompanies ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load directory.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDirectory();
+  }, [fetchDirectory]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 3500);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
 
   const tradeOptions = useMemo(() => {
     const set = new Set(companies.map((c) => c.trade).filter(Boolean));
@@ -130,41 +177,64 @@ export default function DirectoryPageClient() {
   }
 
   async function saveCompany() {
-    if (!draft.companyName.trim()) {
-      setFormError("Company name is required.");
-      return;
-    }
+    if (!draft.companyName.trim()) return setFormError("Company name is required.");
+    if (!draft.trade.trim()) return setFormError("Trade is required.");
+    if (!draft.primaryContact.trim()) return setFormError("Primary contact is required.");
+    if (!draft.email.trim()) return setFormError("Email is required.");
+    if (!draft.phone.trim()) return setFormError("Phone is required.");
+
     setFormError("");
-    const payload = {
-      projectId: projectId ?? undefined,
-      companies: [
-        {
-          id: editingCompanyId ?? undefined,
-          name: draft.companyName.trim(),
-          trade: draft.trade.trim() || undefined,
-          primaryContact: draft.primaryContact.trim() || undefined,
-          email: draft.email.trim() || undefined,
-          phone: draft.phone.trim() || undefined,
-          notes: draft.notes.trim() || undefined,
-          isActive: draft.isActive,
-        },
-      ],
-    };
+    setSavingCompany(true);
 
-    const res = await fetch(`/api/directory/companies${projectId ? `?project=${encodeURIComponent(projectId)}` : ""}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    try {
+      const nowIso = new Date().toISOString();
+      const payload = {
+        projectId: projectId ?? undefined,
+        companies: [
+          {
+            id: editingCompanyId ?? undefined,
+            name: draft.companyName.trim(),
+            company_name: draft.companyName.trim(),
+            trade: draft.trade.trim(),
+            primaryContact: draft.primaryContact.trim(),
+            primary_contact: draft.primaryContact.trim(),
+            email: draft.email.trim(),
+            phone: draft.phone.trim(),
+            status: draft.isActive ? "Active" : "Inactive",
+            notes: draft.notes.trim() || undefined,
+            isActive: draft.isActive,
+            created_at: editingCompanyId ? undefined : nowIso,
+            updated_at: nowIso,
+          },
+        ],
+      };
 
-    if (!res.ok) {
-      const payload = await res.json().catch(() => ({}));
-      setFormError(payload?.error ?? "Failed to save company.");
-      return;
+      const res = await fetch(`/api/directory/companies${projectId ? `?project=${encodeURIComponent(projectId)}` : ""}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const responsePayload = await res.json().catch(() => ({}));
+        const message = responsePayload?.error ?? "Failed to save company.";
+        console.error("Failed to save company", responsePayload);
+        setFormError(message);
+        showToast(message, "error");
+        return;
+      }
+
+      setModalOpen(false);
+      await fetchDirectory();
+      showToast(editingCompanyId ? "Company updated." : "Company added.", "success");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to save company.";
+      console.error("Failed to save company", err);
+      setFormError(message);
+      showToast(message, "error");
+    } finally {
+      setSavingCompany(false);
     }
-
-    setModalOpen(false);
-    await refresh();
   }
 
   const selectedCompany = companies.find((company) => company.id === detailCompanyId) ?? null;
@@ -300,7 +370,7 @@ export default function DirectoryPageClient() {
         throw new Error(payload?.error ?? "Import failed.");
       }
 
-      await refresh();
+      await fetchDirectory();
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Import failed.");
     } finally {
@@ -452,6 +522,11 @@ export default function DirectoryPageClient() {
           />
         </div>
         </div>
+        {toast ? (
+          <div className={`border-b px-4 py-2 text-sm ${toast.type === "error" ? "text-red-600" : "text-emerald-700"}`}>
+            {toast.message}
+          </div>
+        ) : null}
         {error ? <div className="border-b px-4 py-2 text-sm text-red-600">{error}</div> : null}
         {importError ? <div className="border-b px-4 py-2 text-sm text-red-600">{importError}</div> : null}
 
@@ -469,8 +544,10 @@ export default function DirectoryPageClient() {
                     Loading directory...
                   </td>
                 </tr>
-              ) : filteredCompanies.length === 0 ? (
+              ) : companies.length === 0 ? (
                 <tr><td colSpan={9} className="p-8 text-center text-sm opacity-70">No companies found. Add your first company to start linking waiver records.</td></tr>
+              ) : filteredCompanies.length === 0 ? (
+                <tr><td colSpan={9} className="p-8 text-center text-sm opacity-70">No companies match the current filters.</td></tr>
               ) : (
                 filteredCompanies.map((company) => {
                   const projectCount = relations.filter((entry) => entry.companyId === company.id).length;
@@ -508,7 +585,7 @@ export default function DirectoryPageClient() {
                                   ],
                                 }),
                               });
-                              await refresh();
+                              await fetchDirectory();
                             }}
                             className="underline"
                           >
@@ -518,7 +595,7 @@ export default function DirectoryPageClient() {
                             onClick={async () => {
                               await fetch(`/api/directory/companies/${company.id}`, { method: "DELETE" });
                               if (detailCompanyId === company.id) setDetailCompanyId(null);
-                              await refresh();
+                              await fetchDirectory();
                             }}
                             className="underline text-red-600"
                           >
@@ -535,11 +612,12 @@ export default function DirectoryPageClient() {
         </div>
       </section>
 
-            <CompanyFormModal
+      <CompanyFormModal
         open={modalOpen}
         title={editingCompanyId ? "Edit Company" : "Add Company"}
         draft={draft}
         error={formError}
+        saving={savingCompany}
         onClose={() => setModalOpen(false)}
         onChange={setDraft}
         onSave={saveCompany}
@@ -559,7 +637,7 @@ export default function DirectoryPageClient() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ projectId, companyId: selectedCompany.id }),
           });
-          await refresh();
+          await fetchDirectory();
           setProjectPickerOpen(false);
         }}
       />

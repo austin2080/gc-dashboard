@@ -5,8 +5,10 @@ import { createClient } from "@/lib/supabase/server";
 type CompanyInput = {
   id?: string;
   name?: string;
+  company_name?: string;
   trade?: string;
   primaryContact?: string;
+  primary_contact?: string;
   email?: string;
   phone?: string;
   address?: string;
@@ -21,11 +23,21 @@ type CompanyInput = {
   procoreCompanyId?: string;
   notes?: string;
   isActive?: boolean;
+  status?: "Active" | "Inactive" | string;
+  created_at?: string;
+  updated_at?: string;
 };
 
 function clean(value: unknown): string | null {
   const trimmed = String(value ?? "").trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function toIsActive(company: CompanyInput): boolean {
+  if (typeof company.isActive === "boolean") return company.isActive;
+  const normalized = String(company.status ?? "").trim().toLowerCase();
+  if (normalized === "inactive") return false;
+  return true;
 }
 
 export async function POST(req: Request) {
@@ -100,6 +112,7 @@ export async function POST(req: Request) {
       .eq("tenant_company_id", companyId);
 
     if (existingError) {
+      console.error("Failed to load existing directory companies", existingError);
       return NextResponse.json({ error: existingError.message }, { status: 500 });
     }
 
@@ -114,7 +127,7 @@ export async function POST(req: Request) {
 
     const rows = companies
       .map((company) => {
-        const name = clean(company.name);
+        const name = clean(company.name ?? company.company_name);
         if (!name) return null;
 
         const procoreCompanyId = clean(company.procoreCompanyId);
@@ -128,7 +141,7 @@ export async function POST(req: Request) {
           tenant_company_id: companyId,
           name,
           trade: clean(company.trade),
-          primary_contact: clean(company.primaryContact),
+          primary_contact: clean(company.primaryContact ?? company.primary_contact),
           email: clean(company.email),
           phone: clean(company.phone),
           address: clean(company.address),
@@ -142,7 +155,9 @@ export async function POST(req: Request) {
           vendor_type: clean(company.vendorType),
           procore_company_id: procoreCompanyId,
           notes: clean(company.notes),
-          is_active: company.isActive ?? true,
+          is_active: toIsActive(company),
+          ...(clean(company.created_at) ? { created_at: clean(company.created_at) } : {}),
+          ...(clean(company.updated_at) ? { updated_at: clean(company.updated_at) } : {}),
         };
       })
       .filter(Boolean);
@@ -159,6 +174,7 @@ export async function POST(req: Request) {
       .select("id,name");
 
     if (error) {
+      console.error("Failed to upsert directory companies", error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
