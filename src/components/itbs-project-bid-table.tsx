@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { BidProjectDetail, BidTradeStatus } from "@/lib/bidding/types";
 import { createTradeBid, getBidProjectDetail, updateBidSubcontractor, updateTradeBid } from "@/lib/bidding/store";
@@ -101,6 +101,8 @@ function writeProposalDueMap(map: Record<string, string>) {
 
 export default function ItbsProjectBidTable() {
   const DEFAULT_VISIBLE_SUB_COLUMNS = 3;
+  const TRADE_COLUMN_WIDTH_PX = 260;
+  const SUB_COLUMN_WIDTH_PX = 220;
   const searchParams = useSearchParams();
   const queryProjectId = searchParams.get("project");
   const [mappedBidProjectId, setMappedBidProjectId] = useState<string | null>(null);
@@ -122,6 +124,7 @@ export default function ItbsProjectBidTable() {
   const [directoryByCompany, setDirectoryByCompany] = useState<Record<string, DirectoryCompanyMeta>>({});
   const [savingDrawer, setSavingDrawer] = useState(false);
   const [drawerError, setDrawerError] = useState<string | null>(null);
+  const [expandedTrades, setExpandedTrades] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     const refreshMappedProject = () => {
@@ -294,6 +297,10 @@ export default function ItbsProjectBidTable() {
     setSavingDrawer(false);
   };
 
+  const toggleTradeExpanded = (tradeId: string) => {
+    setExpandedTrades((prev) => ({ ...prev, [tradeId]: !prev[tradeId] }));
+  };
+
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 px-6 py-5">
@@ -325,16 +332,25 @@ export default function ItbsProjectBidTable() {
       ) : null}
 
       <div className="overflow-x-auto">
-        <table className="min-w-[920px] w-full border-separate border-spacing-0">
+        <table
+          className="w-full table-fixed border-separate border-spacing-0"
+          style={{ minWidth: `${TRADE_COLUMN_WIDTH_PX + totalSubColumns * SUB_COLUMN_WIDTH_PX}px` }}
+        >
+          <colgroup>
+            <col style={{ width: `${TRADE_COLUMN_WIDTH_PX}px` }} />
+            {Array.from({ length: totalSubColumns }, (_, index) => (
+              <col key={`sub-col-${index + 1}`} style={{ width: `${SUB_COLUMN_WIDTH_PX}px` }} />
+            ))}
+          </colgroup>
           <thead>
             <tr>
-              <th className="sticky left-0 z-10 border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-700">
+              <th className="sticky left-0 top-0 z-20 border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-700">
                 Trade
               </th>
               {Array.from({ length: totalSubColumns }, (_, index) => (
                 <th
                   key={`sub-header-${index + 1}`}
-                  className="border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-700"
+                  className="sticky top-0 z-10 border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-700"
                 >
                   Sub {index + 1}
                 </th>
@@ -351,58 +367,156 @@ export default function ItbsProjectBidTable() {
                   if (!a.bid && b.bid) return 1;
                   return a.index - b.index;
                 });
+              const isExpanded = Boolean(expandedTrades[trade.id]);
+              const panelId = `trade-panel-${trade.id}`;
               return (
-                <tr key={trade.id}>
-                  <th className="sticky left-0 z-10 border-b border-r border-slate-200 bg-white px-4 py-4 text-left text-sm font-semibold text-slate-900">
-                    {trade.trade_name}
-                  </th>
-                  {Array.from({ length: totalSubColumns }, (_, columnIndex) => {
-                    const entry = tradeSlots[columnIndex] ?? null;
-                    if (!entry) {
+                <Fragment key={trade.id}>
+                  <tr
+                    className={`cursor-pointer ${isExpanded ? "bg-slate-50" : ""}`}
+                    tabIndex={0}
+                    role="button"
+                    aria-expanded={isExpanded}
+                    aria-controls={panelId}
+                    aria-label={`${isExpanded ? "Collapse" : "Expand"} ${trade.trade_name}`}
+                    onClick={() => toggleTradeExpanded(trade.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        toggleTradeExpanded(trade.id);
+                      }
+                    }}
+                  >
+                    <th
+                      className={`sticky left-0 z-10 border-r border-slate-200 px-4 py-4 text-left text-sm font-semibold text-slate-900 ${
+                        isExpanded ? "rounded-tl-lg border-b-0 bg-slate-50" : "border-b bg-white"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className={`inline-flex text-slate-500 transition-transform duration-200 ${isExpanded ? "rotate-180" : "rotate-0"}`}>
+                          <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+                            <path
+                              fillRule="evenodd"
+                              d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.939a.75.75 0 111.08 1.04l-4.25 4.512a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z"
+                              clipRule="evenodd"
+                            />
+                          </svg>
+                        </span>
+                        <span>{trade.trade_name}</span>
+                      </div>
+                    </th>
+                    {Array.from({ length: totalSubColumns }, (_, columnIndex) => {
+                      const entry = tradeSlots[columnIndex] ?? null;
+                      if (!entry) {
+                        return (
+                          <td
+                            key={`${trade.id}-sub-slot-${columnIndex + 1}`}
+                            className={`border-r border-slate-200 px-4 py-4 align-top ${
+                              isExpanded ? "border-b-0 bg-slate-50" : "border-b"
+                            } ${columnIndex === totalSubColumns - 1 && isExpanded ? "rounded-tr-lg" : ""}`}
+                          >
+                            <span className="text-sm text-slate-400">No sub assigned</span>
+                          </td>
+                        );
+                      }
+                      const { sub, bid } = entry;
                       return (
                         <td
-                          key={`${trade.id}-sub-slot-${columnIndex + 1}`}
-                          className="border-b border-r border-slate-200 px-4 py-4 align-top"
+                          key={`${trade.id}-${sub.id}`}
+                          className={`border-r border-slate-200 px-4 py-4 align-top ${
+                            isExpanded ? "border-b-0 bg-slate-50" : "border-b"
+                          } ${columnIndex === totalSubColumns - 1 && isExpanded ? "rounded-tr-lg" : ""}`}
                         >
-                          <span className="text-sm text-slate-400">No sub assigned</span>
+                          <div className="space-y-2">
+                            <p className="text-sm font-semibold text-slate-900">{sub.company}</p>
+                            {bid ? (
+                              <StatusPill status={bid.status} />
+                            ) : (
+                              <span className="inline-flex rounded-md bg-slate-100 px-2 py-1 text-[11px] font-semibold tracking-[0.08em] text-slate-600">
+                                NOT INVITED
+                              </span>
+                            )}
+                          </div>
                         </td>
                       );
-                    }
-                    const { sub, bid } = entry;
-                    return (
-                      <td key={`${trade.id}-${sub.id}`} className="border-b border-r border-slate-200 px-4 py-4 align-top">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            openDrawer({
-                              tradeId: trade.id,
-                              tradeName: trade.trade_name,
-                              projectSubId: sub.id,
-                              subCompany: sub.company,
-                              subContact: sub.contact,
-                              bid,
-                            })
-                          }
-                          className="w-full rounded-md p-1 text-left transition hover:bg-slate-50"
-                        >
-                          {bid ? (
-                            <div className="space-y-2">
-                              <p className="text-sm font-semibold text-slate-900">{sub.company}</p>
-                              <p className="text-xs text-slate-500">{bid.contact_name ?? sub.contact}</p>
-                              <StatusPill status={bid.status} />
-                              {bid.bid_amount !== null ? (
-                                <p className="text-sm font-semibold text-slate-900">{formatCurrency(bid.bid_amount)}</p>
-                              ) : null}
-                              {bid.notes ? <p className="text-xs text-slate-500">{bid.notes}</p> : null}
-                            </div>
-                          ) : (
-                            <span className="text-sm text-slate-400">Not invited yet</span>
-                          )}
-                        </button>
-                      </td>
-                    );
-                  })}
-                </tr>
+                    })}
+                  </tr>
+                  <tr>
+                    <td colSpan={totalSubColumns + 1} className={`border-b border-slate-200 ${isExpanded ? "pb-3 pt-0" : "py-0"}`}>
+                      <div
+                        id={panelId}
+                        aria-hidden={!isExpanded}
+                        className={`overflow-hidden transition-all duration-300 ease-out ${isExpanded ? "visible max-h-[760px] opacity-100" : "invisible max-h-0 opacity-0"}`}
+                      >
+                        <div className="rounded-b-lg border border-t-0 border-slate-200 bg-white">
+                          <table className="w-full table-fixed border-separate border-spacing-0">
+                            <colgroup>
+                              <col style={{ width: `${TRADE_COLUMN_WIDTH_PX}px` }} />
+                              {Array.from({ length: totalSubColumns }, (_, index) => (
+                                <col key={`detail-sub-col-${trade.id}-${index + 1}`} style={{ width: `${SUB_COLUMN_WIDTH_PX}px` }} />
+                              ))}
+                            </colgroup>
+                            <tbody>
+                              <tr>
+                                <td className="border-r border-slate-200 p-4 align-top">
+                                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Trade</p>
+                                  <p className="mt-1 text-sm font-semibold text-slate-900">{trade.trade_name}</p>
+                                  <p className="mt-2 text-xs text-slate-500">Expanded details per subcontractor.</p>
+                                </td>
+                                {Array.from({ length: totalSubColumns }, (_, columnIndex) => {
+                                  const entry = tradeSlots[columnIndex] ?? null;
+                                  if (!entry) {
+                                    return (
+                                      <td
+                                        key={`${trade.id}-detail-empty-${columnIndex + 1}`}
+                                        className={`p-4 align-top ${columnIndex < totalSubColumns - 1 ? "border-r border-slate-200" : ""}`}
+                                      >
+                                        <p className="text-sm text-slate-400">No sub assigned</p>
+                                      </td>
+                                    );
+                                  }
+                                  const { sub, bid } = entry;
+                                  return (
+                                    <td
+                                      key={`${trade.id}-detail-${sub.id}`}
+                                      className={`p-4 align-top ${columnIndex < totalSubColumns - 1 ? "border-r border-slate-200" : ""}`}
+                                    >
+                                      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Contact</p>
+                                      <p className="mt-1 text-xs text-slate-500">{bid?.contact_name ?? sub.contact}</p>
+                                      {bid?.bid_amount !== null && bid?.bid_amount !== undefined ? (
+                                        <p className="mt-2 text-sm font-semibold text-slate-900">{formatCurrency(bid.bid_amount)}</p>
+                                      ) : (
+                                        <p className="mt-2 text-xs text-slate-500">Bid amount: Not submitted</p>
+                                      )}
+                                      {bid?.notes ? <p className="mt-2 text-xs text-slate-500">{bid.notes}</p> : <p className="mt-2 text-xs text-slate-500">No notes</p>}
+                                      <div className="mt-3">
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            openDrawer({
+                                              tradeId: trade.id,
+                                              tradeName: trade.trade_name,
+                                              projectSubId: sub.id,
+                                              subCompany: sub.company,
+                                              subContact: sub.contact,
+                                              bid,
+                                            })
+                                          }
+                                          className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                                        >
+                                          Follow-up / Actions
+                                        </button>
+                                      </div>
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                </Fragment>
               );
             })}
           </tbody>
