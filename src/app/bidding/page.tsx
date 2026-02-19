@@ -691,6 +691,7 @@ export default function BiddingPage() {
   const [selectedCostCodes, setSelectedCostCodes] = useState<CostCode[]>([]);
   const [costCodeQuery, setCostCodeQuery] = useState("");
   const [tradeCostCodeQuery, setTradeCostCodeQuery] = useState("");
+  const [manualTradeName, setManualTradeName] = useState("");
   const [loadingCostCodes, setLoadingCostCodes] = useState(false);
   const [costCodeLoadError, setCostCodeLoadError] = useState<string | null>(null);
   const [tradeDrafts, setTradeDrafts] = useState<TradeEditDraft[]>([]);
@@ -1186,6 +1187,7 @@ export default function BiddingPage() {
       }))
     );
     setTradeCostCodeQuery("");
+    setManualTradeName("");
     setTradeEditError(null);
     setEditTradesModalOpen(true);
   };
@@ -1849,6 +1851,11 @@ export default function BiddingPage() {
                   setTradeEditError("Add at least one trade.");
                   return;
                 }
+                const draftNames = persistedDrafts.map((trade) => trade.trade_name.toLowerCase());
+                if (new Set(draftNames).size !== draftNames.length) {
+                  setTradeEditError("Trade names must be unique.");
+                  return;
+                }
 
                 const indexedDrafts = persistedDrafts.map((trade, index) => ({
                   ...trade,
@@ -1885,14 +1892,23 @@ export default function BiddingPage() {
 
                 const refreshed = await getBidProjectDetail(selectedProject.id);
                 setDetail(refreshed);
+                setTradeCostCodeQuery("");
+                setManualTradeName("");
                 setEditTradesModalOpen(false);
                 setSavingTrades(false);
               }}
             >
+              <div className="rounded-xl border border-blue-100 bg-blue-50/70 px-4 py-3 text-sm text-blue-900">
+                <p className="font-semibold">Tip:</p>
+                <p className="mt-1">Add new trades using the quick input or cost codes list. New entries appear immediately in Project Trades before saving.</p>
+              </div>
               <div className="grid gap-3 md:grid-cols-2 sm:gap-4">
                 <div className="rounded-xl border border-slate-200 bg-white">
                   <div className="border-b border-slate-200 px-3 py-2 text-xs font-semibold text-slate-600">
-                    Project Trades
+                    <div className="flex items-center justify-between gap-2">
+                      <span>Project Trades</span>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">{tradeDrafts.length}</span>
+                    </div>
                   </div>
                   <div className="max-h-64 space-y-2 overflow-auto p-3 sm:max-h-80">
                     {tradeDrafts.length ? (
@@ -1965,18 +1981,53 @@ export default function BiddingPage() {
                     )}
                   </div>
                   <div className="border-t border-slate-200 p-3">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setTradeDrafts((prev) => [
-                          ...prev,
-                          { id: null, trade_name: "", sort_order: prev.length + 1 },
-                        ])
-                      }
-                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      Add Manual Trade
-                    </button>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <input
+                        value={manualTradeName}
+                        onChange={(event) => setManualTradeName(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter") return;
+                          event.preventDefault();
+                          const normalizedTrade = manualTradeName.trim();
+                          if (!normalizedTrade) return;
+                          if (tradeNamesLower.has(normalizedTrade.toLowerCase())) {
+                            setTradeEditError("This trade already exists in the list.");
+                            return;
+                          }
+                          setTradeDrafts((prev) => [
+                            ...prev,
+                            { id: null, trade_name: normalizedTrade, sort_order: prev.length + 1 },
+                          ]);
+                          setManualTradeName("");
+                          setTradeEditError(null);
+                        }}
+                        className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                        placeholder="Type trade name and press Enter"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const normalizedTrade = manualTradeName.trim();
+                          if (!normalizedTrade) {
+                            setTradeEditError("Enter a trade name before adding.");
+                            return;
+                          }
+                          if (tradeNamesLower.has(normalizedTrade.toLowerCase())) {
+                            setTradeEditError("This trade already exists in the list.");
+                            return;
+                          }
+                          setTradeDrafts((prev) => [
+                            ...prev,
+                            { id: null, trade_name: normalizedTrade, sort_order: prev.length + 1 },
+                          ]);
+                          setManualTradeName("");
+                          setTradeEditError(null);
+                        }}
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 sm:whitespace-nowrap"
+                      >
+                        Add Manual Trade
+                      </button>
+                    </div>
                   </div>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-slate-50">
@@ -2015,14 +2066,21 @@ export default function BiddingPage() {
                                 key={code.id}
                                 type="button"
                                 onClick={() =>
-                                  setTradeDrafts((prev) => [
-                                    ...prev,
-                                    {
-                                      id: null,
-                                      trade_name: tradeLabel,
-                                      sort_order: prev.length + 1,
-                                    },
-                                  ])
+                                  setTradeDrafts((prev) => {
+                                    if (prev.some((trade) => trade.trade_name.trim().toLowerCase() === tradeLabel.toLowerCase())) {
+                                      setTradeEditError("This trade already exists in the list.");
+                                      return prev;
+                                    }
+                                    setTradeEditError(null);
+                                    return [
+                                      ...prev,
+                                      {
+                                        id: null,
+                                        trade_name: tradeLabel,
+                                        sort_order: prev.length + 1,
+                                      },
+                                    ];
+                                  })
                                 }
                                 className="flex w-full items-center justify-between px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50"
                               >
