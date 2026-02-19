@@ -216,9 +216,17 @@ export default function DirectoryPageClient() {
       });
 
       if (!res.ok) {
-        const responsePayload = await res.json().catch(() => ({}));
-        const message = responsePayload?.error ?? "Failed to save company.";
-        console.error("Failed to save company", responsePayload);
+        const raw = await res.text();
+        let responsePayload: { error?: string } = {};
+        try {
+          responsePayload = raw ? (JSON.parse(raw) as { error?: string }) : {};
+        } catch {
+          responsePayload = {};
+        }
+        const message =
+          responsePayload?.error ??
+          (raw ? `Failed to save company (${res.status}): ${raw}` : `Failed to save company (${res.status}).`);
+        console.error("Failed to save company", { status: res.status, responsePayload, raw });
         setFormError(message);
         showToast(message, "error");
         return;

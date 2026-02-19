@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/db/tenant";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 type CompanyInput = {
   id?: string;
@@ -48,20 +49,32 @@ export async function POST(req: Request) {
     const fallbackProjectId = payload?.projectId ?? queryProjectId;
 
     let supabase: Awaited<ReturnType<typeof createClient>>;
+    let dataClient: Awaited<ReturnType<typeof createClient>> | ReturnType<typeof createAdminClient>;
     let companyId: string;
     try {
       const tenant = await getTenantContext();
       supabase = tenant.supabase;
       companyId = tenant.companyId;
+      try {
+        dataClient = createAdminClient();
+      } catch {
+        dataClient = supabase;
+      }
     } catch {
       supabase = await createClient();
       const { data: authData, error: authError } = await supabase.auth.getUser();
       if (authError || !authData.user) throw new Error("Not authenticated");
+      const userId = authData.user.id;
+      try {
+        dataClient = createAdminClient();
+      } catch {
+        dataClient = supabase;
+      }
 
-      const { data: member } = await supabase
+      const { data: member } = await dataClient
         .from("company_members")
         .select("company_id")
-        .eq("user_id", authData.user.id)
+        .eq("user_id", userId)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -69,7 +82,7 @@ export async function POST(req: Request) {
       if (member?.company_id) {
         companyId = member.company_id as string;
       } else if (fallbackProjectId) {
-        const { data: project, error: projectError } = await supabase
+        const { data: project, error: projectError } = await dataClient
           .from("projects")
           .select("company_id")
           .eq("id", fallbackProjectId)
@@ -78,25 +91,49 @@ export async function POST(req: Request) {
         if (projectError || !project?.company_id) throw new Error("No company membership");
         companyId = project.company_id as string;
       } else {
-        const { data: anyProject } = await supabase
+        const { data: userProject } = await dataClient
           .from("projects")
           .select("company_id")
+          .eq("created_by", userId)
           .order("updated_at", { ascending: false })
           .limit(1)
           .maybeSingle();
 
-        if (anyProject?.company_id) {
-          companyId = anyProject.company_id as string;
+        if (userProject?.company_id) {
+          companyId = userProject.company_id as string;
         } else {
-          const { data: anyDirectory } = await supabase
-            .from("directory_companies")
-            .select("tenant_company_id")
+          const { data: userCompany } = await dataClient
+            .from("companies")
+            .select("id")
+            .eq("created_by", userId)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (userCompany?.id) {
+            companyId = userCompany.id as string;
+          } else {
+          const { data: anyProject } = await dataClient
+            .from("projects")
+            .select("company_id")
             .order("updated_at", { ascending: false })
             .limit(1)
             .maybeSingle();
 
-          if (!anyDirectory?.tenant_company_id) throw new Error("No company membership");
-          companyId = anyDirectory.tenant_company_id as string;
+            if (anyProject?.company_id) {
+              companyId = anyProject.company_id as string;
+            } else {
+              const { data: anyDirectory } = await dataClient
+                .from("directory_companies")
+                .select("tenant_company_id")
+                .order("updated_at", { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+              if (!anyDirectory?.tenant_company_id) throw new Error("No company membership");
+              companyId = anyDirectory.tenant_company_id as string;
+            }
+          }
         }
       }
     }
@@ -106,7 +143,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No companies provided." }, { status: 400 });
     }
 
-    const { data: existing, error: existingError } = await supabase
+    const { data: existing, error: existingError } = await dataClient
       .from("directory_companies")
       .select("id,name,procore_company_id")
       .eq("tenant_company_id", companyId);
@@ -137,7 +174,7 @@ export async function POST(req: Request) {
           company.id;
 
         return {
-          id: idMatch ?? undefined,
+          id: idMatch ?? crypto.randomUUID(),
           tenant_company_id: companyId,
           name,
           trade: clean(company.trade),
@@ -166,7 +203,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No valid companies to save." }, { status: 400 });
     }
 
-    const { data: saved, error } = await supabase
+    const { data: saved, error } = await dataClient
       .from("directory_companies")
       .upsert(rows, {
         onConflict: "id",
@@ -180,6 +217,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, count: rows.length, companies: saved ?? [] });
   } catch (err) {
+    console.error("Directory companies POST failed", err);
     const message = err instanceof Error ? err.message : "Not authenticated";
     if (message === "Not authenticated") {
       return NextResponse.json({ error: message }, { status: 401 });
