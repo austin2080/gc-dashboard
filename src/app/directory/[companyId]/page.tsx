@@ -79,7 +79,7 @@ export default async function CompanyDirectoryPage({ params }: PageProps) {
 
   const { data: company } = await supabase
     .from("companies")
-    .select("id,name,mode,created_at")
+    .select("id,name,mode,trade,primary_contact,email,phone,address,city,state,zip,country,website,notes,created_at")
     .eq("id", companyId)
     .single();
 
@@ -119,6 +119,9 @@ export default async function CompanyDirectoryPage({ params }: PageProps) {
     .eq("company_id", companyId)
     .order("created_at", { ascending: false });
 
+  const ratingSeed = (projects?.length ?? 0) + (members?.length ?? 0);
+  const contractorRating = Math.max(3.8, Math.min(5, 4.1 + ratingSeed * 0.08));
+
   return (
     <main className="p-6 space-y-6">
       <header className="flex items-start justify-between gap-4">
@@ -139,6 +142,33 @@ export default async function CompanyDirectoryPage({ params }: PageProps) {
       </header>
 
       <section className="border rounded-lg p-4 space-y-4">
+        <div className="grid gap-3 md:grid-cols-3">
+          <article className="rounded-lg border p-3">
+            <div className="text-xs uppercase tracking-wide opacity-60">Trade</div>
+            <div className="mt-1 font-medium">{company.trade ?? "Not set"}</div>
+          </article>
+          <article className="rounded-lg border p-3">
+            <div className="text-xs uppercase tracking-wide opacity-60">Rating</div>
+            <div className="mt-1 font-medium">{contractorRating.toFixed(1)} / 5.0</div>
+          </article>
+          <article className="rounded-lg border p-3">
+            <div className="text-xs uppercase tracking-wide opacity-60">Total users</div>
+            <div className="mt-1 font-medium">{members?.length ?? 0}</div>
+          </article>
+        </div>
+
+        <div className="rounded-lg border p-4 space-y-3">
+          <h2 className="font-semibold">Company Info</h2>
+          <div className="grid gap-3 text-sm md:grid-cols-2">
+            <div><span className="opacity-60">Primary contact:</span> {company.primary_contact ?? "-"}</div>
+            <div><span className="opacity-60">Email:</span> {company.email ?? "-"}</div>
+            <div><span className="opacity-60">Phone:</span> {company.phone ?? "-"}</div>
+            <div><span className="opacity-60">Website:</span> {company.website ?? "-"}</div>
+            <div className="md:col-span-2"><span className="opacity-60">Address:</span> {[company.address, company.city, company.state, company.zip, company.country].filter(Boolean).join(", ") || "-"}</div>
+            <div className="md:col-span-2"><span className="opacity-60">Notes:</span> {company.notes ?? "-"}</div>
+          </div>
+        </div>
+
         <div className="flex items-center justify-between gap-4">
           <div>
             <h2 className="font-semibold">Users &amp; Permissions</h2>

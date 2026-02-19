@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { Company } from "@/lib/directory/types";
 import CompanyFormModal from "@/components/directory/company-form-modal";
 import CompanyDetailPanel from "@/components/directory/company-detail-panel";
@@ -101,6 +102,18 @@ export default function DirectoryPageClient() {
       return matchesQuery && matchesTrade && matchesStatus;
     });
   }, [companies, query, tradeFilter, statusFilter]);
+
+  const directoryStats = useMemo(() => {
+    const activeCount = companies.filter((company) => company.isActive).length;
+    const inactiveCount = companies.length - activeCount;
+    const assignedCount = new Set(relations.map((relation) => relation.companyId)).size;
+    return {
+      total: companies.length,
+      active: activeCount,
+      inactive: inactiveCount,
+      assigned: assignedCount,
+    };
+  }, [companies, relations]);
 
   function openAddModal() {
     setFormError("");
@@ -361,10 +374,56 @@ export default function DirectoryPageClient() {
 
   return (
     <div className="space-y-4">
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <article className="rounded-lg border bg-white p-4">
+          <p className="text-xs uppercase tracking-wide text-black/60">Total subs</p>
+          <p className="mt-2 text-2xl font-semibold">{directoryStats.total}</p>
+        </article>
+        <article className="rounded-lg border bg-white p-4">
+          <p className="text-xs uppercase tracking-wide text-black/60">Active</p>
+          <p className="mt-2 text-2xl font-semibold text-emerald-700">{directoryStats.active}</p>
+        </article>
+        <article className="rounded-lg border bg-white p-4">
+          <p className="text-xs uppercase tracking-wide text-black/60">Inactive</p>
+          <p className="mt-2 text-2xl font-semibold text-slate-600">{directoryStats.inactive}</p>
+        </article>
+        <article className="rounded-lg border bg-white p-4">
+          <p className="text-xs uppercase tracking-wide text-black/60">Assigned to projects</p>
+          <p className="mt-2 text-2xl font-semibold">{directoryStats.assigned}</p>
+        </article>
+      </section>
+
       <section className="rounded-lg border">
-        <div className="flex flex-wrap items-center gap-3 border-b p-4">
-          <input className="min-w-[220px] flex-1 rounded border border-black/20 px-3 py-2 text-sm" placeholder="Search company, contact, or email" value={query} onChange={(event) => setQuery(event.target.value)} />
-          <select className="rounded border border-black/20 px-3 py-2 text-sm" value={tradeFilter} onChange={(event) => setTradeFilter(event.target.value)}>
+        <div className="space-y-4 border-b p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold">Sub Directory</h2>
+              <p className="text-sm text-black/70">Search, filter by trade, and jump into subcontractor profiles.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={openAddModal} className="rounded border border-black bg-black px-4 py-2 text-sm text-white">
+                Add New Sub
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="rounded border px-4 py-2 text-sm"
+                disabled={importing}
+              >
+                {importing ? "Importing..." : "Import CSV"}
+              </button>
+              <button
+                onClick={() => downloadCsv("directory-export.csv", buildCsv(companies))}
+                className="rounded border px-4 py-2 text-sm"
+                disabled={companies.length === 0}
+              >
+                Export CSV
+              </button>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <input className="min-w-[220px] flex-1 rounded border border-black/20 px-3 py-2 text-sm" placeholder="Search company, contact, or email" value={query} onChange={(event) => setQuery(event.target.value)} />
+            <select className="rounded border border-black/20 px-3 py-2 text-sm" value={tradeFilter} onChange={(event) => setTradeFilter(event.target.value)}>
             <option value="all">All trades</option>
             {tradeOptions.map((trade) => (
               <option key={trade} value={trade}>
@@ -377,29 +436,13 @@ export default function DirectoryPageClient() {
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
-          <button onClick={openAddModal} className="rounded border border-black bg-black px-4 py-2 text-sm text-white">
-            Add Company
-          </button>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="rounded border px-4 py-2 text-sm"
-            disabled={importing}
-          >
-            {importing ? "Importing..." : "Import CSV"}
-          </button>
-          <button
-            onClick={() => downloadCsv("directory-export.csv", buildCsv(companies))}
-            className="rounded border px-4 py-2 text-sm"
-            disabled={companies.length === 0}
-          >
-            Export CSV
-          </button>
           <button
             onClick={() => downloadCsv("directory-template.csv", buildCsv([]))}
             className="rounded border px-4 py-2 text-sm"
           >
             Download Template
           </button>
+          <p className="ml-auto text-xs text-black/60">{filteredCompanies.length} result(s)</p>
           <input
             ref={fileInputRef}
             type="file"
@@ -407,6 +450,7 @@ export default function DirectoryPageClient() {
             className="hidden"
             onChange={(event) => handleImport(event.target.files?.[0])}
           />
+        </div>
         </div>
         {error ? <div className="border-b px-4 py-2 text-sm text-red-600">{error}</div> : null}
         {importError ? <div className="border-b px-4 py-2 text-sm text-red-600">{importError}</div> : null}
@@ -431,8 +475,12 @@ export default function DirectoryPageClient() {
                 filteredCompanies.map((company) => {
                   const projectCount = relations.filter((entry) => entry.companyId === company.id).length;
                   return (
-                    <tr key={company.id} className="border-b last:border-b-0">
-                      <td className="p-3 font-medium">{company.name}</td><td className="p-3">{company.trade ?? "-"}</td><td className="p-3">{company.primaryContact ?? "-"}</td><td className="p-3">{company.email ?? "-"}</td><td className="p-3">{company.phone ?? "-"}</td>
+                    <tr key={company.id} className="border-b last:border-b-0 transition-colors hover:bg-black/[0.03]">
+                      <td className="p-3 font-medium">
+                        <Link href={`/directory/${company.id}`} className="block underline-offset-2 hover:underline">
+                          {company.name}
+                        </Link>
+                      </td><td className="p-3">{company.trade ?? "-"}</td><td className="p-3">{company.primaryContact ?? "-"}</td><td className="p-3">{company.email ?? "-"}</td><td className="p-3">{company.phone ?? "-"}</td>
                       <td className="p-3"><span className={`rounded-full px-2 py-1 text-xs ${company.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-700"}`}>{company.isActive ? "Active" : "Inactive"}</span></td>
                       <td className="p-3">{projectCount}</td><td className="p-3">{new Date(company.lastUpdated).toLocaleDateString()}</td>
                       <td className="p-3">
