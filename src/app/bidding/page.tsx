@@ -352,12 +352,12 @@ function BidComparisonGrid({
                             className="mt-2 flex w-full flex-col items-start rounded-lg bg-slate-50 p-3 text-left"
                           >
                             <p className="text-sm text-slate-500">Contact: {bid.contact}</p>
-                            <div className="mt-2">
+                            <div className="mt-2 flex items-center gap-2">
                               <StatusPill status={bid.status} />
+                              {bid.status === "submitted" && bid.bidAmount !== null && bid.bidAmount !== undefined ? (
+                                <span className="text-sm font-semibold text-slate-900">{formatCurrency(bid.bidAmount)}</span>
+                              ) : null}
                             </div>
-                            {bid.bidAmount ? (
-                              <p className="mt-2 text-lg font-semibold text-slate-900">{formatCurrency(bid.bidAmount)}</p>
-                            ) : null}
                             {bid.notes ? <p className="mt-2 line-clamp-3 text-xs text-slate-500">{bid.notes}</p> : null}
                             <span className="mt-2 text-xs text-slate-400">Tap to edit</span>
                           </button>
@@ -466,7 +466,42 @@ function BidComparisonGrid({
                         </div>
                       </div>
                     </th>
-                    <td className="border-b border-slate-200 px-2 text-right align-middle" colSpan={totalSubColumns + 1}>
+                    {Array.from({ length: totalSubColumns }, (_, columnIndex) => {
+                      const sub = project.subs[columnIndex] ?? null;
+                      if (!sub) {
+                        return (
+                          <td key={`${row.trade}-closed-sub-slot-${columnIndex + 1}`} className="border-b border-r border-slate-200 px-4 py-4">
+                            <span className="text-sm text-slate-400">No sub assigned</span>
+                          </td>
+                        );
+                      }
+                      const bid = row.bidsBySubId[sub.id] ?? null;
+                      if (!bid) {
+                        return (
+                          <td key={`${row.trade}-closed-${sub.id}`} className="border-b border-r border-slate-200 px-4 py-4">
+                            <span className="text-sm text-slate-400">No bid</span>
+                          </td>
+                        );
+                      }
+                      return (
+                        <td key={`${row.trade}-closed-bid-${sub.id}`} className="border-b border-r border-slate-200 px-4 py-4">
+                          <button
+                            type="button"
+                            onClick={() => onEditBid(bid)}
+                            className="group flex w-full flex-col items-start rounded-lg border border-transparent px-1 py-1 text-left transition hover:border-slate-200 hover:bg-slate-50"
+                          >
+                            <p className="text-sm font-semibold text-slate-900">{bid.company}</p>
+                            <div className="mt-1 flex items-center gap-2">
+                              <StatusPill status={bid.status} />
+                              {bid.status === "submitted" && bid.bidAmount !== null && bid.bidAmount !== undefined ? (
+                                <span className="text-sm font-semibold text-slate-900">{formatCurrency(bid.bidAmount)}</span>
+                              ) : null}
+                            </div>
+                          </button>
+                        </td>
+                      );
+                    })}
+                    <td className="border-b border-slate-200 px-2 text-right align-middle">
                       <button
                         type="button"
                         className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 text-xl text-slate-600 transition hover:bg-slate-50"
@@ -545,8 +580,12 @@ function BidComparisonGrid({
                             >
                               <p className="text-xl font-semibold text-slate-900">{bid.company}</p>
                               <p className="text-sm text-slate-500">{bid.contact}</p>
-                              <StatusPill status={bid.status} />
-                              {bid.bidAmount ? <p className="text-2xl font-semibold text-slate-900">{formatCurrency(bid.bidAmount)}</p> : null}
+                              <div className="flex items-center gap-2">
+                                <StatusPill status={bid.status} />
+                                {bid.status === "submitted" && bid.bidAmount !== null && bid.bidAmount !== undefined ? (
+                                  <span className="text-base font-semibold text-slate-900">{formatCurrency(bid.bidAmount)}</span>
+                                ) : null}
+                              </div>
                               {bid.notes ? <p className="mt-2 line-clamp-3 text-xs text-slate-500">{bid.notes}</p> : null}
                               <span className="mt-2 text-xs text-slate-400 opacity-0 transition group-hover:opacity-100">
                                 Click to edit

@@ -73,6 +73,12 @@ type DrawerBidState = {
   subContact: string;
 };
 
+type QuoteLineItemDraft = {
+  id: string;
+  label: string;
+  amount: string;
+};
+
 type DirectoryCompanyMeta = {
   city: string;
   state: string;
@@ -91,6 +97,7 @@ function hasTradeMatch(tradeName: string, companyTrade: string): boolean {
 }
 
 const PROPOSAL_DUE_STORAGE_KEY = "bidProposalDueDatesByCell";
+const QUOTE_LINE_ITEMS_STORAGE_KEY = "bidQuoteLineItemsByCell";
 
 function readProposalDueMap(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -113,6 +120,35 @@ function writeProposalDueMap(map: Record<string, string>) {
   localStorage.setItem(PROPOSAL_DUE_STORAGE_KEY, JSON.stringify(map));
 }
 
+function readQuoteLineItemsMap(): Record<string, Array<{ label: string; amount: string }>> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(QUOTE_LINE_ITEMS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, Array<{ label: string; amount: string }>> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!Array.isArray(value)) continue;
+      const items = value
+        .filter((item) => Boolean(item) && typeof item === "object")
+        .map((item) => ({
+          label: typeof (item as { label?: unknown }).label === "string" ? (item as { label: string }).label : "",
+          amount: typeof (item as { amount?: unknown }).amount === "string" ? (item as { amount: string }).amount : "",
+        }));
+      next[key] = items;
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function writeQuoteLineItemsMap(map: Record<string, Array<{ label: string; amount: string }>>) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(QUOTE_LINE_ITEMS_STORAGE_KEY, JSON.stringify(map));
+}
+
 function compareTradeNamesByCode(a: string, b: string): number {
   const aParts = a.split(/\D+/).filter(Boolean).map(Number);
   const bParts = b.split(/\D+/).filter(Boolean).map(Number);
@@ -127,6 +163,33 @@ function compareTradeNamesByCode(a: string, b: string): number {
 
 function sortTradeDraftsByCode(trades: TradeEditDraft[]): TradeEditDraft[] {
   return [...trades].sort((a, b) => compareTradeNamesByCode(a.trade_name, b.trade_name));
+}
+
+function createQuoteLineItemDraft(label = "", amount = ""): QuoteLineItemDraft {
+  return {
+    id: `quote-item-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    label,
+    amount,
+  };
+}
+
+function parseQuoteAmount(value: string): number | null {
+  const normalized = value.replace(/[$,\s]/g, "").trim();
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function getQuoteLineItemsTotal(items: QuoteLineItemDraft[]): number | null {
+  let hasValue = false;
+  let total = 0;
+  for (const item of items) {
+    const amount = parseQuoteAmount(item.amount);
+    if (amount === null) continue;
+    total += amount;
+    hasValue = true;
+  }
+  return hasValue ? total : null;
 }
 
 export default function ItbsProjectBidTable() {
@@ -144,7 +207,9 @@ export default function ItbsProjectBidTable() {
   const [visibleSubColumns, setVisibleSubColumns] = useState(DEFAULT_VISIBLE_SUB_COLUMNS);
   const [drawerState, setDrawerState] = useState<DrawerBidState | null>(null);
   const [statusDraft, setStatusDraft] = useState<BidTradeStatus>("invited");
-  const [bidAmountDraft, setBidAmountDraft] = useState("");
+  const [quoteLineItemsDraft, setQuoteLineItemsDraft] = useState<QuoteLineItemDraft[]>([
+    createQuoteLineItemDraft(),
+  ]);
   const [contactDraft, setContactDraft] = useState("");
   const [emailDraft, setEmailDraft] = useState("");
   const [phoneDraft, setPhoneDraft] = useState("");
@@ -339,6 +404,7 @@ export default function ItbsProjectBidTable() {
   );
   const selectedSub = subs.find((sub) => sub.id === selectedProjectSubId) ?? null;
   const filteredSubs = subs.filter((sub) => sub.company.toLowerCase().includes(subSearch.trim().toLowerCase()));
+  const quoteLineItemsTotal = getQuoteLineItemsTotal(quoteLineItemsDraft);
 
   const openDrawer = (payload: {
     tradeId: string;
@@ -357,7 +423,18 @@ export default function ItbsProjectBidTable() {
       subContact: payload.subContact,
     });
     setStatusDraft(payload.bid?.status ?? "invited");
-    setBidAmountDraft(payload.bid?.bid_amount !== null && payload.bid?.bid_amount !== undefined ? String(payload.bid.bid_amount) : "");
+    const quoteKey = `${detail.project.id}:${payload.tradeId}:${payload.projectSubId}`;
+    const quoteLineItemsMap = readQuoteLineItemsMap();
+    const storedItems = quoteLineItemsMap[quoteKey] ?? [];
+    if (storedItems.length) {
+      setQuoteLineItemsDraft(storedItems.map((item) => createQuoteLineItemDraft(item.label, item.amount)));
+    } else {
+      setQuoteLineItemsDraft(
+        payload.bid?.bid_amount !== null && payload.bid?.bid_amount !== undefined
+          ? [createQuoteLineItemDraft("Base Bid", String(payload.bid.bid_amount))]
+          : [createQuoteLineItemDraft()]
+      );
+    }
     setContactDraft(payload.bid?.contact_name ?? payload.subContact ?? "");
     setEmailDraft(subs.find((sub) => sub.id === payload.projectSubId)?.email ?? "");
     setPhoneDraft(subs.find((sub) => sub.id === payload.projectSubId)?.phone ?? "");
@@ -686,7 +763,12 @@ export default function ItbsProjectBidTable() {
                         >
                           <div className="space-y-2">
                             <p className="text-sm font-semibold text-slate-900">{sub.company}</p>
-                            <StatusPill status={bid.status} />
+                            <div className="flex items-center gap-2">
+                              <StatusPill status={bid.status} />
+                              {bid.status === "submitted" && bid.bid_amount !== null && bid.bid_amount !== undefined ? (
+                                <span className="text-xs font-semibold text-slate-700">{formatCurrency(bid.bid_amount)}</span>
+                              ) : null}
+                            </div>
                           </div>
                         </td>
                       );
@@ -914,10 +996,9 @@ export default function ItbsProjectBidTable() {
                     return;
                   }
                 }
-                const bidAmount = bidAmountDraft.trim() ? Number(bidAmountDraft) : null;
                 const payload = {
                   status: statusDraft,
-                  bid_amount: Number.isFinite(bidAmount) ? bidAmount : null,
+                  bid_amount: quoteLineItemsTotal,
                   contact_name: contactDraft.trim() || null,
                   notes: notesDraft.trim() || null,
                 };
@@ -942,6 +1023,17 @@ export default function ItbsProjectBidTable() {
                   delete proposalDueMap[proposalDueKey];
                 }
                 writeProposalDueMap(proposalDueMap);
+                const quoteLineItemsKey = `${detail.project.id}:${drawerState.tradeId}:${selectedProjectSubId}`;
+                const quoteLineItemsMap = readQuoteLineItemsMap();
+                const sanitizedLineItems = quoteLineItemsDraft
+                  .map((item) => ({ label: item.label.trim(), amount: item.amount.trim() }))
+                  .filter((item) => item.label || item.amount);
+                if (sanitizedLineItems.length) {
+                  quoteLineItemsMap[quoteLineItemsKey] = sanitizedLineItems;
+                } else {
+                  delete quoteLineItemsMap[quoteLineItemsKey];
+                }
+                writeQuoteLineItemsMap(quoteLineItemsMap);
                 const refreshed = await getBidProjectDetail(detail.project.id);
                 if (refreshed) setDetail(refreshed);
                 closeDrawer();
@@ -1064,16 +1156,66 @@ export default function ItbsProjectBidTable() {
                   <option value="declined">Declined</option>
                 </select>
               </label>
-              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                Quote Amount
-                <input
-                  value={bidAmountDraft}
-                  onChange={(event) => setBidAmountDraft(event.target.value)}
-                  placeholder="55000"
-                  inputMode="decimal"
-                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
-                />
-              </label>
+              <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-semibold text-slate-800">Quote Line Items</div>
+                  <button
+                    type="button"
+                    onClick={() => setQuoteLineItemsDraft((prev) => [...prev, createQuoteLineItemDraft()])}
+                    className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Add line item
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {quoteLineItemsDraft.map((item, index) => (
+                    <div key={item.id} className="grid grid-cols-[1fr_140px_auto] gap-2">
+                      <input
+                        value={item.label}
+                        onChange={(event) =>
+                          setQuoteLineItemsDraft((prev) =>
+                            prev.map((entry) =>
+                              entry.id === item.id ? { ...entry, label: event.target.value } : entry
+                            )
+                          )
+                        }
+                        placeholder={`Line item ${index + 1}`}
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                      />
+                      <input
+                        value={item.amount}
+                        onChange={(event) =>
+                          setQuoteLineItemsDraft((prev) =>
+                            prev.map((entry) =>
+                              entry.id === item.id ? { ...entry, amount: event.target.value } : entry
+                            )
+                          )
+                        }
+                        placeholder="0"
+                        inputMode="decimal"
+                        className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setQuoteLineItemsDraft((prev) =>
+                            prev.length === 1 ? [createQuoteLineItemDraft()] : prev.filter((entry) => entry.id !== item.id)
+                          )
+                        }
+                        className="rounded-lg border border-rose-200 px-2.5 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <span className="text-sm font-semibold text-slate-700">Total</span>
+                  <span className="text-sm font-semibold text-slate-900">
+                    {quoteLineItemsTotal !== null ? formatCurrency(quoteLineItemsTotal) : "No amount entered"}
+                  </span>
+                </div>
+              </div>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Notes
                 <textarea
