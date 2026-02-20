@@ -616,12 +616,15 @@ export default function ItbsProjectBidTable() {
             {sortedTrades.map((trade) => {
               const tradeMap = bidsByTrade.get(trade.id) ?? new Map<string, (typeof detail.tradeBids)[number]>();
               const tradeSlots = subs
-                .map((sub, index) => ({ sub, bid: tradeMap.get(sub.id) ?? null, index }))
-                .sort((a, b) => {
-                  if (a.bid && !b.bid) return -1;
-                  if (!a.bid && b.bid) return 1;
-                  return a.index - b.index;
-                });
+                .map((sub) => ({ sub, bid: tradeMap.get(sub.id) ?? null }))
+                .filter(
+                  (
+                    entry
+                  ): entry is {
+                    sub: (typeof subs)[number];
+                    bid: (typeof detail.tradeBids)[number];
+                  } => Boolean(entry.bid)
+                );
               const isExpanded = Boolean(expandedTrades[trade.id]);
               const panelId = `trade-panel-${trade.id}`;
               return (
@@ -683,13 +686,7 @@ export default function ItbsProjectBidTable() {
                         >
                           <div className="space-y-2">
                             <p className="text-sm font-semibold text-slate-900">{sub.company}</p>
-                            {bid ? (
-                              <StatusPill status={bid.status} />
-                            ) : (
-                              <span className="inline-flex rounded-md bg-slate-100 px-2 py-1 text-[11px] font-semibold tracking-[0.08em] text-slate-600">
-                                NOT INVITED
-                              </span>
-                            )}
+                            <StatusPill status={bid.status} />
                           </div>
                         </td>
                       );
@@ -736,13 +733,13 @@ export default function ItbsProjectBidTable() {
                                       className={`p-4 align-top ${columnIndex < totalSubColumns - 1 ? "border-r border-slate-200" : ""}`}
                                     >
                                       <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Contact</p>
-                                      <p className="mt-1 text-xs text-slate-500">{bid?.contact_name ?? sub.contact}</p>
-                                      {bid?.bid_amount !== null && bid?.bid_amount !== undefined ? (
+                                      <p className="mt-1 text-xs text-slate-500">{bid.contact_name ?? sub.contact}</p>
+                                      {bid.bid_amount !== null && bid.bid_amount !== undefined ? (
                                         <p className="mt-2 text-sm font-semibold text-slate-900">{formatCurrency(bid.bid_amount)}</p>
                                       ) : (
                                         <p className="mt-2 text-xs text-slate-500">Bid amount: Not submitted</p>
                                       )}
-                                      {bid?.notes ? <p className="mt-2 text-xs text-slate-500">{bid.notes}</p> : <p className="mt-2 text-xs text-slate-500">No notes</p>}
+                                      {bid.notes ? <p className="mt-2 text-xs text-slate-500">{bid.notes}</p> : <p className="mt-2 text-xs text-slate-500">No notes</p>}
                                       <div className="mt-3">
                                         <button
                                           type="button"
