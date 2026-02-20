@@ -24,6 +24,11 @@ type CompanyDraft = {
   email: string;
   cellPhone: string;
   officePhone: string;
+  vendorType: "Approved Vendor" | "Bidding Only" | "";
+  address: string;
+  city: string;
+  state: string;
+  zip: string;
   notes: string;
   isActive: boolean;
 };
@@ -36,6 +41,11 @@ const EMPTY_DRAFT: CompanyDraft = {
   email: "",
   cellPhone: "",
   officePhone: "",
+  vendorType: "",
+  address: "",
+  city: "",
+  state: "",
+  zip: "",
   notes: "",
   isActive: true,
 };
@@ -121,6 +131,14 @@ function toDraft(company?: Company): CompanyDraft {
     email: company.email ?? "",
     cellPhone: company.phone ?? "",
     officePhone: company.officePhone ?? "",
+    vendorType:
+      company.vendorType === "Approved Vendor" || company.vendorType === "Bidding Only"
+        ? company.vendorType
+        : "",
+    address: company.address ?? "",
+    city: company.city ?? "",
+    state: company.state ?? "",
+    zip: company.zip ?? "",
     notes: company.notes ?? "",
     isActive: company.isActive,
   };
@@ -325,6 +343,12 @@ export default function DirectoryPageClient() {
             phone: draft.cellPhone.trim(),
             officePhone: draft.officePhone.trim() || undefined,
             office_phone: draft.officePhone.trim() || undefined,
+            vendorType: draft.vendorType || undefined,
+            vendor_type: draft.vendorType || undefined,
+            address: draft.address.trim() || undefined,
+            city: draft.city.trim() || undefined,
+            state: draft.state.trim() || undefined,
+            zip: draft.zip.trim() || undefined,
             status: draft.isActive ? "Active" : "Inactive",
             notes: draft.notes.trim() || undefined,
             isActive: draft.isActive,
@@ -674,20 +698,20 @@ export default function DirectoryPageClient() {
           <table className="w-full text-sm">
             <thead className="border-b bg-black/5 text-left">
               <tr>
-                <th className="p-3">Company Name</th><th className="p-3">Trade</th><th className="p-3">Primary Contact</th><th className="p-3">Email</th><th className="p-3">Phone</th><th className="p-3">Status</th><th className="p-3">Projects</th><th className="p-3">Last Updated</th><th className="p-3 text-right">Actions</th>
+                <th className="p-3">Company Name</th><th className="p-3">Trade</th><th className="p-3">Primary Contact</th><th className="p-3">Email</th><th className="p-3">Phone</th><th className="p-3">Projects</th><th className="p-3">Last Updated</th><th className="p-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="p-8 text-center text-sm opacity-70">
+                  <td colSpan={8} className="p-8 text-center text-sm opacity-70">
                     Loading directory...
                   </td>
                 </tr>
               ) : companies.length === 0 ? (
-                <tr><td colSpan={9} className="p-8 text-center text-sm opacity-70">No companies found. Add your first company to start linking waiver records.</td></tr>
+                <tr><td colSpan={8} className="p-8 text-center text-sm opacity-70">No companies found. Add your first company to start linking waiver records.</td></tr>
               ) : filteredCompanies.length === 0 ? (
-                <tr><td colSpan={9} className="p-8 text-center text-sm opacity-70">No companies match the current filters.</td></tr>
+                <tr><td colSpan={8} className="p-8 text-center text-sm opacity-70">No companies match the current filters.</td></tr>
               ) : (
                 filteredCompanies.map((company) => {
                   const projectCount = relations.filter((entry) => entry.companyId === company.id).length;
@@ -697,8 +721,17 @@ export default function DirectoryPageClient() {
                         <Link href={`/directory/${company.id}`} className="block underline-offset-2 hover:underline">
                           {company.name}
                         </Link>
+                        {company.vendorType === "Approved Vendor" ? (
+                          <span className="mt-1 inline-flex rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-semibold text-emerald-800">
+                            Approved Vendor
+                          </span>
+                        ) : null}
+                        {company.vendorType === "Bidding Only" ? (
+                          <span className="mt-1 inline-flex rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-800">
+                            Bidding Only
+                          </span>
+                        ) : null}
                       </td><td className="p-3">{company.trade ?? "-"}</td><td className="p-3">{company.primaryContact ?? "-"}</td><td className="p-3">{company.email ?? "-"}</td><td className="p-3">{company.phone ?? "-"}</td>
-                      <td className="p-3"><span className={`rounded-full px-2 py-1 text-xs ${company.isActive ? "bg-emerald-100 text-emerald-700" : "bg-slate-200 text-slate-700"}`}>{company.isActive ? "Active" : "Inactive"}</span></td>
                       <td className="p-3">{projectCount}</td><td className="p-3">{new Date(company.lastUpdated).toLocaleDateString()}</td>
                       <td className="p-3">
                         <div className="flex justify-end gap-2 text-xs">

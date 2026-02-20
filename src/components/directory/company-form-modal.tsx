@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CompanyCostCode } from "@/lib/bidding/store";
 
-type TradeSelection = {
+export type TradeSelection = {
   type: "cost_code" | "custom";
   id?: string;
   code?: string;
@@ -11,7 +11,7 @@ type TradeSelection = {
   division?: string;
 };
 
-type CompanyDraft = {
+export type CompanyFormDraft = {
   companyName: string;
   trades: TradeSelection[];
   contactTitle: string;
@@ -19,6 +19,11 @@ type CompanyDraft = {
   email: string;
   cellPhone: string;
   officePhone: string;
+  vendorType: "Approved Vendor" | "Bidding Only" | "";
+  address: string;
+  city: string;
+  state: string;
+  zip: string;
   notes: string;
   isActive: boolean;
 };
@@ -26,14 +31,14 @@ type CompanyDraft = {
 type Props = {
   open: boolean;
   title: string;
-  draft: CompanyDraft;
+  draft: CompanyFormDraft;
   costCodeOptions?: CompanyCostCode[];
   loadingCostCodes?: boolean;
   costCodeError?: string;
   error?: string;
   saving?: boolean;
   onClose: () => void;
-  onChange: (draft: CompanyDraft) => void;
+  onChange: (draft: CompanyFormDraft) => void;
   onSave: () => void;
 };
 
@@ -331,8 +336,37 @@ export default function CompanyFormModal({
           <label><div className="mb-1 opacity-70">Email *</div><input className="w-full rounded border px-3 py-2" value={draft.email} onChange={(event) => onChange({ ...draft, email: event.target.value })} /></label>
           <label><div className="mb-1 opacity-70">Cell *</div><input className="w-full rounded border px-3 py-2" value={draft.cellPhone} onChange={(event) => onChange({ ...draft, cellPhone: event.target.value })} /></label>
           <label><div className="mb-1 opacity-70">Office Phone</div><input className="w-full rounded border px-3 py-2" value={draft.officePhone} onChange={(event) => onChange({ ...draft, officePhone: event.target.value })} /></label>
+          <label className="md:col-span-2"><div className="mb-1 opacity-70">Address</div><input className="w-full rounded border px-3 py-2" value={draft.address} onChange={(event) => onChange({ ...draft, address: event.target.value })} /></label>
+          <label><div className="mb-1 opacity-70">City</div><input className="w-full rounded border px-3 py-2" value={draft.city} onChange={(event) => onChange({ ...draft, city: event.target.value })} /></label>
+          <label><div className="mb-1 opacity-70">State</div><input className="w-full rounded border px-3 py-2" value={draft.state} onChange={(event) => onChange({ ...draft, state: event.target.value })} /></label>
+          <label><div className="mb-1 opacity-70">Zip Code</div><input className="w-full rounded border px-3 py-2" value={draft.zip} onChange={(event) => onChange({ ...draft, zip: event.target.value })} /></label>
           <label className="md:col-span-2"><div className="mb-1 opacity-70">Notes</div><textarea className="w-full rounded border px-3 py-2" rows={3} value={draft.notes} onChange={(event) => onChange({ ...draft, notes: event.target.value })} /></label>
-          <label className="inline-flex items-center gap-2"><input type="checkbox" checked={draft.isActive} onChange={(event) => onChange({ ...draft, isActive: event.target.checked })} />Active</label>
+          <label className="inline-flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={draft.vendorType === "Approved Vendor"}
+              onChange={(event) =>
+                onChange({
+                  ...draft,
+                  vendorType: event.target.checked ? "Approved Vendor" : "",
+                })
+              }
+            />
+            Approved Vendor
+          </label>
+          <label className="inline-flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={draft.vendorType === "Bidding Only"}
+              onChange={(event) =>
+                onChange({
+                  ...draft,
+                  vendorType: event.target.checked ? "Bidding Only" : "",
+                })
+              }
+            />
+            Bidding Only
+          </label>
         </div>
         {error ? <div className="mt-3 text-sm text-red-600">{error}</div> : null}
         <div className="mt-4 flex justify-end gap-2">

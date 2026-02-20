@@ -1,15 +1,27 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import CompanyFormModal, {
+  type CompanyFormDraft,
+  type TradeSelection,
+} from "@/components/directory/company-form-modal";
 import type { SubProfileCompany } from "@/components/directory/sub-profile/types";
+import { listCompanyCostCodesForCurrentCompany, type CompanyCostCode } from "@/lib/bidding/store";
 
 type EditDraft = {
   company_name: string;
   trade: string;
+  contact_title: string;
+  vendor_type: string | null;
   primary_contact: string;
   email: string;
   phone: string;
+  office_phone: string;
   status: "Active" | "Inactive";
+  address: string;
+  city: string;
+  state: string;
+  zip: string;
   notes: string;
 };
 
@@ -24,127 +36,191 @@ type Props = {
 
 export type { EditDraft };
 
-const EMPTY_DRAFT: EditDraft = {
-  company_name: "",
-  trade: "",
-  primary_contact: "",
-  email: "",
-  phone: "",
-  status: "Active",
-  notes: "",
-};
+function normalizeTradeValue(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
 
-function toDraft(company: SubProfileCompany | null): EditDraft {
-  if (!company) return EMPTY_DRAFT;
+function tradeSelectionKey(selection: TradeSelection): string {
+  if (selection.type === "cost_code" && selection.id) return `cost_code:${selection.id}`;
+  return `custom:${normalizeTradeValue(selection.code ? `${selection.code} ${selection.title}` : selection.title)}`;
+}
+
+function selectionLabel(selection: TradeSelection): string {
+  if (selection.type === "cost_code") {
+    return `${selection.code ?? ""}${selection.title ? ` ${selection.title}` : ""}`.trim();
+  }
+  return selection.title.trim();
+}
+
+function dedupeTradeSelections(selections: TradeSelection[]): TradeSelection[] {
+  const seen = new Set<string>();
+  const next: TradeSelection[] = [];
+  for (const selection of selections) {
+    const key = tradeSelectionKey(selection);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    next.push(selection);
+  }
+  return next;
+}
+
+function parseTradeSelectionsFromValue(value?: string | null): TradeSelection[] {
+  if (!value?.trim()) return [];
+  return dedupeTradeSelections(
+    value
+      .split(/\s*\|\s*|\s*;\s*|\s*,\s*/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) => ({
+        type: "custom" as const,
+        title: entry,
+      }))
+  );
+}
+
+function alignSelectionsToCostCodes(
+  selections: TradeSelection[],
+  costCodes: CompanyCostCode[]
+): TradeSelection[] {
+  if (!selections.length || !costCodes.length) return selections;
+  const byLabel = new Map(
+    costCodes.map((code) => [
+      normalizeTradeValue(`${code.code}${code.title ? ` ${code.title}` : ""}`.trim()),
+      code,
+    ])
+  );
+  return dedupeTradeSelections(
+    selections.map((selection) => {
+      if (selection.type === "cost_code" && selection.id) return selection;
+      const matchedCode = byLabel.get(normalizeTradeValue(selectionLabel(selection)));
+      if (!matchedCode) return selection;
+      return {
+        type: "cost_code",
+        id: matchedCode.id,
+        code: matchedCode.code,
+        title: matchedCode.title ?? "",
+        division: matchedCode.division ?? undefined,
+      };
+    })
+  );
+}
+
+function toCompanyFormDraft(company: SubProfileCompany | null): CompanyFormDraft {
+  if (!company) {
+    return {
+      companyName: "",
+      trades: [],
+      contactTitle: "",
+      primaryContact: "",
+      email: "",
+      cellPhone: "",
+      officePhone: "",
+      vendorType: "",
+      address: "",
+      city: "",
+      state: "",
+      zip: "",
+      notes: "",
+      isActive: true,
+    };
+  }
   return {
-    company_name: company.company_name ?? "",
-    trade: company.trade ?? "",
-    primary_contact: company.primary_contact ?? "",
+    companyName: company.company_name ?? "",
+    trades: parseTradeSelectionsFromValue(company.trade),
+    contactTitle: company.contact_title ?? "",
+    primaryContact: company.primary_contact ?? "",
     email: company.email ?? "",
-    phone: company.phone ?? "",
-    status: company.status,
+    cellPhone: company.phone ?? "",
+    officePhone: company.office_phone ?? "",
+    vendorType:
+      company.vendor_type === "Approved Vendor" || company.vendor_type === "Bidding Only"
+        ? company.vendor_type
+        : "",
+    address: company.address ?? "",
+    city: company.city ?? "",
+    state: company.state ?? "",
+    zip: company.zip ?? "",
     notes: company.notes ?? "",
+    isActive: company.status !== "Inactive",
   };
 }
 
 export default function EditSubModal({ open, company, error, saving, onClose, onSave }: Props) {
-  const [draft, setDraft] = useState<EditDraft>(() => toDraft(company));
+  const [draft, setDraft] = useState<CompanyFormDraft>(() => toCompanyFormDraft(company));
+  const [costCodeOptions, setCostCodeOptions] = useState<CompanyCostCode[]>([]);
+  const [loadingCostCodes, setLoadingCostCodes] = useState(false);
+  const [costCodeError, setCostCodeError] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setDraft(toCompanyFormDraft(company));
+  }, [company, open]);
+
+  useEffect(() => {
+    let active = true;
+    async function loadCostCodes() {
+      if (!open) return;
+      setLoadingCostCodes(true);
+      setCostCodeError("");
+      try {
+        const codes = await listCompanyCostCodesForCurrentCompany({ includeInactive: true });
+        if (!active) return;
+        setCostCodeOptions(codes);
+      } catch {
+        if (!active) return;
+        setCostCodeOptions([]);
+        setCostCodeError("Unable to load cost codes from Settings.");
+      } finally {
+        if (active) setLoadingCostCodes(false);
+      }
+    }
+    void loadCostCodes();
+    return () => {
+      active = false;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !costCodeOptions.length) return;
+    setDraft((prev) => ({
+      ...prev,
+      trades: alignSelectionsToCostCodes(prev.trades, costCodeOptions),
+    }));
+  }, [costCodeOptions, open]);
 
   if (!open || !company) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-2xl rounded-xl border border-black/10 bg-white p-5">
-        <h2 className="text-xl font-semibold">Edit Sub</h2>
-        <p className="mt-1 text-sm text-black/60">Update subcontractor details used across BuilderOS workflows.</p>
-
-        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-          <label className="md:col-span-2">
-            <span className="mb-1 block text-sm text-black/70">Company Name</span>
-            <input
-              value={draft.company_name}
-              onChange={(event) => setDraft((prev) => ({ ...prev, company_name: event.target.value }))}
-              className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm"
-            />
-          </label>
-          <label>
-            <span className="mb-1 block text-sm text-black/70">Trade</span>
-            <input
-              value={draft.trade}
-              onChange={(event) => setDraft((prev) => ({ ...prev, trade: event.target.value }))}
-              className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm"
-            />
-          </label>
-          <label>
-            <span className="mb-1 block text-sm text-black/70">Status</span>
-            <select
-              value={draft.status}
-              onChange={(event) =>
-                setDraft((prev) => ({ ...prev, status: event.target.value as "Active" | "Inactive" }))
-              }
-              className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm"
-            >
-              <option value="Active">Active</option>
-              <option value="Inactive">Inactive</option>
-            </select>
-          </label>
-          <label>
-            <span className="mb-1 block text-sm text-black/70">Primary Contact</span>
-            <input
-              value={draft.primary_contact}
-              onChange={(event) => setDraft((prev) => ({ ...prev, primary_contact: event.target.value }))}
-              className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm"
-            />
-          </label>
-          <label>
-            <span className="mb-1 block text-sm text-black/70">Email</span>
-            <input
-              type="email"
-              value={draft.email}
-              onChange={(event) => setDraft((prev) => ({ ...prev, email: event.target.value }))}
-              className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm"
-            />
-          </label>
-          <label>
-            <span className="mb-1 block text-sm text-black/70">Phone</span>
-            <input
-              value={draft.phone}
-              onChange={(event) => setDraft((prev) => ({ ...prev, phone: event.target.value }))}
-              className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm"
-            />
-          </label>
-          <label className="md:col-span-2">
-            <span className="mb-1 block text-sm text-black/70">Notes</span>
-            <textarea
-              rows={4}
-              value={draft.notes}
-              onChange={(event) => setDraft((prev) => ({ ...prev, notes: event.target.value }))}
-              className="w-full rounded-lg border border-black/15 px-3 py-2 text-sm"
-            />
-          </label>
-        </div>
-
-        {error ? <p className="mt-3 text-sm text-red-600">{error}</p> : null}
-
-        <div className="mt-4 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="rounded-lg border border-black/15 px-3 py-2 text-sm disabled:opacity-60"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            disabled={saving}
-            onClick={() => onSave(draft)}
-            className="rounded-lg border border-black bg-black px-3 py-2 text-sm text-white disabled:opacity-60"
-          >
-            {saving ? "Saving..." : "Save Changes"}
-          </button>
-        </div>
-      </div>
-    </div>
+    <CompanyFormModal
+      open={open}
+      title="Edit Company"
+      draft={draft}
+      costCodeOptions={costCodeOptions}
+      loadingCostCodes={loadingCostCodes}
+      costCodeError={costCodeError}
+      error={error}
+      saving={saving}
+      onClose={onClose}
+      onChange={setDraft}
+      onSave={() =>
+        onSave({
+          company_name: draft.companyName.trim(),
+          trade: dedupeTradeSelections(draft.trades).map(selectionLabel).join(" | "),
+          contact_title: draft.contactTitle.trim(),
+          vendor_type: draft.vendorType || null,
+          primary_contact: draft.primaryContact.trim(),
+          email: draft.email.trim(),
+          phone: draft.cellPhone.trim(),
+          office_phone: draft.officePhone.trim(),
+          status: draft.isActive ? "Active" : "Inactive",
+          address: draft.address.trim(),
+          city: draft.city.trim(),
+          state: draft.state.trim(),
+          zip: draft.zip.trim(),
+          notes: draft.notes.trim(),
+        })
+      }
+    />
   );
 }
+

@@ -15,6 +15,7 @@ type DirectoryCompanyRow = {
   email: string | null;
   phone: string | null;
   office_phone: string | null;
+  vendor_type: string | null;
   address: string | null;
   city: string | null;
   state: string | null;
@@ -33,6 +34,7 @@ type ProfilePayload = {
     company_name: string;
     trade: string | null;
     contact_title: string | null;
+    vendor_type: string | null;
     status: "Active" | "Inactive";
     primary_contact: string | null;
     email: string | null;
@@ -66,6 +68,7 @@ type UpdatePayload = {
     company_name?: string;
     trade?: string;
     contact_title?: string;
+    vendor_type?: string;
     primary_contact?: string;
     email?: string;
     phone?: string;
@@ -240,7 +243,7 @@ async function loadCompanyProfile(
 ): Promise<ProfilePayload | null> {
   const { data: company, error } = await supabase
     .from("directory_companies")
-    .select("id,name,trade,contact_title,primary_contact,email,phone,office_phone,address,city,state,zip,country,notes,is_active,created_at,updated_at")
+    .select("id,name,trade,contact_title,vendor_type,primary_contact,email,phone,office_phone,address,city,state,zip,country,notes,is_active,created_at,updated_at")
     .eq("tenant_company_id", tenantCompanyId)
     .eq("id", directoryCompanyId)
     .maybeSingle();
@@ -258,6 +261,7 @@ async function loadCompanyProfile(
       company_name: clean(companyRow.name) ?? "Unnamed company",
       trade: companyRow.trade ?? null,
       contact_title: companyRow.contact_title ?? null,
+      vendor_type: companyRow.vendor_type ?? null,
       status: companyRow.is_active === false ? "Inactive" : "Active",
       primary_contact: companyRow.primary_contact ?? null,
       email: companyRow.email ?? null,
@@ -397,6 +401,9 @@ export async function PATCH(req: Request, context: RouteContext) {
       }
       if (Object.prototype.hasOwnProperty.call(updates, "contact_title")) {
         updateSet.contact_title = clean(updates.contact_title);
+      }
+      if (Object.prototype.hasOwnProperty.call(updates, "vendor_type")) {
+        updateSet.vendor_type = clean(updates.vendor_type);
       }
       if (Object.prototype.hasOwnProperty.call(updates, "primary_contact")) {
         updateSet.primary_contact = clean(updates.primary_contact);

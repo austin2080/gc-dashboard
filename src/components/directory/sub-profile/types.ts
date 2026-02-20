@@ -2,10 +2,13 @@ export type SubProfileCompany = {
   id: string;
   company_name: string;
   trade: string | null;
+  contact_title: string | null;
   status: "Active" | "Inactive";
   primary_contact: string | null;
   email: string | null;
   phone: string | null;
+  office_phone: string | null;
+  vendor_type: string | null;
   address: string | null;
   city: string | null;
   state: string | null;
