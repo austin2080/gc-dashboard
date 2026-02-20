@@ -131,25 +131,30 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
   };
 
   const withContext = (href: string) => appendProjectQuery(withMode(href), activeProjectId);
+  const clearProjectContext = () => {
+    localStorage.removeItem(ACTIVE_PROJECT_STORAGE_KEY);
+  };
 
   const toolSections = useMemo(
     () => [
       {
+        kind: "project" as const,
         title: "Project Tools",
         items: PROJECT_TOOL_ITEMS.map((item) => ({
           ...item,
-          href: appendProjectQuery(item.href, activeProjectId),
+          href: appendProjectQuery(withMode(item.href), activeProjectId),
         })),
       },
       {
+        kind: "company" as const,
         title: "Company Tools",
         items: COMPANY_TOOL_ITEMS.map((item) => ({
           ...item,
-          href: appendProjectQuery(item.href, activeProjectId),
+          href: withMode(item.href),
         })),
       },
     ],
-    [activeProjectId]
+    [activeProjectId, mode]
   );
 
   const currentToolLabel = (() => {
@@ -384,7 +389,10 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                           <Link
                             key={`${section.title}-${tool.label}`}
                             href={tool.href}
-                            onClick={closeMenus}
+                            onClick={() => {
+                              if (section.kind === "company") clearProjectContext();
+                              closeMenus();
+                            }}
                             className="block rounded-md px-2 py-2 hover:bg-black/[0.04]"
                           >
                             <div className="text-sm font-medium text-black/90">{tool.label}</div>

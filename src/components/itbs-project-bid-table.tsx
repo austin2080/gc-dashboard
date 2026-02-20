@@ -3,7 +3,14 @@
 import { Fragment, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { BidProjectDetail, BidTradeStatus } from "@/lib/bidding/types";
-import { createTradeBid, getBidProjectDetail, updateBidSubcontractor, updateTradeBid } from "@/lib/bidding/store";
+import {
+  createBidTrades,
+  createTradeBid,
+  getBidProjectDetail,
+  updateBidSubcontractor,
+  updateBidTrades,
+  updateTradeBid,
+} from "@/lib/bidding/store";
 import { getBidProjectIdForProject } from "@/lib/bidding/project-links";
 
 function formatCurrency(value: number): string {
@@ -57,6 +64,12 @@ type DrawerBidState = {
   projectSubId: string;
   subCompany: string;
   subContact: string;
+};
+
+type TradeEditDraft = {
+  id: string | null;
+  trade_name: string;
+  sort_order: number;
 };
 
 type DirectoryCompanyMeta = {
@@ -125,6 +138,11 @@ export default function ItbsProjectBidTable() {
   const [savingDrawer, setSavingDrawer] = useState(false);
   const [drawerError, setDrawerError] = useState<string | null>(null);
   const [expandedTrades, setExpandedTrades] = useState<Record<string, boolean>>({});
+  const [editTradesModalOpen, setEditTradesModalOpen] = useState(false);
+  const [tradeDrafts, setTradeDrafts] = useState<TradeEditDraft[]>([]);
+  const [manualTradeName, setManualTradeName] = useState("");
+  const [tradeEditError, setTradeEditError] = useState<string | null>(null);
+  const [savingTrades, setSavingTrades] = useState(false);
 
   useEffect(() => {
     const refreshMappedProject = () => {
@@ -301,11 +319,35 @@ export default function ItbsProjectBidTable() {
     setExpandedTrades((prev) => ({ ...prev, [tradeId]: !prev[tradeId] }));
   };
 
+  const openEditTradesModal = () => {
+    setTradeDrafts(
+      detail.trades.map((trade, index) => ({
+        id: trade.id,
+        trade_name: trade.trade_name ?? "",
+        sort_order: trade.sort_order ?? index + 1,
+      }))
+    );
+    setManualTradeName("");
+    setTradeEditError(null);
+    setEditTradesModalOpen(true);
+  };
+
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="border-b border-slate-200 px-6 py-5">
-        <h2 className="text-2xl font-semibold text-slate-900">{detail.project.project_name}</h2>
-        <p className="mt-1 text-sm text-slate-600">Invitation and bid status by trade.</p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-semibold text-slate-900">{detail.project.project_name}</h2>
+            <p className="mt-1 text-sm text-slate-600">Invitation and bid status by trade.</p>
+          </div>
+          <button
+            type="button"
+            onClick={openEditTradesModal}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+          >
+            Edit Trades
+          </button>
+        </div>
       </div>
 
       {hiddenSubColumns > 0 || visibleSubColumns > DEFAULT_VISIBLE_SUB_COLUMNS ? (
@@ -522,6 +564,193 @@ export default function ItbsProjectBidTable() {
           </tbody>
         </table>
       </div>
+      {editTradesModalOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/40 p-0 sm:items-center sm:p-4">
+          <div className="flex h-[100dvh] w-full max-w-3xl flex-col overflow-hidden rounded-none border border-slate-200 bg-white shadow-xl sm:h-auto sm:max-h-[90dvh] sm:rounded-2xl">
+            <div className="border-b border-slate-200 px-4 py-4 sm:px-6">
+              <h2 className="text-xl font-semibold text-slate-900 sm:text-2xl">Edit Trades</h2>
+              <p className="mt-1 text-sm text-slate-500">Rename and add trades for this bid package.</p>
+            </div>
+            <form
+              className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                const normalizedDrafts = tradeDrafts.map((trade) => ({
+                  ...trade,
+                  trade_name: trade.trade_name.trim(),
+                }));
+                if (normalizedDrafts.some((trade) => trade.id && !trade.trade_name)) {
+                  setTradeEditError("Existing trades cannot be blank.");
+                  return;
+                }
+                const persistedDrafts = normalizedDrafts.filter((trade) => trade.id || trade.trade_name);
+                if (!persistedDrafts.length) {
+                  setTradeEditError("Add at least one trade.");
+                  return;
+                }
+                const draftNames = persistedDrafts.map((trade) => trade.trade_name.toLowerCase());
+                if (new Set(draftNames).size !== draftNames.length) {
+                  setTradeEditError("Trade names must be unique.");
+                  return;
+                }
+
+                const indexedDrafts = persistedDrafts.map((trade, index) => ({
+                  ...trade,
+                  sort_order: index + 1,
+                }));
+                const existingPayload = indexedDrafts
+                  .filter((trade): trade is TradeEditDraft & { id: string } => Boolean(trade.id))
+                  .map((trade) => ({
+                    id: trade.id,
+                    trade_name: trade.trade_name,
+                    sort_order: trade.sort_order,
+                  }));
+                const newPayload = indexedDrafts
+                  .filter((trade) => !trade.id)
+                  .map((trade) => ({
+                    trade_name: trade.trade_name,
+                    sort_order: trade.sort_order,
+                  }));
+
+                setSavingTrades(true);
+                setTradeEditError(null);
+                const updated = await updateBidTrades(detail.project.id, existingPayload);
+                if (!updated) {
+                  setTradeEditError("Unable to update existing trades.");
+                  setSavingTrades(false);
+                  return;
+                }
+                const created = await createBidTrades(detail.project.id, newPayload);
+                if (!created) {
+                  setTradeEditError("Unable to add new trades.");
+                  setSavingTrades(false);
+                  return;
+                }
+
+                const refreshed = await getBidProjectDetail(detail.project.id);
+                if (refreshed) setDetail(refreshed);
+                setEditTradesModalOpen(false);
+                setSavingTrades(false);
+              }}
+            >
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <span>Trades</span>
+                  <span>{tradeDrafts.length}</span>
+                </div>
+                <div className="max-h-72 space-y-2 overflow-auto">
+                  {tradeDrafts.length ? (
+                    tradeDrafts.map((trade, index) => (
+                      <div key={`${trade.id ?? "new"}-${index}`} className="rounded-lg border border-slate-200 bg-white p-2">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                          <input
+                            value={trade.trade_name}
+                            onChange={(event) =>
+                              setTradeDrafts((prev) =>
+                                prev.map((item, itemIndex) =>
+                                  itemIndex === index ? { ...item, trade_name: event.target.value } : item
+                                )
+                              )
+                            }
+                            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none sm:flex-1"
+                            placeholder="Trade name"
+                          />
+                          <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setTradeDrafts((prev) => {
+                                  if (index === 0) return prev;
+                                  const next = [...prev];
+                                  [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                                  return next;
+                                })
+                              }
+                              className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                            >
+                              Up
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setTradeDrafts((prev) => {
+                                  if (index >= prev.length - 1) return prev;
+                                  const next = [...prev];
+                                  [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                                  return next;
+                                })
+                              }
+                              className="rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                            >
+                              Down
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setTradeDrafts((prev) => prev.filter((_, itemIndex) => itemIndex !== index))}
+                              className="rounded-lg border border-rose-200 bg-white px-2 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-slate-300 bg-white px-3 py-4 text-sm text-slate-500">
+                      No trades yet. Add one below.
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+                <input
+                  value={manualTradeName}
+                  onChange={(event) => setManualTradeName(event.target.value)}
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                  placeholder="Add trade (e.g. Electrical)"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    const normalizedTrade = manualTradeName.trim();
+                    if (!normalizedTrade) return;
+                    if (tradeDrafts.some((trade) => trade.trade_name.trim().toLowerCase() === normalizedTrade.toLowerCase())) return;
+                    setTradeDrafts((prev) => [
+                      ...prev,
+                      {
+                        id: null,
+                        trade_name: normalizedTrade,
+                        sort_order: prev.length + 1,
+                      },
+                    ]);
+                    setManualTradeName("");
+                  }}
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Add Trade
+                </button>
+              </div>
+              {tradeEditError ? <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{tradeEditError}</p> : null}
+              <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-200 pt-4">
+                <button
+                  type="button"
+                  className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  onClick={() => setEditTradesModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingTrades}
+                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+                >
+                  {savingTrades ? "Saving..." : "Save Trades"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
       {drawerState ? (
         <div className="fixed inset-0 z-50">
           <button type="button" className="absolute inset-0 bg-slate-950/40" onClick={closeDrawer} aria-label="Close bid details drawer" />

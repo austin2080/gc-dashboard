@@ -1177,21 +1177,6 @@ export default function BiddingPage() {
     setEditModalOpen(true);
   };
 
-  const openEditTradesModal = () => {
-    if (!detail) return;
-    setTradeDrafts(
-      detail.trades.map((trade, index) => ({
-        id: trade.id,
-        trade_name: trade.trade_name ?? "",
-        sort_order: trade.sort_order ?? index + 1,
-      }))
-    );
-    setTradeCostCodeQuery("");
-    setManualTradeName("");
-    setTradeEditError(null);
-    setEditTradesModalOpen(true);
-  };
-
   return (
     <main className="space-y-6 bg-slate-50 p-4 sm:p-6">
       <header className="-mx-4 border-b border-slate-200 bg-white sm:-mx-6">
@@ -1211,13 +1196,6 @@ export default function BiddingPage() {
                   className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
                 >
                   Edit Project
-                </button>
-                <button
-                  type="button"
-                  onClick={openEditTradesModal}
-                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-                >
-                  Edit Trades
                 </button>
               </>
             ) : null}
