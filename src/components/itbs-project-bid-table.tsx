@@ -413,6 +413,7 @@ export default function ItbsProjectBidTable() {
     subCompany: string;
     subContact: string;
     bid: (typeof detail.tradeBids)[number] | null;
+    initializeEmpty?: boolean;
   }) => {
     setDrawerState({
       bidId: payload.bid?.id ?? null,
@@ -435,15 +436,16 @@ export default function ItbsProjectBidTable() {
           : [createQuoteLineItemDraft()]
       );
     }
-    setContactDraft(payload.bid?.contact_name ?? payload.subContact ?? "");
-    setEmailDraft(subs.find((sub) => sub.id === payload.projectSubId)?.email ?? "");
-    setPhoneDraft(subs.find((sub) => sub.id === payload.projectSubId)?.phone ?? "");
+    const shouldInitializeEmpty = payload.initializeEmpty === true || payload.bid === null;
+    setContactDraft(shouldInitializeEmpty ? "" : payload.bid?.contact_name ?? payload.subContact ?? "");
+    setEmailDraft(shouldInitializeEmpty ? "" : subs.find((sub) => sub.id === payload.projectSubId)?.email ?? "");
+    setPhoneDraft(shouldInitializeEmpty ? "" : subs.find((sub) => sub.id === payload.projectSubId)?.phone ?? "");
     const proposalDueMap = readProposalDueMap();
     const proposalDueKey = `${detail.project.id}:${payload.tradeId}:${payload.projectSubId}`;
     setProposalDueDateDraft(proposalDueMap[proposalDueKey] ?? detail.project.due_date ?? "");
     setNotesDraft(payload.bid?.notes ?? "");
-    setSelectedProjectSubId(payload.projectSubId);
-    setSubSearch(payload.subCompany);
+    setSelectedProjectSubId(shouldInitializeEmpty ? "" : payload.projectSubId);
+    setSubSearch(shouldInitializeEmpty ? "" : payload.subCompany);
     setDrawerError(null);
   };
 
@@ -692,6 +694,7 @@ export default function ItbsProjectBidTable() {
           <tbody>
             {sortedTrades.map((trade) => {
               const tradeMap = bidsByTrade.get(trade.id) ?? new Map<string, (typeof detail.tradeBids)[number]>();
+              const availableSubsForTrade = subs.filter((sub) => !tradeMap.has(sub.id));
               const tradeSlots = subs
                 .map((sub, sourceIndex) => ({ sub, bid: tradeMap.get(sub.id) ?? null, sourceIndex }))
                 .filter(
@@ -756,6 +759,7 @@ export default function ItbsProjectBidTable() {
                     {Array.from({ length: totalSubColumns }, (_, columnIndex) => {
                       const entry = tradeSlots[columnIndex] ?? null;
                       if (!entry) {
+                        const fallbackSub = availableSubsForTrade[0] ?? null;
                         return (
                           <td
                             key={`${trade.id}-sub-slot-${columnIndex + 1}`}
@@ -763,7 +767,28 @@ export default function ItbsProjectBidTable() {
                               isExpanded ? "border-b-0 bg-slate-50" : "border-b"
                             } ${columnIndex === totalSubColumns - 1 && isExpanded ? "rounded-tr-lg" : ""}`}
                           >
-                            <span className="text-sm text-slate-400">No sub assigned</span>
+                            {fallbackSub ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  openDrawer({
+                                    tradeId: trade.id,
+                                    tradeName: trade.trade_name ?? "Trade",
+                                    projectSubId: "",
+                                    subCompany: "",
+                                    subContact: "",
+                                    bid: null,
+                                    initializeEmpty: true,
+                                  });
+                                }}
+                                className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                              >
+                                Add sub
+                              </button>
+                            ) : (
+                              <span className="text-sm text-slate-400">No sub assigned</span>
+                            )}
                           </td>
                         );
                       }
@@ -813,12 +838,33 @@ export default function ItbsProjectBidTable() {
                                 {Array.from({ length: totalSubColumns }, (_, columnIndex) => {
                                   const entry = tradeSlots[columnIndex] ?? null;
                                   if (!entry) {
+                                    const fallbackSub = availableSubsForTrade[0] ?? null;
                                     return (
                                       <td
                                         key={`${trade.id}-detail-empty-${columnIndex + 1}`}
                                         className={`p-4 align-top ${columnIndex < totalSubColumns - 1 ? "border-r border-slate-200" : ""}`}
                                       >
-                                        <p className="text-sm text-slate-400">No sub assigned</p>
+                                        {fallbackSub ? (
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              openDrawer({
+                                                tradeId: trade.id,
+                                                tradeName: trade.trade_name ?? "Trade",
+                                                projectSubId: "",
+                                                subCompany: "",
+                                                subContact: "",
+                                                bid: null,
+                                                initializeEmpty: true,
+                                              })
+                                            }
+                                            className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                                          >
+                                            Add sub
+                                          </button>
+                                        ) : (
+                                          <p className="text-sm text-slate-400">No sub assigned</p>
+                                        )}
                                       </td>
                                     );
                                   }
