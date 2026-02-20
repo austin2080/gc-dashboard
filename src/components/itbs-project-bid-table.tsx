@@ -676,13 +676,13 @@ export default function ItbsProjectBidTable() {
           </colgroup>
           <thead>
             <tr>
-              <th className="sticky left-0 top-0 z-20 border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-700">
+              <th className="sticky left-0 top-0 z-[2] border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-700">
                 Trade
               </th>
               {Array.from({ length: totalSubColumns }, (_, index) => (
                 <th
                   key={`sub-header-${index + 1}`}
-                  className="sticky top-0 z-10 border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-700"
+                  className="sticky top-0 z-[1] border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-700"
                 >
                   Sub {index + 1}
                 </th>
@@ -693,15 +693,27 @@ export default function ItbsProjectBidTable() {
             {sortedTrades.map((trade) => {
               const tradeMap = bidsByTrade.get(trade.id) ?? new Map<string, (typeof detail.tradeBids)[number]>();
               const tradeSlots = subs
-                .map((sub) => ({ sub, bid: tradeMap.get(sub.id) ?? null }))
+                .map((sub, sourceIndex) => ({ sub, bid: tradeMap.get(sub.id) ?? null, sourceIndex }))
                 .filter(
                   (
                     entry
                   ): entry is {
                     sub: (typeof subs)[number];
                     bid: (typeof detail.tradeBids)[number];
+                    sourceIndex: number;
                   } => Boolean(entry.bid)
-                );
+                )
+                .sort((a, b) => {
+                  const aSubmittedWithAmount = a.bid.status === "submitted" && a.bid.bid_amount !== null && a.bid.bid_amount !== undefined;
+                  const bSubmittedWithAmount = b.bid.status === "submitted" && b.bid.bid_amount !== null && b.bid.bid_amount !== undefined;
+                  if (aSubmittedWithAmount && bSubmittedWithAmount) {
+                    if (a.bid.bid_amount !== b.bid.bid_amount) return a.bid.bid_amount - b.bid.bid_amount;
+                    return a.sourceIndex - b.sourceIndex;
+                  }
+                  if (aSubmittedWithAmount) return -1;
+                  if (bSubmittedWithAmount) return 1;
+                  return a.sourceIndex - b.sourceIndex;
+                });
               const isExpanded = Boolean(expandedTrades[trade.id]);
               const panelId = `trade-panel-${trade.id}`;
               return (
@@ -722,7 +734,7 @@ export default function ItbsProjectBidTable() {
                     }}
                   >
                     <th
-                      className={`sticky left-0 z-10 border-r border-slate-200 px-4 py-4 text-left text-sm font-semibold text-slate-900 ${
+                      className={`sticky left-0 z-[1] border-r border-slate-200 px-4 py-4 text-left text-sm font-semibold text-slate-900 ${
                         isExpanded ? "rounded-tl-lg border-b-0 bg-slate-50" : "border-b bg-white"
                       }`}
                     >
