@@ -8,10 +8,14 @@ type CompanyInput = {
   name?: string;
   company_name?: string;
   trade?: string;
+  contactTitle?: string;
+  contact_title?: string;
   primaryContact?: string;
   primary_contact?: string;
   email?: string;
   phone?: string;
+  officePhone?: string;
+  office_phone?: string;
   address?: string;
   city?: string;
   state?: string;
@@ -178,9 +182,11 @@ export async function POST(req: Request) {
           tenant_company_id: companyId,
           name,
           trade: clean(company.trade),
+          contact_title: clean(company.contactTitle ?? company.contact_title),
           primary_contact: clean(company.primaryContact ?? company.primary_contact),
           email: clean(company.email),
           phone: clean(company.phone),
+          office_phone: clean(company.officePhone ?? company.office_phone),
           address: clean(company.address),
           city: clean(company.city),
           state: clean(company.state),

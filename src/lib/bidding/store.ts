@@ -72,7 +72,8 @@ async function getCurrentCompanyId(): Promise<string | null> {
   return member.company_id as string;
 }
 
-export async function listCompanyCostCodesForCurrentCompany(): Promise<CompanyCostCode[]> {
+export async function listCompanyCostCodesForCurrentCompany(options?: { includeInactive?: boolean }): Promise<CompanyCostCode[]> {
+  const includeInactive = options?.includeInactive === true;
   const companyId = await getCurrentCompanyId();
 
   const supabase = createClient();
@@ -86,7 +87,8 @@ export async function listCompanyCostCodesForCurrentCompany(): Promise<CompanyCo
   const { data, error } = await companyCostCodesQuery;
 
   if (!error && data) {
-    return (data as CompanyCostCodeRow[]).filter((row) => row.is_active !== false);
+    const rows = data as CompanyCostCodeRow[];
+    return includeInactive ? rows : rows.filter((row) => row.is_active !== false);
   }
 
   // Fallback for environments still using legacy cost_codes.
@@ -104,14 +106,14 @@ export async function listCompanyCostCodesForCurrentCompany(): Promise<CompanyCo
     return [];
   }
 
-  return (legacyData as Array<{
+  const mapped = (legacyData as Array<{
     id: string;
     code: string;
     description: string | null;
     division: string | null;
     is_active: boolean | null;
   }>)
-    .filter((row) => row.is_active !== false)
+    .filter((row) => includeInactive || row.is_active !== false)
     .map((row) => ({
       id: row.id,
       code: row.code,
@@ -119,6 +121,7 @@ export async function listCompanyCostCodesForCurrentCompany(): Promise<CompanyCo
       division: row.division,
       is_active: row.is_active,
     }));
+  return mapped;
 }
 
 export async function listProjectTrades(projectId: string): Promise<ProjectTrade[]> {

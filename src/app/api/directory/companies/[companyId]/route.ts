@@ -10,9 +10,11 @@ type DirectoryCompanyRow = {
   id: string;
   name: string | null;
   trade: string | null;
+  contact_title: string | null;
   primary_contact: string | null;
   email: string | null;
   phone: string | null;
+  office_phone: string | null;
   address: string | null;
   city: string | null;
   state: string | null;
@@ -30,10 +32,12 @@ type ProfilePayload = {
     id: string;
     company_name: string;
     trade: string | null;
+    contact_title: string | null;
     status: "Active" | "Inactive";
     primary_contact: string | null;
     email: string | null;
     phone: string | null;
+    office_phone: string | null;
     address: string | null;
     city: string | null;
     state: string | null;
@@ -61,9 +65,11 @@ type UpdatePayload = {
   updates?: {
     company_name?: string;
     trade?: string;
+    contact_title?: string;
     primary_contact?: string;
     email?: string;
     phone?: string;
+    office_phone?: string;
     status?: "Active" | "Inactive" | string;
     notes?: string;
   };
@@ -234,7 +240,7 @@ async function loadCompanyProfile(
 ): Promise<ProfilePayload | null> {
   const { data: company, error } = await supabase
     .from("directory_companies")
-    .select("id,name,trade,primary_contact,email,phone,address,city,state,zip,country,notes,is_active,created_at,updated_at")
+    .select("id,name,trade,contact_title,primary_contact,email,phone,office_phone,address,city,state,zip,country,notes,is_active,created_at,updated_at")
     .eq("tenant_company_id", tenantCompanyId)
     .eq("id", directoryCompanyId)
     .maybeSingle();
@@ -251,10 +257,12 @@ async function loadCompanyProfile(
       id: companyRow.id,
       company_name: clean(companyRow.name) ?? "Unnamed company",
       trade: companyRow.trade ?? null,
+      contact_title: companyRow.contact_title ?? null,
       status: companyRow.is_active === false ? "Inactive" : "Active",
       primary_contact: companyRow.primary_contact ?? null,
       email: companyRow.email ?? null,
       phone: companyRow.phone ?? null,
+      office_phone: companyRow.office_phone ?? null,
       address: companyRow.address ?? null,
       city: companyRow.city ?? null,
       state: companyRow.state ?? null,
@@ -387,6 +395,9 @@ export async function PATCH(req: Request, context: RouteContext) {
       if (Object.prototype.hasOwnProperty.call(updates, "trade")) {
         updateSet.trade = clean(updates.trade);
       }
+      if (Object.prototype.hasOwnProperty.call(updates, "contact_title")) {
+        updateSet.contact_title = clean(updates.contact_title);
+      }
       if (Object.prototype.hasOwnProperty.call(updates, "primary_contact")) {
         updateSet.primary_contact = clean(updates.primary_contact);
       }
@@ -395,6 +406,9 @@ export async function PATCH(req: Request, context: RouteContext) {
       }
       if (Object.prototype.hasOwnProperty.call(updates, "phone")) {
         updateSet.phone = clean(updates.phone);
+      }
+      if (Object.prototype.hasOwnProperty.call(updates, "office_phone")) {
+        updateSet.office_phone = clean(updates.office_phone);
       }
       if (Object.prototype.hasOwnProperty.call(updates, "notes")) {
         updateSet.notes = clean(updates.notes);

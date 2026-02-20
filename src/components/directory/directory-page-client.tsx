@@ -6,35 +6,121 @@ import Link from "next/link";
 import { Company, ProjectCompany, ProjectDirectoryEntry } from "@/lib/directory/types";
 import CompanyFormModal from "@/components/directory/company-form-modal";
 import CompanyDetailPanel from "@/components/directory/company-detail-panel";
+import { listCompanyCostCodesForCurrentCompany, type CompanyCostCode } from "@/lib/bidding/store";
+
+type TradeSelection = {
+  type: "cost_code" | "custom";
+  id?: string;
+  code?: string;
+  title: string;
+  division?: string;
+};
 
 type CompanyDraft = {
   companyName: string;
-  trade: string;
+  trades: TradeSelection[];
+  contactTitle: string;
   primaryContact: string;
   email: string;
-  phone: string;
+  cellPhone: string;
+  officePhone: string;
   notes: string;
   isActive: boolean;
 };
 
 const EMPTY_DRAFT: CompanyDraft = {
   companyName: "",
-  trade: "",
+  trades: [],
+  contactTitle: "",
   primaryContact: "",
   email: "",
-  phone: "",
+  cellPhone: "",
+  officePhone: "",
   notes: "",
   isActive: true,
 };
+
+function normalizeTradeValue(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function tradeSelectionKey(selection: TradeSelection): string {
+  if (selection.type === "cost_code" && selection.id) return `cost_code:${selection.id}`;
+  return `custom:${normalizeTradeValue(selection.code ? `${selection.code} ${selection.title}` : selection.title)}`;
+}
+
+function formatTradeSelectionLabel(selection: TradeSelection): string {
+  if (selection.type === "cost_code") {
+    return `${selection.code ?? ""}${selection.title ? ` ${selection.title}` : ""}`.trim();
+  }
+  return selection.title.trim();
+}
+
+function dedupeTradeSelections(selections: TradeSelection[]): TradeSelection[] {
+  const seen = new Set<string>();
+  const next: TradeSelection[] = [];
+  for (const selection of selections) {
+    const key = tradeSelectionKey(selection);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    next.push(selection);
+  }
+  return next;
+}
+
+function parseTradeSelectionsFromValue(value?: string): TradeSelection[] {
+  if (!value?.trim()) return [];
+  return dedupeTradeSelections(
+    value
+      .split(/\s*\|\s*|\s*;\s*|\s*,\s*/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) => ({
+        type: "custom" as const,
+        title: entry,
+      }))
+  );
+}
+
+function alignSelectionsToCostCodes(
+  selections: TradeSelection[],
+  costCodes: CompanyCostCode[]
+): TradeSelection[] {
+  if (!selections.length || !costCodes.length) return selections;
+  const byLabel = new Map(
+    costCodes.map((code) => [
+      normalizeTradeValue(`${code.code}${code.title ? ` ${code.title}` : ""}`.trim()),
+      code,
+    ])
+  );
+
+  return dedupeTradeSelections(
+    selections.map((selection) => {
+      if (selection.type === "cost_code" && selection.id) return selection;
+      const label = formatTradeSelectionLabel(selection);
+      const matchedCode = byLabel.get(normalizeTradeValue(label));
+      if (!matchedCode) return selection;
+      return {
+        type: "cost_code",
+        id: matchedCode.id,
+        code: matchedCode.code,
+        title: matchedCode.title ?? "",
+        division: matchedCode.division ?? undefined,
+      };
+    })
+  );
+}
 
 function toDraft(company?: Company): CompanyDraft {
   if (!company) return EMPTY_DRAFT;
   return {
     companyName: company.name,
-    trade: company.trade ?? "",
+    trades: parseTradeSelectionsFromValue(company.trade),
+    contactTitle: company.contactTitle ?? "",
     primaryContact: company.primaryContact ?? "",
     email: company.email ?? "",
-    phone: company.phone ?? "",
+    cellPhone: company.phone ?? "",
+    officePhone: company.officePhone ?? "",
     notes: company.notes ?? "",
     isActive: company.isActive,
   };
@@ -61,6 +147,9 @@ export default function DirectoryPageClient() {
   const [formError, setFormError] = useState("");
   const [savingCompany, setSavingCompany] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: "error" | "success" } | null>(null);
+  const [costCodeOptions, setCostCodeOptions] = useState<CompanyCostCode[]>([]);
+  const [loadingCostCodes, setLoadingCostCodes] = useState(false);
+  const [costCodeError, setCostCodeError] = useState("");
 
   const [detailCompanyId, setDetailCompanyId] = useState<string | null>(null);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
@@ -125,6 +214,39 @@ export default function DirectoryPageClient() {
   }, [fetchDirectory]);
 
   useEffect(() => {
+    let active = true;
+    async function loadCostCodes() {
+      if (!modalOpen) return;
+      setLoadingCostCodes(true);
+      setCostCodeError("");
+      try {
+        const codes = await listCompanyCostCodesForCurrentCompany({ includeInactive: true });
+        if (!active) return;
+        setCostCodeOptions(codes);
+      } catch {
+        if (!active) return;
+        setCostCodeOptions([]);
+        setCostCodeError("Unable to load cost codes from Settings.");
+      } finally {
+        if (active) setLoadingCostCodes(false);
+      }
+    }
+
+    void loadCostCodes();
+    return () => {
+      active = false;
+    };
+  }, [modalOpen]);
+
+  useEffect(() => {
+    if (!modalOpen || !costCodeOptions.length) return;
+    setDraft((prev) => ({
+      ...prev,
+      trades: alignSelectionsToCostCodes(prev.trades, costCodeOptions),
+    }));
+  }, [modalOpen, costCodeOptions]);
+
+  useEffect(() => {
     if (!toast) return;
     const timer = window.setTimeout(() => setToast(null), 3500);
     return () => window.clearTimeout(timer);
@@ -134,7 +256,6 @@ export default function DirectoryPageClient() {
     const set = new Set(companies.map((c) => c.trade).filter(Boolean));
     return Array.from(set) as string[];
   }, [companies]);
-
   const filteredCompanies = useMemo(() => {
     const q = query.trim().toLowerCase();
     return companies.filter((company) => {
@@ -178,10 +299,10 @@ export default function DirectoryPageClient() {
 
   async function saveCompany() {
     if (!draft.companyName.trim()) return setFormError("Company name is required.");
-    if (!draft.trade.trim()) return setFormError("Trade is required.");
+    if (!draft.trades.length) return setFormError("At least one trade is required.");
     if (!draft.primaryContact.trim()) return setFormError("Primary contact is required.");
     if (!draft.email.trim()) return setFormError("Email is required.");
-    if (!draft.phone.trim()) return setFormError("Phone is required.");
+    if (!draft.cellPhone.trim()) return setFormError("Cell is required.");
 
     setFormError("");
     setSavingCompany(true);
@@ -195,11 +316,15 @@ export default function DirectoryPageClient() {
             id: editingCompanyId ?? undefined,
             name: draft.companyName.trim(),
             company_name: draft.companyName.trim(),
-            trade: draft.trade.trim(),
+            trade: dedupeTradeSelections(draft.trades).map(formatTradeSelectionLabel).join(" | "),
+            contactTitle: draft.contactTitle.trim() || undefined,
+            contact_title: draft.contactTitle.trim() || undefined,
             primaryContact: draft.primaryContact.trim(),
             primary_contact: draft.primaryContact.trim(),
             email: draft.email.trim(),
-            phone: draft.phone.trim(),
+            phone: draft.cellPhone.trim(),
+            officePhone: draft.officePhone.trim() || undefined,
+            office_phone: draft.officePhone.trim() || undefined,
             status: draft.isActive ? "Active" : "Inactive",
             notes: draft.notes.trim() || undefined,
             isActive: draft.isActive,
@@ -231,7 +356,6 @@ export default function DirectoryPageClient() {
         showToast(message, "error");
         return;
       }
-
       setModalOpen(false);
       await fetchDirectory();
       showToast(editingCompanyId ? "Company updated." : "Company added.", "success");
@@ -345,9 +469,13 @@ export default function DirectoryPageClient() {
         .map((row) => ({
           name: row.name || row.company_name || row.company || "",
           trade: row.trade || "",
+          contactTitle: row.contact_title || row.title || "",
+          contact_title: row.contact_title || row.title || "",
           primaryContact: row.primary_contact || row.primarycontact || row.contact || "",
           email: row.email || "",
           phone: row.phone || "",
+          officePhone: row.office_phone || "",
+          office_phone: row.office_phone || "",
           address: row.address || "",
           city: row.city || "",
           state: row.state || "",
@@ -401,9 +529,11 @@ export default function DirectoryPageClient() {
     const headers = [
       "name",
       "trade",
+      "contact_title",
       "primary_contact",
       "email",
       "phone",
+      "office_phone",
       "address",
       "city",
       "state",
@@ -420,9 +550,11 @@ export default function DirectoryPageClient() {
     const dataRows = rows.map((company) => [
       company.name,
       company.trade ?? "",
+      company.contactTitle ?? "",
       company.primaryContact ?? "",
       company.email ?? "",
       company.phone ?? "",
+      company.officePhone ?? "",
       company.address ?? "",
       company.city ?? "",
       company.state ?? "",
@@ -584,9 +716,13 @@ export default function DirectoryPageClient() {
                                       id: company.id,
                                       name: company.name,
                                       trade: company.trade,
+                                      contactTitle: company.contactTitle,
+                                      contact_title: company.contactTitle,
                                       primaryContact: company.primaryContact,
                                       email: company.email,
                                       phone: company.phone,
+                                      officePhone: company.officePhone,
+                                      office_phone: company.officePhone,
                                       notes: company.notes,
                                       isActive: !company.isActive,
                                     },
@@ -639,6 +775,9 @@ export default function DirectoryPageClient() {
         open={modalOpen}
         title={editingCompanyId ? "Edit Company" : "Add Company"}
         draft={draft}
+        costCodeOptions={costCodeOptions}
+        loadingCostCodes={loadingCostCodes}
+        costCodeError={costCodeError}
         error={formError}
         saving={savingCompany}
         onClose={() => setModalOpen(false)}

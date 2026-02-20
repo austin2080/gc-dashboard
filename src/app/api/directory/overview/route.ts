@@ -6,9 +6,11 @@ type DirectoryCompanyRow = {
   id: string;
   name: string;
   trade?: string | null;
+  contact_title?: string | null;
   primary_contact?: string | null;
   email?: string | null;
   phone?: string | null;
+  office_phone?: string | null;
   address?: string | null;
   city?: string | null;
   state?: string | null;
@@ -30,9 +32,11 @@ function mapCompany(row: DirectoryCompanyRow) {
     id: row.id,
     name: row.name,
     trade: row.trade ?? undefined,
+    contactTitle: row.contact_title ?? undefined,
     primaryContact: row.primary_contact ?? undefined,
     email: row.email ?? undefined,
     phone: row.phone ?? undefined,
+    officePhone: row.office_phone ?? undefined,
     address: row.address ?? undefined,
     city: row.city ?? undefined,
     state: row.state ?? undefined,
@@ -133,7 +137,7 @@ export async function GET() {
     const { data: companies, error: companiesError } = await dataClient
       .from("directory_companies")
       .select(
-        "id,name,trade,primary_contact,email,phone,address,city,state,zip,country,website,license_number,tax_id,vendor_type,procore_company_id,notes,is_active,updated_at,created_at"
+        "id,name,trade,contact_title,primary_contact,email,phone,office_phone,address,city,state,zip,country,website,license_number,tax_id,vendor_type,procore_company_id,notes,is_active,updated_at,created_at"
       )
       .eq("tenant_company_id", companyId)
       .order("name", { ascending: true });

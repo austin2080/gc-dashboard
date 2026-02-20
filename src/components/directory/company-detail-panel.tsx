@@ -28,9 +28,11 @@ export default function CompanyDetailPanel({ company, assignedProjects, allProje
       </div>
       <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
         <div><span className="opacity-60">Trade:</span> {company.trade ?? "-"}</div>
+        <div><span className="opacity-60">Title:</span> {company.contactTitle ?? "-"}</div>
         <div><span className="opacity-60">Primary contact:</span> {company.primaryContact ?? "-"}</div>
         <div><span className="opacity-60">Email:</span> {company.email ?? "-"}</div>
-        <div><span className="opacity-60">Phone:</span> {company.phone ?? "-"}</div>
+        <div><span className="opacity-60">Cell:</span> {company.phone ?? "-"}</div>
+        <div><span className="opacity-60">Office Phone:</span> {company.officePhone ?? "-"}</div>
         <div className="md:col-span-2"><span className="opacity-60">Address:</span> {addressLabel}</div>
         <div><span className="opacity-60">Website:</span> {company.website ?? "-"}</div>
         <div><span className="opacity-60">Vendor type:</span> {company.vendorType ?? "-"}</div>

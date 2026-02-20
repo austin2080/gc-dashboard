@@ -11,9 +11,11 @@ export type Company = {
   id: string;
   name: string;
   trade?: string;
+  contactTitle?: string;
   primaryContact?: string;
   email?: string;
   phone?: string;
+  officePhone?: string;
   address?: string;
   city?: string;
   state?: string;
