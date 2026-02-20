@@ -707,7 +707,9 @@ export default function ItbsProjectBidTable() {
                   const aSubmittedWithAmount = a.bid.status === "submitted" && a.bid.bid_amount !== null && a.bid.bid_amount !== undefined;
                   const bSubmittedWithAmount = b.bid.status === "submitted" && b.bid.bid_amount !== null && b.bid.bid_amount !== undefined;
                   if (aSubmittedWithAmount && bSubmittedWithAmount) {
-                    if (a.bid.bid_amount !== b.bid.bid_amount) return a.bid.bid_amount - b.bid.bid_amount;
+                    const aBidAmount = a.bid.bid_amount as number;
+                    const bBidAmount = b.bid.bid_amount as number;
+                    if (aBidAmount !== bBidAmount) return aBidAmount - bBidAmount;
                     return a.sourceIndex - b.sourceIndex;
                   }
                   if (aSubmittedWithAmount) return -1;
