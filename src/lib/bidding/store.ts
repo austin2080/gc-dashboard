@@ -22,6 +22,26 @@ type BidProjectSubRow = Omit<BidProjectSub, "subcontractor"> & {
 };
 
 type BidTradeBidRow = BidTradeBid;
+type CompanyCostCodeRow = {
+  id: string;
+  code: string;
+  title: string | null;
+  division: string | null;
+  is_active: boolean | null;
+};
+type ProjectTradeRow = {
+  id: string;
+  project_id: string;
+  company_cost_code_id: string | null;
+  custom_code: string | null;
+  custom_title: string | null;
+  is_custom: boolean;
+};
+
+export type CompanyCostCode = CompanyCostCodeRow;
+export type ProjectTrade = ProjectTradeRow & {
+  company_cost_code: CompanyCostCode | null;
+};
 
 function normalizeSubcontractor(
   value:
@@ -34,6 +54,174 @@ function normalizeSubcontractor(
     return value[0] ?? null;
   }
   return value ?? null;
+}
+
+async function getCurrentCompanyId(): Promise<string | null> {
+  const supabase = createClient();
+  const { data: authData, error: authError } = await supabase.auth.getUser();
+  if (authError || !authData.user) return null;
+  const { data: member, error: memberError } = await supabase
+    .from("company_members")
+    .select("company_id")
+    .eq("user_id", authData.user.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (memberError || !member?.company_id) return null;
+  return member.company_id as string;
+}
+
+export async function listCompanyCostCodesForCurrentCompany(): Promise<CompanyCostCode[]> {
+  const companyId = await getCurrentCompanyId();
+
+  const supabase = createClient();
+  let companyCostCodesQuery = supabase
+    .from("company_cost_codes")
+    .select("id, code, title, division, is_active")
+    .order("code", { ascending: true });
+  if (companyId) {
+    companyCostCodesQuery = companyCostCodesQuery.eq("company_id", companyId);
+  }
+  const { data, error } = await companyCostCodesQuery;
+
+  if (!error && data) {
+    return (data as CompanyCostCodeRow[]).filter((row) => row.is_active !== false);
+  }
+
+  // Fallback for environments still using legacy cost_codes.
+  let legacyQuery = supabase
+    .from("cost_codes")
+    .select("id, code, description, division, is_active")
+    .order("code", { ascending: true });
+  if (companyId) {
+    legacyQuery = legacyQuery.eq("company_id", companyId);
+  }
+  const { data: legacyData, error: legacyError } = await legacyQuery;
+
+  if (legacyError || !legacyData) {
+    console.error("Failed to load company cost codes", error ?? legacyError);
+    return [];
+  }
+
+  return (legacyData as Array<{
+    id: string;
+    code: string;
+    description: string | null;
+    division: string | null;
+    is_active: boolean | null;
+  }>)
+    .filter((row) => row.is_active !== false)
+    .map((row) => ({
+      id: row.id,
+      code: row.code,
+      title: row.description,
+      division: row.division,
+      is_active: row.is_active,
+    }));
+}
+
+export async function listProjectTrades(projectId: string): Promise<ProjectTrade[]> {
+  if (!projectId) return [];
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("project_trades")
+    .select("id, project_id, company_cost_code_id, custom_code, custom_title, is_custom")
+    .eq("project_id", projectId)
+    .order("id", { ascending: true });
+
+  if (error || !data) {
+    return [];
+  }
+
+  const rows = data as ProjectTradeRow[];
+  const companyCostCodeIds = rows
+    .map((row) => row.company_cost_code_id)
+    .filter((value): value is string => Boolean(value));
+  const byId = new Map<string, CompanyCostCodeRow>();
+
+  if (companyCostCodeIds.length) {
+    const { data: codes } = await supabase
+      .from("company_cost_codes")
+      .select("id, code, title, division, is_active")
+      .in("id", companyCostCodeIds);
+    for (const code of (codes ?? []) as CompanyCostCodeRow[]) {
+      byId.set(code.id, code);
+    }
+  }
+
+  return rows.map((row) => ({
+    ...row,
+    company_cost_code: row.company_cost_code_id ? byId.get(row.company_cost_code_id) ?? null : null,
+  }));
+}
+
+export async function createProjectTradeFromCostCode(
+  projectId: string,
+  companyCostCodeId: string
+): Promise<ProjectTrade | null> {
+  if (!projectId || !companyCostCodeId) return null;
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("project_trades")
+    .insert({
+      project_id: projectId,
+      company_cost_code_id: companyCostCodeId,
+      is_custom: false,
+      custom_code: null,
+      custom_title: null,
+    })
+    .select("id, project_id, company_cost_code_id, custom_code, custom_title, is_custom")
+    .single();
+
+  if (error || !data) {
+    return null;
+  }
+
+  const row = data as ProjectTradeRow;
+  let companyCostCode: CompanyCostCode | null = null;
+  const { data: codeData } = await supabase
+    .from("company_cost_codes")
+    .select("id, code, title, division, is_active")
+    .eq("id", companyCostCodeId)
+    .maybeSingle();
+  if (codeData) {
+    companyCostCode = codeData as CompanyCostCode;
+  }
+  return {
+    ...row,
+    company_cost_code: companyCostCode,
+  };
+}
+
+export async function createProjectCustomTrade(payload: {
+  projectId: string;
+  customCode?: string | null;
+  customTitle: string;
+}): Promise<ProjectTrade | null> {
+  if (!payload.projectId || !payload.customTitle.trim()) return null;
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("project_trades")
+    .insert({
+      project_id: payload.projectId,
+      company_cost_code_id: null,
+      custom_code: payload.customCode?.trim() || null,
+      custom_title: payload.customTitle.trim(),
+      is_custom: true,
+    })
+    .select("id, project_id, company_cost_code_id, custom_code, custom_title, is_custom")
+    .single();
+
+  if (error || !data) {
+    return null;
+  }
+
+  const row = data as ProjectTradeRow;
+  return {
+    ...row,
+    company_cost_code: null,
+  };
 }
 
 export async function listBidProjects(): Promise<BidProjectSummary[]> {
