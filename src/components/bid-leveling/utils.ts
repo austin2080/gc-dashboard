@@ -5,7 +5,8 @@ export function formatCurrency(value: number | null | undefined): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(value);
 }
 
@@ -83,4 +84,28 @@ export function parseMoney(value: string): number | null {
   if (!normalized) return null;
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function formatMoneyInputTyping(value: string): string {
+  const cleaned = value.replace(/[^\d.]/g, "");
+  if (!cleaned) return "";
+
+  const [rawInt, rawDec = ""] = cleaned.split(".", 2);
+  const normalizedInt = rawInt.replace(/^0+(?=\d)/, "") || "0";
+  const formattedInt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Number(normalizedInt));
+  const dec = rawDec.slice(0, 2);
+
+  if (cleaned.includes(".")) return `$${formattedInt}.${dec}`;
+  return `$${formattedInt}`;
+}
+
+export function formatMoneyInputBlur(value: string): string {
+  const parsed = parseMoney(value);
+  if (parsed === null) return "";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(parsed);
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import type { BidAlternateDraft } from "@/lib/bidding/leveling-types";
-import { formatCurrency, parseMoney } from "@/components/bid-leveling/utils";
+import { formatCurrency, formatMoneyInputBlur, formatMoneyInputTyping, parseMoney } from "@/components/bid-leveling/utils";
 
 function makeAlternate(sortOrder: number): BidAlternateDraft {
   return {
@@ -58,7 +58,12 @@ export default function AlternatesEditor({ alternates, readOnly, onChange }: Alt
               <input
                 value={alternate.amount}
                 disabled={readOnly}
-                onChange={(event) => update(alternate.id, { amount: event.target.value })}
+                onChange={(event) => update(alternate.id, { amount: formatMoneyInputTyping(event.target.value) })}
+                onFocus={() => {
+                  const parsed = parseMoney(alternate.amount);
+                  if (parsed !== null) update(alternate.id, { amount: String(parsed) });
+                }}
+                onBlur={() => update(alternate.id, { amount: formatMoneyInputBlur(alternate.amount) })}
                 inputMode="decimal"
                 placeholder="Amount"
                 className="rounded border border-slate-200 px-2 py-1 text-xs"

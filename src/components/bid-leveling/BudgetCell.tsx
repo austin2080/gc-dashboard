@@ -1,7 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { formatCurrency, parseCurrencyInput } from "@/components/bid-leveling/utils";
+import {
+  formatCurrency,
+  formatMoneyInputBlur,
+  formatMoneyInputTyping,
+  parseCurrencyInput,
+} from "@/components/bid-leveling/utils";
 
 type BudgetCellProps = {
   value: number | null;
@@ -22,14 +27,21 @@ export default function BudgetCell({ value, notes, readOnly, onChange }: BudgetC
     setNotesDraft(notes ?? "");
   }, [notes]);
 
-  const placeholder = useMemo(() => (value !== null ? formatCurrency(value) : "$0"), [value]);
+  const placeholder = useMemo(() => (value !== null ? formatCurrency(value) : "$0.00"), [value]);
 
   return (
     <div className="space-y-1">
       <input
         value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => onChange({ value: parseCurrencyInput(draft), notes: notesDraft.trim() || null })}
+        onChange={(event) => setDraft(formatMoneyInputTyping(event.target.value))}
+        onFocus={() => {
+          const parsed = parseCurrencyInput(draft);
+          if (parsed !== null) setDraft(String(parsed));
+        }}
+        onBlur={() => {
+          setDraft(formatMoneyInputBlur(draft));
+          onChange({ value: parseCurrencyInput(draft), notes: notesDraft.trim() || null });
+        }}
         disabled={readOnly}
         inputMode="decimal"
         placeholder={placeholder}

@@ -1,7 +1,7 @@
 "use client";
 
 import type { BidBaseItemDraft, UnitType } from "@/lib/bidding/leveling-types";
-import { formatCurrency, parseMoney } from "@/components/bid-leveling/utils";
+import { formatCurrency, formatMoneyInputBlur, formatMoneyInputTyping, parseMoney } from "@/components/bid-leveling/utils";
 
 const UNIT_OPTIONS: UnitType[] = ["LF", "SF", "SY", "CY", "EA", "HR", "DAY", "LS", "ALLOW", "UNIT", "OTHER"];
 
@@ -32,34 +32,6 @@ function createLineItem(sortOrder: number): BidBaseItemDraft {
     notes: "",
     sortOrder,
   };
-}
-
-function formatMoneyInput(value: string): string {
-  const parsed = parseMoney(value);
-  if (parsed === null) return "";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(parsed);
-}
-
-function formatMoneyTyping(value: string): string {
-  const cleaned = value.replace(/[^\d.]/g, "");
-  if (!cleaned) return "";
-
-  const [rawInt, rawDec = ""] = cleaned.split(".", 2);
-  const normalizedInt = rawInt.replace(/^0+(?=\d)/, "") || "0";
-  const formattedInt = new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: 0,
-  }).format(Number(normalizedInt));
-  const dec = rawDec.slice(0, 2);
-
-  if (cleaned.includes(".")) {
-    return `$${formattedInt}.${dec}`;
-  }
-  return `$${formattedInt}`;
 }
 
 type BaseBidBuilderProps = {
@@ -154,12 +126,12 @@ export default function BaseBidBuilder({ items, readOnly, onChange }: BaseBidBui
                     <input
                       value={item.unitPrice}
                       disabled={readOnly}
-                      onChange={(event) => updateItem(item.id, { unitPrice: formatMoneyTyping(event.target.value) })}
+                      onChange={(event) => updateItem(item.id, { unitPrice: formatMoneyInputTyping(event.target.value) })}
                       onFocus={(event) => {
                         const parsed = parseMoney(event.target.value);
                         if (parsed !== null) updateItem(item.id, { unitPrice: String(parsed) });
                       }}
-                      onBlur={(event) => updateItem(item.id, { unitPrice: formatMoneyInput(event.target.value) })}
+                      onBlur={(event) => updateItem(item.id, { unitPrice: formatMoneyInputBlur(event.target.value) })}
                       inputMode="decimal"
                       placeholder="0.00"
                       className="w-full rounded border border-slate-200 px-2 py-1"

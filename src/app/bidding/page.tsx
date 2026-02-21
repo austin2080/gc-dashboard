@@ -154,7 +154,40 @@ function daysUntil(isoDate: string): number {
 }
 
 function formatCurrency(value: number): string {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(value);
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function parseMoneyInput(value: string): number | null {
+  const normalized = value.replace(/[$,\s]/g, "").trim();
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatMoneyTyping(value: string): string {
+  const cleaned = value.replace(/[^\d.]/g, "");
+  if (!cleaned) return "";
+  const [rawInt, rawDec = ""] = cleaned.split(".", 2);
+  const normalizedInt = rawInt.replace(/^0+(?=\d)/, "") || "0";
+  const formattedInt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Number(normalizedInt));
+  const dec = rawDec.slice(0, 2);
+  return cleaned.includes(".") ? `$${formattedInt}.${dec}` : `$${formattedInt}`;
+}
+
+function formatMoneyBlur(value: string): string {
+  const parsed = parseMoneyInput(value);
+  if (parsed === null) return "";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(parsed);
 }
 
 function toYmd(date: Date): string {
@@ -2164,7 +2197,7 @@ export default function BiddingPage() {
                 if (!selectedProject) return;
                 setSavingInvite(true);
                 setInviteError(null);
-                const bidAmountValue = inviteDraft.bid_amount.trim() ? Number(inviteDraft.bid_amount) : null;
+                const bidAmountValue = parseMoneyInput(inviteDraft.bid_amount);
                 const notesValue = inviteDraft.notes.trim() || null;
                 if (inviteTarget) {
                   const ok = await createTradeBid({
@@ -2172,7 +2205,7 @@ export default function BiddingPage() {
                     trade_id: inviteTarget.tradeId,
                     project_sub_id: inviteTarget.projectSubId,
                     status: inviteDraft.status,
-                    bid_amount: Number.isFinite(bidAmountValue) ? bidAmountValue : null,
+                    bid_amount: bidAmountValue,
                     contact_name: inviteDraft.contact_name.trim() || null,
                     notes: notesValue,
                   });
@@ -2213,7 +2246,7 @@ export default function BiddingPage() {
                     trade_id: tradeId,
                     project_sub_id: resolvedProjectSubId,
                     status: inviteDraft.status,
-                    bid_amount: Number.isFinite(bidAmountValue) ? bidAmountValue : null,
+                    bid_amount: bidAmountValue,
                     contact_name: inviteDraft.contact_name.trim() || null,
                     notes: notesValue,
                   });
@@ -2261,7 +2294,7 @@ export default function BiddingPage() {
                     trade_id: tradeId,
                     project_sub_id: projectSub.id,
                     status: inviteDraft.status,
-                    bid_amount: Number.isFinite(bidAmountValue) ? bidAmountValue : null,
+                    bid_amount: bidAmountValue,
                     contact_name: inviteDraft.contact_name.trim() || null,
                     notes: notesValue,
                   });
@@ -2428,7 +2461,16 @@ export default function BiddingPage() {
                   Bid amount
                   <input
                     value={inviteDraft.bid_amount}
-                    onChange={(event) => setInviteDraft((prev) => ({ ...prev, bid_amount: event.target.value }))}
+                    onChange={(event) => setInviteDraft((prev) => ({ ...prev, bid_amount: formatMoneyTyping(event.target.value) }))}
+                    onFocus={() =>
+                      setInviteDraft((prev) => {
+                        const parsed = parseMoneyInput(prev.bid_amount);
+                        return { ...prev, bid_amount: parsed !== null ? String(parsed) : prev.bid_amount };
+                      })
+                    }
+                    onBlur={() =>
+                      setInviteDraft((prev) => ({ ...prev, bid_amount: formatMoneyBlur(prev.bid_amount) }))
+                    }
                     className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
                     inputMode="decimal"
                     placeholder="e.g. 250000"
@@ -2530,12 +2572,12 @@ export default function BiddingPage() {
                 }
                 setSavingBidEdit(true);
                 setEditBidError(null);
-                const bidAmountValue = editBidDraft.bid_amount.trim() ? Number(editBidDraft.bid_amount) : null;
+                const bidAmountValue = parseMoneyInput(editBidDraft.bid_amount);
                 const [bidOk, subOk] = await Promise.all([
                   updateTradeBid({
                     id: editBidDraft.bid_id,
                     status: editBidDraft.status,
-                    bid_amount: Number.isFinite(bidAmountValue) ? bidAmountValue : null,
+                    bid_amount: bidAmountValue,
                     contact_name: editBidDraft.contact_name.trim() || null,
                     notes: editBidDraft.notes.trim() || null,
                   }),
@@ -2623,7 +2665,17 @@ export default function BiddingPage() {
                   <input
                     value={editBidDraft.bid_amount}
                     onChange={(event) =>
-                      setEditBidDraft((prev) => (prev ? { ...prev, bid_amount: event.target.value } : prev))
+                      setEditBidDraft((prev) => (prev ? { ...prev, bid_amount: formatMoneyTyping(event.target.value) } : prev))
+                    }
+                    onFocus={() =>
+                      setEditBidDraft((prev) => {
+                        if (!prev) return prev;
+                        const parsed = parseMoneyInput(prev.bid_amount);
+                        return { ...prev, bid_amount: parsed !== null ? String(parsed) : prev.bid_amount };
+                      })
+                    }
+                    onBlur={() =>
+                      setEditBidDraft((prev) => (prev ? { ...prev, bid_amount: formatMoneyBlur(prev.bid_amount) } : prev))
                     }
                     className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
                     inputMode="decimal"
