@@ -75,6 +75,10 @@ export function computeConditionalClasses(bid: LevelingBid | null, lowBidAmount:
 }
 
 export function parseCurrencyInput(value: string): number | null {
+  return parseMoney(value);
+}
+
+export function parseMoney(value: string): number | null {
   const normalized = value.replace(/[$,\s]/g, "").trim();
   if (!normalized) return null;
   const parsed = Number(normalized);

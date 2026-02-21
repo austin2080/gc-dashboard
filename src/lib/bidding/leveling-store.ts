@@ -8,6 +8,8 @@ import type {
   LevelingSnapshot,
   LevelingSnapshotItem,
   ProjectTradeBudget,
+  TradeBidAlternate,
+  TradeBidItem,
 } from "@/lib/bidding/leveling-types";
 
 function mapLegacyStatusToLeveling(status: BidTradeBid["status"]): LevelingBidStatus {
@@ -171,7 +173,7 @@ async function recalcTradeLowFlags(projectId: string, tradeId: string): Promise<
     .eq("trade_id", tradeId);
 
   if (error) {
-    if (!isMissingTableError(error)) {
+    if (!isOptionalLevelingTableError(error)) {
       console.error("Failed to calculate low bid flags", error);
     }
     return;
@@ -224,7 +226,7 @@ export async function upsertTradeBid(payload: {
     { onConflict: "project_id,trade_id,sub_id" }
   );
 
-  if (enhancedError && !isMissingTableError(enhancedError)) {
+  if (enhancedError && !isOptionalLevelingTableError(enhancedError)) {
     console.error("Failed to upsert trade_bid", enhancedError);
     return false;
   }
@@ -375,4 +377,155 @@ export async function getSnapshotItems(snapshotId: string): Promise<LevelingSnap
   }
 
   return (data ?? []) as LevelingSnapshotItem[];
+}
+
+export async function getTradeBidBreakdownByTradeSub(payload: {
+  projectId: string;
+  tradeId: string;
+  subId: string;
+}): Promise<{
+  bidId: string | null;
+  baseItems: TradeBidItem[];
+  alternates: TradeBidAlternate[];
+}> {
+  const supabase = createClient();
+  const { data: bidRow, error: bidError } = await supabase
+    .from("trade_bid")
+    .select("id")
+    .eq("project_id", payload.projectId)
+    .eq("trade_id", payload.tradeId)
+    .eq("sub_id", payload.subId)
+    .maybeSingle();
+
+  if (bidError) {
+    if (!isOptionalLevelingTableError(bidError)) {
+      console.error("Failed to find trade_bid for breakdown", bidError);
+    }
+    return { bidId: null, baseItems: [], alternates: [] };
+  }
+
+  const bidId = (bidRow as { id: string } | null)?.id ?? null;
+  if (!bidId) return { bidId: null, baseItems: [], alternates: [] };
+
+  const [itemsResult, alternatesResult] = await Promise.all([
+    supabase
+      .from("trade_bid_items")
+      .select("id, bid_id, kind, description, qty, unit, unit_price, amount_override, notes, sort_order")
+      .eq("bid_id", bidId)
+      .eq("kind", "base")
+      .order("sort_order", { ascending: true }),
+    supabase
+      .from("trade_bid_alternates")
+      .select("id, bid_id, title, accepted, amount, notes, sort_order")
+      .eq("bid_id", bidId)
+      .order("sort_order", { ascending: true }),
+  ]);
+
+  if (itemsResult.error && !isOptionalLevelingTableError(itemsResult.error)) {
+    console.error("Failed to load trade_bid_items", itemsResult.error);
+  }
+  if (alternatesResult.error && !isOptionalLevelingTableError(alternatesResult.error)) {
+    console.error("Failed to load trade_bid_alternates", alternatesResult.error);
+  }
+
+  return {
+    bidId,
+    baseItems: (itemsResult.data ?? []) as TradeBidItem[],
+    alternates: (alternatesResult.data ?? []) as TradeBidAlternate[],
+  };
+}
+
+export async function saveTradeBidBreakdownByTradeSub(payload: {
+  projectId: string;
+  tradeId: string;
+  subId: string;
+  baseItems: Array<Omit<TradeBidItem, "bid_id" | "kind">>;
+  alternates: Array<Omit<TradeBidAlternate, "bid_id">>;
+}): Promise<boolean> {
+  const supabase = createClient();
+  const { data: bidRow, error: bidError } = await supabase
+    .from("trade_bid")
+    .select("id")
+    .eq("project_id", payload.projectId)
+    .eq("trade_id", payload.tradeId)
+    .eq("sub_id", payload.subId)
+    .maybeSingle();
+
+  if (bidError) {
+    if (!isOptionalLevelingTableError(bidError)) {
+      console.error("Failed to find trade_bid before saving breakdown", bidError);
+    }
+    return true;
+  }
+
+  const bidId = (bidRow as { id: string } | null)?.id ?? null;
+  if (!bidId) return true;
+
+  const { data: existingItems } = await supabase.from("trade_bid_items").select("id").eq("bid_id", bidId).eq("kind", "base");
+  const { data: existingAlternates } = await supabase.from("trade_bid_alternates").select("id").eq("bid_id", bidId);
+  const existingItemIds = new Set(((existingItems ?? []) as Array<{ id: string }>).map((row) => row.id));
+  const existingAlternateIds = new Set(((existingAlternates ?? []) as Array<{ id: string }>).map((row) => row.id));
+  const nextItemIds = new Set(payload.baseItems.map((row) => row.id));
+  const nextAlternateIds = new Set(payload.alternates.map((row) => row.id));
+
+  const deletedItemIds = Array.from(existingItemIds).filter((id) => !nextItemIds.has(id));
+  const deletedAlternateIds = Array.from(existingAlternateIds).filter((id) => !nextAlternateIds.has(id));
+
+  if (deletedItemIds.length) {
+    const { error } = await supabase.from("trade_bid_items").delete().in("id", deletedItemIds);
+    if (error && !isOptionalLevelingTableError(error)) {
+      console.error("Failed to delete removed trade_bid_items", error);
+      return false;
+    }
+  }
+  if (deletedAlternateIds.length) {
+    const { error } = await supabase.from("trade_bid_alternates").delete().in("id", deletedAlternateIds);
+    if (error && !isOptionalLevelingTableError(error)) {
+      console.error("Failed to delete removed trade_bid_alternates", error);
+      return false;
+    }
+  }
+
+  if (payload.baseItems.length) {
+    const { error } = await supabase.from("trade_bid_items").upsert(
+      payload.baseItems.map((item, index) => ({
+        id: item.id,
+        bid_id: bidId,
+        kind: "base",
+        description: item.description,
+        qty: item.qty,
+        unit: item.unit,
+        unit_price: item.unit_price,
+        amount_override: item.amount_override,
+        notes: item.notes,
+        sort_order: item.sort_order ?? index + 1,
+      })),
+      { onConflict: "id" }
+    );
+    if (error && !isOptionalLevelingTableError(error)) {
+      console.error("Failed to upsert trade_bid_items", error);
+      return false;
+    }
+  }
+
+  if (payload.alternates.length) {
+    const { error } = await supabase.from("trade_bid_alternates").upsert(
+      payload.alternates.map((alternate, index) => ({
+        id: alternate.id,
+        bid_id: bidId,
+        title: alternate.title,
+        accepted: alternate.accepted,
+        amount: alternate.amount,
+        notes: alternate.notes,
+        sort_order: alternate.sort_order ?? index + 1,
+      })),
+      { onConflict: "id" }
+    );
+    if (error && !isOptionalLevelingTableError(error)) {
+      console.error("Failed to upsert trade_bid_alternates", error);
+      return false;
+    }
+  }
+
+  return true;
 }

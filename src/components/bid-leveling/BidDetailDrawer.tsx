@@ -1,17 +1,10 @@
 "use client";
 
+import BaseBidBuilder, { computeBaseItemsTotal } from "@/components/bid-leveling/BaseBidBuilder";
+import AlternatesEditor from "@/components/bid-leveling/AlternatesEditor";
+import { formatCurrency, parseMoney } from "@/components/bid-leveling/utils";
 import type { BidProjectSub, BidTrade } from "@/lib/bidding/types";
-import type { LevelingBid, LevelingBidStatus } from "@/lib/bidding/leveling-types";
-import { formatCurrency } from "@/components/bid-leveling/utils";
-
-type LineItemDraft = {
-  id: string;
-  type: "allowance" | "alternate" | "unit_price" | "clarifications";
-  label: string;
-  amount: string;
-  included: boolean;
-  notes: string;
-};
+import type { BidAlternateDraft, BidBaseItemDraft, LevelingBid, LevelingBidStatus } from "@/lib/bidding/leveling-types";
 
 type ScopeDraft = {
   id: string;
@@ -22,12 +15,13 @@ type ScopeDraft = {
 
 export type BidDrawerDraft = {
   status: LevelingBidStatus;
-  baseBidAmount: string;
+  baseItems: BidBaseItemDraft[];
+  alternates: BidAlternateDraft[];
+  inclusions: string;
   notes: string;
   receivedAt: string;
   recommended: boolean;
   compareSubId: string;
-  lineItems: LineItemDraft[];
   scopeItems: ScopeDraft[];
 };
 
@@ -64,6 +58,13 @@ export default function BidDetailDrawer({
 }: BidDetailDrawerProps) {
   if (!open || !trade || !sub) return null;
 
+  const baseTotal = computeBaseItemsTotal(draft.baseItems);
+  const acceptedAlternatesTotal = draft.alternates.reduce((sum, alternate) => {
+    if (!alternate.accepted) return sum;
+    return sum + (parseMoney(alternate.amount) ?? 0);
+  }, 0);
+  const grandTotal = baseTotal + acceptedAlternatesTotal;
+
   return (
     <div className="fixed inset-0 z-50">
       <button type="button" className="absolute inset-0 bg-slate-950/40" onClick={onClose} aria-label="Close bid details drawer" />
@@ -78,18 +79,6 @@ export default function BidDetailDrawer({
         </div>
 
         <div className="space-y-4 px-6 py-5">
-          <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-            Base bid
-            <input
-              value={draft.baseBidAmount}
-              onChange={(event) => onChange({ ...draft, baseBidAmount: event.target.value })}
-              disabled={readOnly}
-              inputMode="decimal"
-              placeholder="0"
-              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:border-slate-400 focus:outline-none disabled:bg-slate-100"
-            />
-          </label>
-
           <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
             Status
             <select
@@ -106,6 +95,38 @@ export default function BidDetailDrawer({
             </select>
           </label>
 
+          <BaseBidBuilder items={draft.baseItems} readOnly={readOnly} onChange={(baseItems) => onChange({ ...draft, baseItems })} />
+
+          <AlternatesEditor alternates={draft.alternates} readOnly={readOnly} onChange={(alternates) => onChange({ ...draft, alternates })} />
+
+          <section className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="grid gap-2 text-sm md:grid-cols-3">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Base Total</div>
+                <div className="font-semibold text-slate-900">{formatCurrency(baseTotal)}</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Accepted Alternates</div>
+                <div className="font-semibold text-slate-900">{formatCurrency(acceptedAlternatesTotal)}</div>
+              </div>
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Grand Total</div>
+                <div className="font-semibold text-slate-900">{formatCurrency(grandTotal)}</div>
+              </div>
+            </div>
+          </section>
+
+          <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+            Inclusions
+            <textarea
+              value={draft.inclusions}
+              onChange={(event) => onChange({ ...draft, inclusions: event.target.value })}
+              disabled={readOnly}
+              rows={3}
+              className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:border-slate-400 focus:outline-none disabled:bg-slate-100"
+            />
+          </label>
+
           <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
             Exclusions / clarifications
             <textarea
@@ -116,141 +137,6 @@ export default function BidDetailDrawer({
               className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 focus:border-slate-400 focus:outline-none disabled:bg-slate-100"
             />
           </label>
-
-          <section className="rounded-xl border border-slate-200 p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-900">Alternates / Allowances (scaffold)</h3>
-              <button
-                type="button"
-                disabled={readOnly}
-                onClick={() =>
-                  onChange({
-                    ...draft,
-                    lineItems: [
-                      ...draft.lineItems,
-                      {
-                        id: `line-${Date.now()}`,
-                        type: "alternate",
-                        label: "",
-                        amount: "",
-                        included: true,
-                        notes: "",
-                      },
-                    ],
-                  })
-                }
-                className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 disabled:bg-slate-100"
-              >
-                Add
-              </button>
-            </div>
-            <div className="space-y-2">
-              {draft.lineItems.map((item) => (
-                <div key={item.id} className="grid grid-cols-12 gap-2">
-                  <select
-                    value={item.type}
-                    disabled={readOnly}
-                    onChange={(event) =>
-                      onChange({
-                        ...draft,
-                        lineItems: draft.lineItems.map((row) =>
-                          row.id === item.id ? { ...row, type: event.target.value as LineItemDraft["type"] } : row
-                        ),
-                      })
-                    }
-                    className="col-span-3 rounded-md border border-slate-200 px-2 py-1 text-xs"
-                  >
-                    <option value="allowance">Allowance</option>
-                    <option value="alternate">Alternate</option>
-                    <option value="unit_price">Unit Price</option>
-                    <option value="clarifications">Clarification</option>
-                  </select>
-                  <input
-                    value={item.label}
-                    disabled={readOnly}
-                    onChange={(event) =>
-                      onChange({
-                        ...draft,
-                        lineItems: draft.lineItems.map((row) =>
-                          row.id === item.id ? { ...row, label: event.target.value } : row
-                        ),
-                      })
-                    }
-                    placeholder="Label"
-                    className="col-span-5 rounded-md border border-slate-200 px-2 py-1 text-xs"
-                  />
-                  <input
-                    value={item.amount}
-                    disabled={readOnly}
-                    onChange={(event) =>
-                      onChange({
-                        ...draft,
-                        lineItems: draft.lineItems.map((row) =>
-                          row.id === item.id ? { ...row, amount: event.target.value } : row
-                        ),
-                      })
-                    }
-                    placeholder="Amount"
-                    className="col-span-3 rounded-md border border-slate-200 px-2 py-1 text-xs"
-                  />
-                  <button
-                    type="button"
-                    disabled={readOnly}
-                    onClick={() =>
-                      onChange({ ...draft, lineItems: draft.lineItems.filter((row) => row.id !== item.id) })
-                    }
-                    className="col-span-1 rounded-md border border-rose-200 px-1 py-1 text-xs text-rose-700"
-                  >
-                    x
-                  </button>
-                </div>
-              ))}
-              {!draft.lineItems.length ? <p className="text-xs text-slate-500">No line items</p> : null}
-            </div>
-          </section>
-
-          <section className="rounded-xl border border-slate-200 p-3">
-            <h3 className="mb-2 text-sm font-semibold text-slate-900">Scope checklist (scaffold)</h3>
-            <div className="space-y-2">
-              {draft.scopeItems.map((item) => (
-                <div key={item.id} className="grid grid-cols-12 items-center gap-2">
-                  <div className="col-span-6 text-xs text-slate-700">{item.label}</div>
-                  <select
-                    value={item.included}
-                    disabled={readOnly}
-                    onChange={(event) =>
-                      onChange({
-                        ...draft,
-                        scopeItems: draft.scopeItems.map((row) =>
-                          row.id === item.id ? { ...row, included: event.target.value as ScopeDraft["included"] } : row
-                        ),
-                      })
-                    }
-                    className="col-span-3 rounded-md border border-slate-200 px-2 py-1 text-xs"
-                  >
-                    <option value="included">Included</option>
-                    <option value="excluded">Excluded</option>
-                    <option value="unclear">Unclear</option>
-                  </select>
-                  <input
-                    value={item.notes}
-                    disabled={readOnly}
-                    onChange={(event) =>
-                      onChange({
-                        ...draft,
-                        scopeItems: draft.scopeItems.map((row) =>
-                          row.id === item.id ? { ...row, notes: event.target.value } : row
-                        ),
-                      })
-                    }
-                    placeholder="Notes"
-                    className="col-span-3 rounded-md border border-slate-200 px-2 py-1 text-xs"
-                  />
-                </div>
-              ))}
-              {!draft.scopeItems.length ? <p className="text-xs text-slate-500">Scope templates will populate here.</p> : null}
-            </div>
-          </section>
 
           <section className="rounded-xl border border-slate-200 p-3">
             <div className="mb-2 flex items-center justify-between">

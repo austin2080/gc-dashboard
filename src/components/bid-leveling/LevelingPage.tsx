@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import LevelingFilterBar from "@/components/bid-leveling/LevelingFilterBar";
 import LevelingGrid from "@/components/bid-leveling/LevelingGrid";
@@ -12,31 +12,99 @@ import {
   getBidLevelingProjectData,
   getCurrentUserId,
   getSnapshotItems,
+  getTradeBidBreakdownByTradeSub,
   removeTradeBid,
+  saveTradeBidBreakdownByTradeSub,
   upsertProjectTradeBudget,
   upsertTradeBid,
 } from "@/lib/bidding/leveling-store";
 import type { BidTrade, BidProjectSub } from "@/lib/bidding/types";
 import type {
+  BidAlternateDraft,
+  BidBaseItemDraft,
   BidLevelingProjectData,
   LevelingBid,
   LevelingBidStatus,
   LevelingSnapshot,
   LevelingSnapshotItem,
+  TradeBidAlternate,
+  TradeBidItem,
 } from "@/lib/bidding/leveling-types";
 import { getBidProjectIdForProject } from "@/lib/bidding/project-links";
-import { computeTradeStats, formatCurrency } from "@/components/bid-leveling/utils";
+import { computeTradeStats, formatCurrency, parseMoney } from "@/components/bid-leveling/utils";
+import { computeBaseItemsTotal } from "@/components/bid-leveling/BaseBidBuilder";
 
 const EMPTY_DRAWER_DRAFT: BidDrawerDraft = {
   status: "invited",
-  baseBidAmount: "",
+  baseItems: [],
+  alternates: [],
+  inclusions: "",
   notes: "",
   receivedAt: "",
   recommended: false,
   compareSubId: "",
-  lineItems: [],
   scopeItems: [],
 };
+
+const INCLUSIONS_MARKER = "\n\n---INCLUSIONS---\n";
+
+function splitBidNotes(raw: string | null): { notes: string; inclusions: string } {
+  const value = raw ?? "";
+  const inclusionsIndex = value.indexOf(INCLUSIONS_MARKER);
+  if (inclusionsIndex === -1) {
+    return { notes: value, inclusions: "" };
+  }
+  return {
+    notes: value.slice(0, inclusionsIndex),
+    inclusions: value.slice(inclusionsIndex + INCLUSIONS_MARKER.length),
+  };
+}
+
+function mergeBidNotes(notes: string, inclusions: string): string | null {
+  const notesTrimmed = notes.trim();
+  const inclusionsTrimmed = inclusions.trim();
+  const hasContent = notesTrimmed || inclusionsTrimmed;
+  if (!hasContent) return null;
+  if (!inclusionsTrimmed) return notesTrimmed || null;
+  return `${notesTrimmed}${INCLUSIONS_MARKER}${inclusionsTrimmed}`.trim();
+}
+
+function toBaseItemDraft(row: TradeBidItem): BidBaseItemDraft {
+  return {
+    id: row.id,
+    description: row.description ?? "",
+    qty: row.qty !== null && row.qty !== undefined ? String(row.qty) : "",
+    unit: row.unit,
+    unitPrice: row.unit_price !== null && row.unit_price !== undefined ? String(row.unit_price) : "",
+    amountOverride: row.amount_override !== null && row.amount_override !== undefined ? String(row.amount_override) : "",
+    notes: row.notes ?? "",
+    sortOrder: row.sort_order ?? 0,
+  };
+}
+
+function toAlternateDraft(row: TradeBidAlternate): BidAlternateDraft {
+  return {
+    id: row.id,
+    title: row.title ?? "",
+    accepted: row.accepted,
+    amount: String(row.amount ?? 0),
+    notes: row.notes ?? "",
+    sortOrder: row.sort_order ?? 0,
+  };
+}
+
+function createFallbackBaseItem(baseBidAmount: number): BidBaseItemDraft {
+  return {
+    id: crypto.randomUUID(),
+    description: "Base Bid",
+    qty: "1",
+    unit: "LS",
+    unitPrice: String(baseBidAmount),
+    amountOverride: "",
+    notes: "",
+    sortOrder: 1,
+  };
+}
 
 type ActiveBidCell = {
   tradeId: string;
@@ -74,6 +142,7 @@ export default function LevelingPage() {
   const [drawerInitial, setDrawerInitial] = useState<string>(JSON.stringify(EMPTY_DRAWER_DRAFT));
   const [drawerError, setDrawerError] = useState<string | null>(null);
   const [savingDrawer, setSavingDrawer] = useState(false);
+  const drawerLoadKeyRef = useRef("");
 
   const [snapshotModalOpen, setSnapshotModalOpen] = useState(false);
   const [snapshotTitle, setSnapshotTitle] = useState("");
@@ -300,23 +369,50 @@ export default function LevelingPage() {
   const drawerDirty = JSON.stringify(drawerDraft) !== drawerInitial;
   const hasUnsavedChanges = drawerDirty || dirtyBudgetTradeIds.size > 0;
 
-  const openBidDrawer = (payload: { tradeId: string; subId: string }) => {
+  const openBidDrawer = async (payload: { tradeId: string; subId: string }) => {
     if (!data) return;
     setActiveBidCell(payload);
+    const loadKey = `${payload.tradeId}:${payload.subId}:${Date.now()}`;
+    drawerLoadKeyRef.current = loadKey;
     const bid = bidsByTradeSub.get(`${payload.tradeId}:${payload.subId}`) ?? null;
+    const parsedNotes = splitBidNotes(bid?.notes ?? null);
     const nextDraft: BidDrawerDraft = {
       status: bid?.status ?? "invited",
-      baseBidAmount: bid?.base_bid_amount !== null && bid?.base_bid_amount !== undefined ? String(bid.base_bid_amount) : "",
-      notes: bid?.notes ?? "",
+      baseItems:
+        bid?.base_bid_amount !== null && bid?.base_bid_amount !== undefined ? [createFallbackBaseItem(bid.base_bid_amount)] : [],
+      alternates: [],
+      inclusions: parsedNotes.inclusions,
+      notes: parsedNotes.notes,
       receivedAt: bid?.received_at ? bid.received_at.slice(0, 10) : "",
       recommended: false,
       compareSubId: "",
-      lineItems: [],
       scopeItems: [],
     };
     setDrawerDraft(nextDraft);
     setDrawerInitial(JSON.stringify(nextDraft));
     setDrawerError(null);
+
+    const breakdown = await getTradeBidBreakdownByTradeSub({
+      projectId: data.project.id,
+      tradeId: payload.tradeId,
+      subId: payload.subId,
+    });
+    if (drawerLoadKeyRef.current !== loadKey) return;
+
+    const baseItems = breakdown.baseItems.map(toBaseItemDraft);
+    const alternates = breakdown.alternates.map(toAlternateDraft);
+    const mergedDraft: BidDrawerDraft = {
+      ...nextDraft,
+      baseItems:
+        baseItems.length > 0
+          ? baseItems
+          : bid?.base_bid_amount !== null && bid?.base_bid_amount !== undefined
+            ? [createFallbackBaseItem(bid.base_bid_amount)]
+            : [],
+      alternates,
+    };
+    setDrawerDraft(mergedDraft);
+    setDrawerInitial(JSON.stringify(mergedDraft));
   };
 
   const saveDirtyBudgets = async (): Promise<boolean> => {
@@ -344,12 +440,7 @@ export default function LevelingPage() {
     if (!data || !activeBidCell || readOnlySnapshot || !drawerDirty) return true;
     setSavingDrawer(true);
     setDrawerError(null);
-    const amount = drawerDraft.baseBidAmount.trim() ? Number(drawerDraft.baseBidAmount.replace(/[$,\s]/g, "")) : null;
-    if (drawerDraft.baseBidAmount.trim() && !Number.isFinite(amount)) {
-      setDrawerError("Base bid amount is invalid.");
-      setSavingDrawer(false);
-      return false;
-    }
+    const amount = computeBaseItemsTotal(drawerDraft.baseItems);
 
     const receivedAt =
       drawerDraft.receivedAt || drawerDraft.status === "submitted"
@@ -363,12 +454,41 @@ export default function LevelingPage() {
       legacyBidId: activeBid?.legacy_bid_id ?? null,
       status: drawerDraft.status,
       baseBidAmount: amount,
-      notes: drawerDraft.notes.trim() || null,
+      notes: mergeBidNotes(drawerDraft.notes, drawerDraft.inclusions),
       receivedAt,
     });
 
     if (!ok) {
       setDrawerError("Unable to save bid details.");
+      setSavingDrawer(false);
+      return false;
+    }
+
+    const breakdownSaved = await saveTradeBidBreakdownByTradeSub({
+      projectId: data.project.id,
+      tradeId: activeBidCell.tradeId,
+      subId: activeBidCell.subId,
+      baseItems: drawerDraft.baseItems.map((item, index) => ({
+        id: item.id,
+        description: item.description.trim(),
+        qty: item.qty.trim() ? Number(item.qty) : null,
+        unit: item.unit,
+        unit_price: parseMoney(item.unitPrice),
+        amount_override: parseMoney(item.amountOverride),
+        notes: item.notes.trim() || null,
+        sort_order: index + 1,
+      })),
+      alternates: drawerDraft.alternates.map((alternate, index) => ({
+        id: alternate.id,
+        title: alternate.title.trim(),
+        accepted: alternate.accepted,
+        amount: parseMoney(alternate.amount) ?? 0,
+        notes: alternate.notes.trim() || null,
+        sort_order: index + 1,
+      })),
+    });
+    if (!breakdownSaved) {
+      setDrawerError("Unable to save bid breakdown.");
       setSavingDrawer(false);
       return false;
     }
@@ -653,7 +773,7 @@ export default function LevelingPage() {
           <div className="mx-auto flex max-w-[1400px] items-center justify-between gap-3">
             <div className="text-sm text-slate-700">
               Unsaved changes: {dirtyBudgetTradeIds.size} budget {dirtyBudgetTradeIds.size === 1 ? "edit" : "edits"}
-              {drawerDirty ? `, active bid ${formatCurrency(Number(drawerDraft.baseBidAmount || 0) || null)}` : ""}
+              {drawerDirty ? `, active bid ${formatCurrency(computeBaseItemsTotal(drawerDraft.baseItems))}` : ""}
             </div>
             <div className="flex items-center gap-2">
               <button
