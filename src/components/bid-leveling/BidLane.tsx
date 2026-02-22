@@ -15,6 +15,7 @@ type BidLaneProps = {
   onStatusChange: (bid: LevelingBid, status: LevelingBid["status"]) => void;
   onRemoveBid: (bid: LevelingBid) => void;
   onAddSub: (subId: string) => void;
+  getBidCardId?: (bid: LevelingBid) => string;
 };
 
 export default function BidLane({
@@ -26,6 +27,7 @@ export default function BidLane({
   onStatusChange,
   onRemoveBid,
   onAddSub,
+  getBidCardId,
 }: BidLaneProps) {
   const stats = computeTradeStats(bids, budgetAmount);
 
@@ -51,6 +53,7 @@ export default function BidLane({
           <BidCard
             key={`${bid.trade_id}:${bid.sub_id}`}
             bid={bid}
+            cardId={getBidCardId?.(bid)}
             subName={sub?.subcontractor?.company_name ?? "Unknown sub"}
             lowBidAmount={stats.low}
             readOnly={readOnly}
