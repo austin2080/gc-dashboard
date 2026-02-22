@@ -1,6 +1,7 @@
 "use client";
 
 import type { BidAlternateDraft } from "@/lib/bidding/leveling-types";
+import { useState } from "react";
 import { formatCurrency, formatMoneyInputBlur, formatMoneyInputTyping, parseMoney } from "@/components/bid-leveling/utils";
 
 function makeAlternate(sortOrder: number): BidAlternateDraft {
@@ -21,6 +22,7 @@ type AlternatesEditorProps = {
 };
 
 export default function AlternatesEditor({ alternates, readOnly, onChange }: AlternatesEditorProps) {
+  const [collapsed, setCollapsed] = useState(false);
   const acceptedTotal = alternates.reduce((sum, row) => {
     if (!row.accepted) return sum;
     return sum + (parseMoney(row.amount) ?? 0);
@@ -31,77 +33,87 @@ export default function AlternatesEditor({ alternates, readOnly, onChange }: Alt
   };
 
   return (
-    <section className="rounded-xl border border-slate-200 p-3">
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-slate-900">Alternates</h3>
-        <button
-          type="button"
-          disabled={readOnly}
-          onClick={() => onChange([...alternates, makeAlternate(alternates.length + 1)])}
-          className="rounded-md border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-700 disabled:bg-slate-100"
-        >
-          Add alternate
-        </button>
-      </div>
+    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <button
+        type="button"
+        onClick={() => setCollapsed((value) => !value)}
+        className="flex w-full items-center justify-between px-4 py-2.5 text-left"
+      >
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Alternates ({alternates.length})</h3>
+        <span className={`text-slate-500 transition ${collapsed ? "" : "rotate-180"}`}>⌃</span>
+      </button>
 
-      <div className="space-y-2">
-        {alternates.map((alternate, index) => (
-          <div key={alternate.id} className="rounded-lg border border-slate-200 bg-white p-2">
-            <div className="grid gap-2 md:grid-cols-[1fr_160px_120px_auto]">
-              <input
-                value={alternate.title}
-                disabled={readOnly}
-                onChange={(event) => update(alternate.id, { title: event.target.value })}
-                placeholder={`Alt #${index + 1} title`}
-                className="rounded border border-slate-200 px-2 py-1 text-xs"
-              />
-              <input
-                value={alternate.amount}
-                disabled={readOnly}
-                onChange={(event) => update(alternate.id, { amount: formatMoneyInputTyping(event.target.value) })}
-                onFocus={() => {
-                  const parsed = parseMoney(alternate.amount);
-                  if (parsed !== null) update(alternate.id, { amount: String(parsed) });
-                }}
-                onBlur={() => update(alternate.id, { amount: formatMoneyInputBlur(alternate.amount) })}
-                inputMode="decimal"
-                placeholder="Amount"
-                className="rounded border border-slate-200 px-2 py-1 text-xs"
-              />
-              <label className="inline-flex items-center gap-2 rounded border border-slate-200 px-2 py-1 text-xs">
-                <input
-                  type="checkbox"
-                  checked={alternate.accepted}
+      {!collapsed ? (
+        <div className="px-4 pb-3">
+          <div className="space-y-1">
+            {alternates.map((alternate, index) => (
+              <div key={alternate.id} className="grid grid-cols-[auto_1fr_160px_auto] items-center gap-2 rounded px-1 py-1.5 hover:bg-slate-50/70">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={alternate.accepted}
                   disabled={readOnly}
-                  onChange={(event) => update(alternate.id, { accepted: event.target.checked })}
+                  onClick={() => update(alternate.id, { accepted: !alternate.accepted })}
+                  className={`relative h-6 w-11 rounded-full transition ${
+                    alternate.accepted ? "bg-slate-700" : "bg-slate-200"
+                  } disabled:opacity-50`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition ${
+                      alternate.accepted ? "left-[22px]" : "left-0.5"
+                    }`}
+                  />
+                </button>
+                <input
+                  value={alternate.title}
+                  disabled={readOnly}
+                  onChange={(event) => update(alternate.id, { title: event.target.value })}
+                  placeholder={`Alt #${index + 1}`}
+                  className="h-7 rounded border border-transparent bg-transparent px-1 text-sm text-slate-800 focus:border-slate-300 focus:bg-white focus:outline-none"
                 />
-                Accepted
-              </label>
-              <button
-                type="button"
-                disabled={readOnly}
-                onClick={() => onChange(alternates.filter((row) => row.id !== alternate.id))}
-                className="rounded border border-rose-200 px-2 py-1 text-xs font-semibold text-rose-700 disabled:bg-slate-100"
-              >
-                Remove
-              </button>
-            </div>
-            <input
-              value={alternate.notes}
-              disabled={readOnly}
-              onChange={(event) => update(alternate.id, { notes: event.target.value })}
-              placeholder="Notes (optional)"
-              className="mt-2 w-full rounded border border-slate-200 px-2 py-1 text-xs"
-            />
-          </div>
-        ))}
-        {!alternates.length ? <p className="text-xs text-slate-500">No alternates added.</p> : null}
-      </div>
+                <input
+                  value={alternate.amount}
+                  disabled={readOnly}
+                  onChange={(event) => update(alternate.id, { amount: formatMoneyInputTyping(event.target.value) })}
+                  onFocus={() => {
+                    const parsed = parseMoney(alternate.amount);
+                    if (parsed !== null) update(alternate.id, { amount: String(parsed) });
+                  }}
+                  onBlur={() => update(alternate.id, { amount: formatMoneyInputBlur(alternate.amount) })}
+                  inputMode="decimal"
+                  placeholder="$0.00"
+                  className="h-7 rounded border border-transparent bg-transparent px-1 text-right font-mono text-sm text-slate-800 focus:border-slate-300 focus:bg-white focus:outline-none"
+                />
+                <button
+                  type="button"
+                  disabled={readOnly}
+                  onClick={() => onChange(alternates.filter((row) => row.id !== alternate.id))}
+                  className="inline-flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-rose-600 disabled:opacity-40"
+                  aria-label="Remove alternate"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
 
-      <div className="mt-3 flex items-center justify-between rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
-        <span className="font-semibold text-slate-700">Accepted Alternates Total</span>
-        <span className="font-semibold text-slate-900">{formatCurrency(acceptedTotal)}</span>
-      </div>
+            {!alternates.length ? <p className="px-1 text-xs text-slate-500">No alternates added.</p> : null}
+          </div>
+
+          <button
+            type="button"
+            disabled={readOnly}
+            onClick={() => onChange([...alternates, makeAlternate(alternates.length + 1)])}
+            className="mt-2 text-sm font-medium text-slate-500 hover:text-slate-700 disabled:opacity-40"
+          >
+            + Add alternate
+          </button>
+
+          <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-2.5">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Accepted Total</span>
+            <span className="text-right font-mono text-sm font-bold text-slate-900">{formatCurrency(acceptedTotal)}</span>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
