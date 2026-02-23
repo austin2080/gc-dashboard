@@ -190,6 +190,40 @@ function formatMoneyBlur(value: string): string {
   }).format(parsed);
 }
 
+async function syncNewInviteSubToDirectory(payload: {
+  bidProjectId: string;
+  companyName: string;
+  tradeName: string | null;
+  primaryContact: string | null;
+  email: string | null;
+  phone: string | null;
+}): Promise<void> {
+  const linkedProjectId = getProjectIdForBidProject(payload.bidProjectId);
+  const query = linkedProjectId ? `?project=${encodeURIComponent(linkedProjectId)}` : "";
+  const response = await fetch(`/api/directory/companies${query}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      projectId: linkedProjectId ?? undefined,
+      companies: [
+        {
+          company_name: payload.companyName,
+          trade: payload.tradeName,
+          primary_contact: payload.primaryContact,
+          email: payload.email,
+          phone: payload.phone,
+          status: "Active",
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const data = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? "Directory sync failed");
+  }
+}
+
 function toYmd(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
@@ -2277,6 +2311,18 @@ export default function BiddingPage() {
                     setInviteError("Unable to create subcontractor.");
                     setSavingInvite(false);
                     return;
+                  }
+                  try {
+                    await syncNewInviteSubToDirectory({
+                      bidProjectId: selectedProject.id,
+                      companyName: newSubDraft.company_name.trim(),
+                      tradeName: newSubTrade.tradeName,
+                      primaryContact: newSubDraft.primary_contact.trim() || null,
+                      email: newSubDraft.email.trim() || null,
+                      phone: newSubDraft.phone.trim() || null,
+                    });
+                  } catch (error) {
+                    console.warn("Invite created but directory sync failed", error);
                   }
                   const sortOrder = getNextProjectSubSortOrder(detail?.projectSubs);
                   const projectSub = await inviteSubToProject({
