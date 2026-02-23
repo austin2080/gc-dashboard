@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import LevelingFilterBar from "@/components/bid-leveling/LevelingFilterBar";
 import LevelingGrid from "@/components/bid-leveling/LevelingGrid";
 import BidDetailDrawer, {
@@ -144,8 +144,77 @@ function mapStatusForFilter(
   return "other";
 }
 
+type QuickFilter =
+  | "over_budget"
+  | "no_bids"
+  | "only_submitted"
+  | "high_risk"
+  | "two_plus_bids";
+
+type LevelingFilterState = {
+  search: string;
+  statusFilter: "all" | "missing" | "lt2" | "submitted";
+  riskOnly: boolean;
+  sortBy: "division" | "alphabetic" | "risk" | "due_soon";
+  quickFilters: QuickFilter[];
+};
+
+const DEFAULT_FILTER_STATE: LevelingFilterState = {
+  search: "",
+  statusFilter: "all",
+  riskOnly: false,
+  sortBy: "division",
+  quickFilters: [],
+};
+
+const QUICK_FILTER_QUERY_KEY = "qf";
+const FILTERS_QUERY_KEY = "filters";
+const VIEW_NAME_QUERY_KEY = "view";
+const LEVELING_VIEW_PRESETS_KEY = "bidLevelingViewPresets";
+const LEVELING_LAST_FILTERS_KEY = "bidLevelingLastFilters";
+
+function serializeFilterState(state: LevelingFilterState): string {
+  return JSON.stringify(state);
+}
+
+function parseFilterState(raw: string | null): LevelingFilterState | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<LevelingFilterState>;
+    return {
+      search: typeof parsed.search === "string" ? parsed.search : DEFAULT_FILTER_STATE.search,
+      statusFilter:
+        parsed.statusFilter === "missing" ||
+        parsed.statusFilter === "lt2" ||
+        parsed.statusFilter === "submitted" ||
+        parsed.statusFilter === "all"
+          ? parsed.statusFilter
+          : DEFAULT_FILTER_STATE.statusFilter,
+      riskOnly: Boolean(parsed.riskOnly),
+      sortBy:
+        parsed.sortBy === "alphabetic" || parsed.sortBy === "risk" || parsed.sortBy === "due_soon" || parsed.sortBy === "division"
+          ? parsed.sortBy
+          : DEFAULT_FILTER_STATE.sortBy,
+      quickFilters: Array.isArray(parsed.quickFilters)
+        ? parsed.quickFilters.filter(
+            (value): value is QuickFilter =>
+              value === "over_budget" ||
+              value === "no_bids" ||
+              value === "only_submitted" ||
+              value === "high_risk" ||
+              value === "two_plus_bids",
+          )
+        : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
 export default function LevelingPage() {
   const searchParams = useSearchParams();
+  const pathname = usePathname();
+  const router = useRouter();
   const queryProjectId = searchParams.get("project");
 
   const [mappedBidProjectId, setMappedBidProjectId] = useState<string | null>(
@@ -157,14 +226,11 @@ export default function LevelingPage() {
   const [data, setData] = useState<BidLevelingProjectData | null>(null);
   const [loading, setLoading] = useState(false);
 
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<
-    "all" | "missing" | "lt2" | "submitted"
-  >("all");
-  const [riskOnly, setRiskOnly] = useState(false);
-  const [sortBy, setSortBy] = useState<
-    "division" | "alphabetic" | "risk" | "due_soon"
-  >("division");
+  const [filterState, setFilterState] =
+    useState<LevelingFilterState>(DEFAULT_FILTER_STATE);
+  const [presetName, setPresetName] = useState("");
+  const [savedViews, setSavedViews] = useState<Record<string, LevelingFilterState>>({});
+  const [resolvedUserId, setResolvedUserId] = useState("anonymous");
 
   const [budgetsByTrade, setBudgetsByTrade] = useState<
     Map<string, { amount: number | null; notes: string | null }>
@@ -212,6 +278,59 @@ export default function LevelingPage() {
 
   useEffect(() => {
     let active = true;
+    async function loadUser() {
+      const userId = await getCurrentUserId();
+      if (!active) return;
+      setResolvedUserId(userId || "anonymous");
+    }
+    void loadUser();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!queryProjectId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setFilterState(DEFAULT_FILTER_STATE);
+      return;
+    }
+
+    const fromQuery = parseFilterState(searchParams.get(FILTERS_QUERY_KEY));
+    if (fromQuery) {
+      setFilterState(fromQuery);
+      return;
+    }
+
+    const storedRaw = localStorage.getItem(LEVELING_LAST_FILTERS_KEY);
+    if (!storedRaw) {
+      setFilterState(DEFAULT_FILTER_STATE);
+      return;
+    }
+
+    try {
+      const stored = JSON.parse(storedRaw) as Record<string, LevelingFilterState>;
+      const key = `${queryProjectId}:${resolvedUserId}`;
+      setFilterState(stored[key] ?? DEFAULT_FILTER_STATE);
+    } catch {
+      setFilterState(DEFAULT_FILTER_STATE);
+    }
+  }, [queryProjectId, resolvedUserId, searchParams]);
+
+  useEffect(() => {
+    const raw = localStorage.getItem(LEVELING_VIEW_PRESETS_KEY);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as Record<string, LevelingFilterState>;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSavedViews(parsed);
+    } catch {
+      setSavedViews({});
+    }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
     async function loadData() {
       if (!queryProjectId) {
         setResolvedBidProjectId(null);
@@ -248,6 +367,7 @@ export default function LevelingPage() {
 
   useEffect(() => {
     if (!data) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setBudgetsByTrade(new Map());
       return;
     }
@@ -373,6 +493,44 @@ export default function LevelingPage() {
     return map;
   }, [bidsByTradeSub, data, subs]);
 
+  const { search, statusFilter, riskOnly, sortBy, quickFilters } = filterState;
+
+  const setPartialFilterState = (partial: Partial<LevelingFilterState>) => {
+    setFilterState((prev) => ({ ...prev, ...partial }));
+  };
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (search.trim()) count += 1;
+    if (statusFilter !== "all") count += 1;
+    if (riskOnly) count += 1;
+    if (sortBy !== "division") count += 1;
+    count += quickFilters.length;
+    return count;
+  }, [quickFilters, riskOnly, search, sortBy, statusFilter]);
+
+  useEffect(() => {
+    if (!queryProjectId) return;
+    const key = `${queryProjectId}:${resolvedUserId}`;
+
+    const existingRaw = localStorage.getItem(LEVELING_LAST_FILTERS_KEY);
+    const existing = existingRaw ? (JSON.parse(existingRaw) as Record<string, LevelingFilterState>) : {};
+    existing[key] = filterState;
+    localStorage.setItem(LEVELING_LAST_FILTERS_KEY, JSON.stringify(existing));
+
+    const currentSerialized = searchParams.get(FILTERS_QUERY_KEY);
+    const nextSerialized = serializeFilterState(filterState);
+    const currentQuick = searchParams.get(QUICK_FILTER_QUERY_KEY) ?? "";
+    const nextQuick = quickFilters.join(",");
+    if (currentSerialized === nextSerialized && currentQuick === nextQuick) return;
+
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.set(FILTERS_QUERY_KEY, nextSerialized);
+    nextParams.set(QUICK_FILTER_QUERY_KEY, nextQuick);
+    const nextUrl = `${pathname}?${nextParams.toString()}`;
+    router.replace(nextUrl, { scroll: false });
+  }, [filterState, pathname, queryProjectId, quickFilters, resolvedUserId, router, searchParams]);
+
   const filteredTrades = useMemo(() => {
     if (!data) return [];
 
@@ -418,6 +576,32 @@ export default function LevelingPage() {
         if (!riskOnly) return true;
         return tradeRiskScore(trade) > 0;
       })
+      .filter((trade) => {
+        if (!quickFilters.length) return true;
+        const bids = bidsByTradeId.get(trade.id) ?? [];
+        const stats = computeTradeStats(
+          bids,
+          budgetsByTrade.get(trade.id)?.amount ?? null,
+        );
+        return quickFilters.every((filterKey) => {
+          if (filterKey === "over_budget") {
+            return stats.budgetDeltaAmount !== null && stats.budgetDeltaAmount > 0;
+          }
+          if (filterKey === "no_bids") {
+            return stats.coverageCount === 0;
+          }
+          if (filterKey === "only_submitted") {
+            return bids.length > 0 && bids.every((bid) => bid.status === "submitted");
+          }
+          if (filterKey === "high_risk") {
+            return tradeRiskScore(trade) >= 2;
+          }
+          if (filterKey === "two_plus_bids") {
+            return stats.coverageCount >= 2;
+          }
+          return true;
+        });
+      })
       .sort((a, b) => {
         if (sortBy === "alphabetic")
           return a.trade_name.localeCompare(b.trade_name);
@@ -435,6 +619,7 @@ export default function LevelingPage() {
     search,
     sortBy,
     statusFilter,
+    quickFilters,
   ]);
 
   const activeSnapshot = useMemo<LevelingSnapshot | null>(() => {
@@ -755,10 +940,51 @@ export default function LevelingPage() {
         statusFilter={statusFilter}
         riskOnly={riskOnly}
         sortBy={sortBy}
-        onSearchChange={setSearch}
-        onStatusFilterChange={setStatusFilter}
-        onRiskOnlyChange={setRiskOnly}
-        onSortByChange={setSortBy}
+        quickFilters={quickFilters}
+        activeFilterCount={activeFilterCount}
+        presetName={presetName}
+        savedViews={Object.keys(savedViews).sort((a, b) => a.localeCompare(b))}
+        onSearchChange={(value) => setPartialFilterState({ search: value })}
+        onStatusFilterChange={(value) =>
+          setPartialFilterState({ statusFilter: value })
+        }
+        onRiskOnlyChange={(value) => setPartialFilterState({ riskOnly: value })}
+        onSortByChange={(value) => setPartialFilterState({ sortBy: value })}
+        onToggleQuickFilter={(value) =>
+          setFilterState((prev) => ({
+            ...prev,
+            quickFilters: prev.quickFilters.includes(value)
+              ? prev.quickFilters.filter((item) => item !== value)
+              : [...prev.quickFilters, value],
+          }))
+        }
+        onClearAll={() => setFilterState(DEFAULT_FILTER_STATE)}
+        onPresetNameChange={setPresetName}
+        onSaveView={() => {
+          const trimmed = presetName.trim();
+          if (!trimmed) return;
+          setSavedViews((prev) => {
+            const next = { ...prev, [trimmed]: filterState };
+            localStorage.setItem(LEVELING_VIEW_PRESETS_KEY, JSON.stringify(next));
+            return next;
+          });
+          const nextParams = new URLSearchParams(searchParams.toString());
+          nextParams.set(VIEW_NAME_QUERY_KEY, trimmed);
+          router.replace(`${pathname}?${nextParams.toString()}`, {
+            scroll: false,
+          });
+          setPresetName("");
+        }}
+        onRestoreView={(name) => {
+          const next = savedViews[name];
+          if (!next) return;
+          setFilterState(next);
+          const nextParams = new URLSearchParams(searchParams.toString());
+          nextParams.set(VIEW_NAME_QUERY_KEY, name);
+          router.replace(`${pathname}?${nextParams.toString()}`, {
+            scroll: false,
+          });
+        }}
       />
 
       <LevelingGrid
