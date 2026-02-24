@@ -147,21 +147,59 @@ export async function upsertProjectTradeBudget(payload: {
   budgetNotes: string | null;
 }): Promise<boolean> {
   const supabase = createClient();
+  const row = {
+    project_id: payload.projectId,
+    trade_id: payload.tradeId,
+    budget_amount: payload.budgetAmount,
+    budget_notes: payload.budgetNotes,
+  };
   const { error } = await supabase.from("project_trade_budget").upsert(
-    {
-      project_id: payload.projectId,
-      trade_id: payload.tradeId,
-      budget_amount: payload.budgetAmount,
-      budget_notes: payload.budgetNotes,
-    },
+    row,
     { onConflict: "project_id,trade_id" }
   );
 
-  if (error) {
-    console.error("Failed to upsert project_trade_budget", error);
-    return false;
+  if (!error) return true;
+  if (isOptionalLevelingTableError(error)) return true;
+
+  const code = String(error.code ?? "").toLowerCase();
+  const message = String(error.message ?? "").toLowerCase();
+  const conflictUnsupported =
+    code === "42p10" ||
+    message.includes("on conflict") ||
+    message.includes("no unique or exclusion constraint");
+
+  // Some environments don't have a unique constraint for onConflict yet.
+  // Fallback to update-then-insert to keep budget edits functional.
+  if (conflictUnsupported) {
+    const { data: updatedRows, error: updateError } = await supabase
+      .from("project_trade_budget")
+      .update({
+        budget_amount: payload.budgetAmount,
+        budget_notes: payload.budgetNotes,
+      })
+      .eq("project_id", payload.projectId)
+      .eq("trade_id", payload.tradeId)
+      .select("id")
+      .limit(1);
+    if (updateError) {
+      console.error("Failed to update project_trade_budget fallback", updateError);
+      return false;
+    }
+    if ((updatedRows ?? []).length > 0) return true;
+
+    const { error: insertError } = await supabase
+      .from("project_trade_budget")
+      .insert(row);
+    if (insertError) {
+      if (isOptionalLevelingTableError(insertError)) return true;
+      console.error("Failed to insert project_trade_budget fallback", insertError);
+      return false;
+    }
+    return true;
   }
-  return true;
+
+  console.error("Failed to upsert project_trade_budget", error);
+  return false;
 }
 
 async function recalcTradeLowFlags(projectId: string, tradeId: string): Promise<void> {
