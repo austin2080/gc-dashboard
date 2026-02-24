@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ModeContext } from "@/components/mode-provider";
 import type { ProjectRow } from "@/lib/db/projects";
 import { listBidProjects } from "@/lib/bidding/store";
@@ -68,13 +68,6 @@ function formatDateLabel(value: string | null) {
   return date.toLocaleDateString();
 }
 
-function buildContextUrl(pathname: string, searchParams: URLSearchParams, projectId: string | null) {
-  const nextParams = new URLSearchParams(searchParams.toString());
-  if (projectId) nextParams.set("project", projectId);
-  else nextParams.delete("project");
-  return `${pathname}${nextParams.toString() ? `?${nextParams.toString()}` : ""}`;
-}
-
 export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
   const { mode } = useContext(ModeContext);
   const pathname = usePathname();
@@ -124,13 +117,18 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
   const activeProject = activeProjectId ? projectsForNav.find((p) => p.id === activeProjectId) ?? null : null;
   const activeProjectIsRegular = activeProject ? projects.some((project) => project.id === activeProject.id) : false;
 
-  const withMode = (href: string) => {
+  const withMode = useCallback((href: string) => {
     if (mode !== "waiverdesk") return href;
     if (href.startsWith("/waiverdesk")) return href;
     return `/waiverdesk${href}`;
-  };
+  }, [mode]);
 
   const withContext = (href: string) => appendProjectQuery(withMode(href), activeProjectId);
+  const getProjectSwitchUrl = (projectId: string) => {
+    const isRegularProject = projects.some((project) => project.id === projectId);
+    if (isRegularProject) return withMode(`/projects/${projectId}`);
+    return appendProjectQuery(withMode("/bidding"), projectId);
+  };
   const clearProjectContext = () => {
     localStorage.removeItem(ACTIVE_PROJECT_STORAGE_KEY);
   };
@@ -154,7 +152,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
         })),
       },
     ],
-    [activeProjectId, mode]
+    [activeProjectId, withMode]
   );
 
   const currentToolLabel = (() => {
@@ -254,7 +252,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
       previousProjectId,
       nextProjectId: projectId,
     });
-    router.replace(buildContextUrl(pathname, new URLSearchParams(searchParams.toString()), projectId));
+    router.push(getProjectSwitchUrl(projectId));
     closeMenus();
   };
 
@@ -519,7 +517,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
                   setRecentProjectIds(nextRecent);
                   localStorage.setItem(ACTIVE_PROJECT_STORAGE_KEY, previousProjectId);
                   localStorage.setItem(RECENT_PROJECTS_STORAGE_KEY, JSON.stringify(nextRecent));
-                  router.replace(buildContextUrl(pathname, new URLSearchParams(searchParams.toString()), previousProjectId));
+                  router.push(getProjectSwitchUrl(previousProjectId));
                   setSwitchToast(null);
                 }}
                 className="rounded-md px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
