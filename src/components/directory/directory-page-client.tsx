@@ -171,6 +171,8 @@ export default function DirectoryPageClient() {
 
   const [detailCompanyId, setDetailCompanyId] = useState<string | null>(null);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+  const [pendingRemovalCompany, setPendingRemovalCompany] = useState<{ id: string; name: string } | null>(null);
+  const [removingCompany, setRemovingCompany] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importError, setImportError] = useState("");
@@ -606,6 +608,28 @@ export default function DirectoryPageClient() {
     URL.revokeObjectURL(url);
   }
 
+  async function removeCompany(companyId: string) {
+    const res = await fetch(`/api/directory/companies/${companyId}`, { method: "DELETE" });
+    if (!res.ok) {
+      const raw = await res.text();
+      let payload: { error?: string } = {};
+      try {
+        payload = raw ? (JSON.parse(raw) as { error?: string }) : {};
+      } catch {
+        payload = {};
+      }
+      const message =
+        payload.error ??
+        (raw ? `Failed to remove company (${res.status}): ${raw}` : `Failed to remove company (${res.status}).`);
+      showToast(message, "error");
+      return false;
+    }
+    if (detailCompanyId === companyId) setDetailCompanyId(null);
+    await fetchDirectory();
+    showToast("Company removed.", "success");
+    return true;
+  }
+
   return (
     <div className="space-y-4">
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -769,25 +793,8 @@ export default function DirectoryPageClient() {
                             {company.isActive ? "Deactivate" : "Activate"}
                           </button>
                           <button
-                            onClick={async () => {
-                              const res = await fetch(`/api/directory/companies/${company.id}`, { method: "DELETE" });
-                              if (!res.ok) {
-                                const raw = await res.text();
-                                let payload: { error?: string } = {};
-                                try {
-                                  payload = raw ? (JSON.parse(raw) as { error?: string }) : {};
-                                } catch {
-                                  payload = {};
-                                }
-                                const message =
-                                  payload.error ??
-                                  (raw ? `Failed to remove company (${res.status}): ${raw}` : `Failed to remove company (${res.status}).`);
-                                showToast(message, "error");
-                                return;
-                              }
-                              if (detailCompanyId === company.id) setDetailCompanyId(null);
-                              await fetchDirectory();
-                              showToast("Company removed.", "success");
+                            onClick={() => {
+                              setPendingRemovalCompany({ id: company.id, name: company.name });
                             }}
                             className="underline text-red-600"
                           >
@@ -817,6 +824,42 @@ export default function DirectoryPageClient() {
         onChange={setDraft}
         onSave={saveCompany}
       />
+
+      {pendingRemovalCompany ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+            <h3 className="text-base font-semibold text-slate-900">Remove from Subs Directory?</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              {pendingRemovalCompany.name} will be removed from the directory.
+              This cannot be undone.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={removingCompany}
+                onClick={() => setPendingRemovalCompany(null)}
+                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={removingCompany}
+                onClick={async () => {
+                  setRemovingCompany(true);
+                  const ok = await removeCompany(pendingRemovalCompany.id);
+                  setRemovingCompany(false);
+                  if (!ok) return;
+                  setPendingRemovalCompany(null);
+                }}
+                className="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-semibold text-white disabled:bg-rose-300"
+              >
+                {removingCompany ? "Removing..." : "Remove"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <CompanyDetailPanel
         company={selectedCompany}
