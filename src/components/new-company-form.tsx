@@ -6,9 +6,10 @@ type FormState = { error?: string };
 
 type Props = {
   action: (prevState: FormState, formData: FormData) => Promise<FormState>;
+  initialName?: string;
 };
 
-export default function NewCompanyForm({ action }: Props) {
+export default function NewCompanyForm({ action, initialName = "" }: Props) {
   const [state, formAction] = useActionState(action, { error: "" });
 
   return (
@@ -17,6 +18,7 @@ export default function NewCompanyForm({ action }: Props) {
         <div className="opacity-70">Company Name</div>
         <input
           name="name"
+          defaultValue={initialName}
           className="w-full rounded border border-black/20 px-3 py-2"
           placeholder="Company name"
         />

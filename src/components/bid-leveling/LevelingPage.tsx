@@ -20,6 +20,7 @@ import {
   upsertProjectTradeBudget,
   upsertTradeBid,
 } from "@/lib/bidding/leveling-store";
+import { createBidSubcontractor, inviteSubToProject } from "@/lib/bidding/store";
 import type { BidTrade, BidProjectSub } from "@/lib/bidding/types";
 import type {
   BidAlternateDraft,
@@ -40,6 +41,11 @@ import {
   parseMoney,
 } from "@/components/bid-leveling/utils";
 import { computeBaseItemsTotal } from "@/components/bid-leveling/BaseBidBuilder";
+import {
+  getDirectoryCompanyProfileUrl,
+  getDirectoryNewPrefillUrl,
+  syncBidSubToDirectory,
+} from "@/lib/bidding/sub-sync";
 
 const EMPTY_DRAWER_DRAFT: BidDrawerDraft = {
   status: "invited",
@@ -267,6 +273,12 @@ export default function LevelingPage() {
   const [removingBid, setRemovingBid] = useState(false);
   const [undoToast, setUndoToast] = useState<UndoToast | null>(null);
   const [restoringBid, setRestoringBid] = useState(false);
+  const [createSubNotice, setCreateSubNotice] = useState<{
+    type: "success" | "warning";
+    message: string;
+    href: string;
+    label: string;
+  } | null>(null);
 
   useEffect(() => {
     const refreshMappedProject = () => {
@@ -1260,6 +1272,100 @@ export default function LevelingPage() {
           const refreshed = await getBidLevelingProjectData(data.project.id);
           if (refreshed) setData(refreshed);
         }}
+        onCreateAndAddSub={async ({
+          tradeId,
+          companyName,
+          contact,
+          email,
+          phone,
+        }) => {
+          if (!data || readOnlySnapshot) return;
+
+          const createdSub = await createBidSubcontractor({
+            company_name: companyName,
+            primary_contact: contact || null,
+            email: email || null,
+            phone: phone || null,
+          });
+          if (!createdSub) {
+            setCreateSubNotice({
+              type: "warning",
+              message: "Unable to create subcontractor.",
+              href: getDirectoryNewPrefillUrl(companyName),
+              label: "Open Directory",
+            });
+            return;
+          }
+
+          let notice: {
+            type: "success" | "warning";
+            message: string;
+            href: string;
+            label: string;
+          } = {
+            type: "success",
+            message: "Sub created. Complete full profile in Directory.",
+            href: getDirectoryNewPrefillUrl(companyName),
+            label: "Open Directory",
+          };
+
+          try {
+            const synced = await syncBidSubToDirectory({
+              bidProjectId: data.project.id,
+              companyName,
+              tradeName: data.trades.find((trade) => trade.id === tradeId)?.trade_name ?? null,
+              primaryContact: contact || null,
+              email: email || null,
+              phone: phone || null,
+            });
+            if (synced.directoryCompanyId) {
+              notice = {
+                type: "success",
+                message: "Sub created. Open profile in Directory.",
+                href: getDirectoryCompanyProfileUrl(synced.directoryCompanyId),
+                label: "Open Profile",
+              };
+            }
+          } catch (error) {
+            console.warn("Leveling create-sub directory sync failed", error);
+            notice = {
+              type: "warning",
+              message: "Sub created, but Directory sync failed.",
+              href: getDirectoryNewPrefillUrl(companyName),
+              label: "Complete in Directory",
+            };
+          }
+
+          const invite = await inviteSubToProject({
+            project_id: data.project.id,
+            subcontractor_id: createdSub.id,
+            sort_order: (data.projectSubs.length || 0) + 1,
+          });
+          if (!invite) {
+            setCreateSubNotice({
+              type: "warning",
+              message: "Sub created, but failed to invite to project.",
+              href: getDirectoryNewPrefillUrl(companyName),
+              label: "Open Directory",
+            });
+            return;
+          }
+
+          const ok = await upsertTradeBid({
+            projectId: data.project.id,
+            tradeId,
+            subId: invite.id,
+            legacyBidId: null,
+            status: "invited",
+            baseBidAmount: null,
+            notes: null,
+            receivedAt: null,
+          });
+          if (!ok) return;
+          setCreateSubNotice(notice);
+          const refreshed = await getBidLevelingProjectData(data.project.id);
+          if (refreshed) setData(refreshed);
+        }}
       />
 
       <BidDetailDrawer
@@ -1287,6 +1393,27 @@ export default function LevelingPage() {
           }
         }}
       />
+
+
+      {createSubNotice ? (
+        <div
+          className={`fixed bottom-5 right-5 z-50 max-w-sm rounded-lg border px-4 py-3 text-sm shadow-lg ${
+            createSubNotice.type === "warning"
+              ? "border-amber-300 bg-amber-50 text-amber-900"
+              : "border-emerald-300 bg-emerald-50 text-emerald-900"
+          }`}
+        >
+          <p>{createSubNotice.message}</p>
+          <div className="mt-2 flex items-center gap-3">
+            <a className="font-semibold underline" href={createSubNotice.href}>
+              {createSubNotice.label}
+            </a>
+            <button type="button" className="text-xs opacity-70" onClick={() => setCreateSubNotice(null)}>
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <SnapshotModal
         open={snapshotModalOpen}

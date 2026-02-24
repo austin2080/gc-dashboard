@@ -25,6 +25,11 @@ import {
 } from "@/lib/bidding/store";
 import BidManagementViewToggle from "@/components/bid-management-view-toggle";
 import { getBidProjectIdForProject, getProjectIdForBidProject, setBidProjectLink } from "@/lib/bidding/project-links";
+import {
+  getDirectoryCompanyProfileUrl,
+  getDirectoryNewPrefillUrl,
+  syncBidSubToDirectory,
+} from "@/lib/bidding/sub-sync";
 
 type TradeSubBid = {
   bidId: string;
@@ -188,40 +193,6 @@ function formatMoneyBlur(value: string): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(parsed);
-}
-
-async function syncNewInviteSubToDirectory(payload: {
-  bidProjectId: string;
-  companyName: string;
-  tradeName: string | null;
-  primaryContact: string | null;
-  email: string | null;
-  phone: string | null;
-}): Promise<void> {
-  const linkedProjectId = getProjectIdForBidProject(payload.bidProjectId);
-  const query = linkedProjectId ? `?project=${encodeURIComponent(linkedProjectId)}` : "";
-  const response = await fetch(`/api/directory/companies${query}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      projectId: linkedProjectId ?? undefined,
-      companies: [
-        {
-          company_name: payload.companyName,
-          trade: payload.tradeName,
-          primary_contact: payload.primaryContact,
-          email: payload.email,
-          phone: payload.phone,
-          status: "Active",
-        },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const data = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(data?.error ?? "Directory sync failed");
-  }
 }
 
 function toYmd(date: Date): string {
@@ -834,6 +805,12 @@ export default function BiddingPage() {
   const [newSubTrade, setNewSubTrade] = useState<{ tradeId: string; tradeName: string } | null>(null);
   const [savingInvite, setSavingInvite] = useState(false);
   const [inviteError, setInviteError] = useState<string | null>(null);
+  const [createSubNotice, setCreateSubNotice] = useState<{
+    type: "success" | "warning";
+    message: string;
+    href: string;
+    label: string;
+  } | null>(null);
   const [subList, setSubList] = useState<
     Array<{ id: string; company_name: string; primary_contact: string | null; email: string | null; phone: string | null }>
   >([]);
@@ -2233,6 +2210,13 @@ export default function BiddingPage() {
                 setInviteError(null);
                 const bidAmountValue = parseMoneyInput(inviteDraft.bid_amount);
                 const notesValue = inviteDraft.notes.trim() || null;
+                const createdCompanyName = newSubDraft.company_name.trim();
+                let nextCreateSubNotice: {
+                  type: "success" | "warning";
+                  message: string;
+                  href: string;
+                  label: string;
+                } | null = null;
                 if (inviteTarget) {
                   const ok = await createTradeBid({
                     project_id: selectedProject.id,
@@ -2290,7 +2274,7 @@ export default function BiddingPage() {
                     return;
                   }
                 } else {
-                  if (!newSubDraft.company_name.trim()) {
+                  if (!createdCompanyName) {
                     setInviteError("Company name is required.");
                     setSavingInvite(false);
                     return;
@@ -2302,7 +2286,7 @@ export default function BiddingPage() {
                   }
                   const tradeId = newSubTrade.tradeId;
                   const sub = await createBidSubcontractor({
-                    company_name: newSubDraft.company_name,
+                    company_name: createdCompanyName,
                     primary_contact: newSubDraft.primary_contact.trim() || null,
                     email: newSubDraft.email.trim() || null,
                     phone: newSubDraft.phone.trim() || null,
@@ -2313,16 +2297,30 @@ export default function BiddingPage() {
                     return;
                   }
                   try {
-                    await syncNewInviteSubToDirectory({
+                    const synced = await syncBidSubToDirectory({
                       bidProjectId: selectedProject.id,
-                      companyName: newSubDraft.company_name.trim(),
+                      companyName: createdCompanyName,
                       tradeName: newSubTrade.tradeName,
                       primaryContact: newSubDraft.primary_contact.trim() || null,
                       email: newSubDraft.email.trim() || null,
                       phone: newSubDraft.phone.trim() || null,
                     });
+                    if (synced.directoryCompanyId) {
+                      nextCreateSubNotice = {
+                        type: "success",
+                        message: "Sub created. Open profile in Directory.",
+                        href: getDirectoryCompanyProfileUrl(synced.directoryCompanyId),
+                        label: "Open Profile",
+                      };
+                    }
                   } catch (error) {
                     console.warn("Invite created but directory sync failed", error);
+                    nextCreateSubNotice = {
+                      type: "warning",
+                      message: "Sub created, but Directory sync failed.",
+                      href: getDirectoryNewPrefillUrl(createdCompanyName),
+                      label: "Complete in Directory",
+                    };
                   }
                   const sortOrder = getNextProjectSubSortOrder(detail?.projectSubs);
                   const projectSub = await inviteSubToProject({
@@ -2364,6 +2362,16 @@ export default function BiddingPage() {
                   selected_sub_id: "",
                 });
                 setSubSearch("");
+                if (inviteDraft.invitee_mode === "new") {
+                  setCreateSubNotice(
+                    nextCreateSubNotice ?? {
+                      type: "success",
+                      message: "Sub created. Complete full profile in Directory.",
+                      href: getDirectoryNewPrefillUrl(createdCompanyName),
+                      label: "Open Directory",
+                    }
+                  );
+                }
                 setSavingInvite(false);
               }}
             >
@@ -2802,6 +2810,26 @@ export default function BiddingPage() {
               </div>
             </form>
           </aside>
+        </div>
+      ) : null}
+
+      {createSubNotice ? (
+        <div
+          className={`fixed bottom-5 right-5 z-50 max-w-sm rounded-lg border px-4 py-3 text-sm shadow-lg ${
+            createSubNotice.type === "warning"
+              ? "border-amber-300 bg-amber-50 text-amber-900"
+              : "border-emerald-300 bg-emerald-50 text-emerald-900"
+          }`}
+        >
+          <p>{createSubNotice.message}</p>
+          <div className="mt-2 flex items-center gap-3">
+            <a className="font-semibold underline" href={createSubNotice.href}>
+              {createSubNotice.label}
+            </a>
+            <button type="button" className="text-xs opacity-70" onClick={() => setCreateSubNotice(null)}>
+              Dismiss
+            </button>
+          </div>
         </div>
       ) : null}
     </main>

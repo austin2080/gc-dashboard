@@ -49,8 +49,12 @@ export async function POST(req: Request) {
   try {
     const url = new URL(req.url);
     const queryProjectId = url.searchParams.get("project");
-    const payload = (await req.json().catch(() => null)) as { companies?: CompanyInput[]; projectId?: string } | null;
+    const queryBidProjectId = url.searchParams.get("bidProject");
+    const payload = (await req.json().catch(() => null)) as
+      | { companies?: CompanyInput[]; projectId?: string; bidProjectId?: string }
+      | null;
     const fallbackProjectId = payload?.projectId ?? queryProjectId;
+    const fallbackBidProjectId = payload?.bidProjectId ?? queryBidProjectId;
 
     let supabase: Awaited<ReturnType<typeof createClient>>;
     let dataClient: Awaited<ReturnType<typeof createClient>> | ReturnType<typeof createAdminClient>;
@@ -94,6 +98,15 @@ export async function POST(req: Request) {
           .maybeSingle();
         if (projectError || !project?.company_id) throw new Error("No company membership");
         companyId = project.company_id as string;
+      } else if (fallbackBidProjectId) {
+        const { data: bidProject, error: bidProjectError } = await dataClient
+          .from("bid_projects")
+          .select("company_id")
+          .eq("id", fallbackBidProjectId)
+          .limit(1)
+          .maybeSingle();
+        if (bidProjectError || !bidProject?.company_id) throw new Error("No company membership");
+        companyId = bidProject.company_id as string;
       } else {
         const { data: userProject } = await dataClient
           .from("projects")

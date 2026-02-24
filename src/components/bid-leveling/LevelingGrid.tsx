@@ -16,6 +16,13 @@ type LevelingGridProps = {
   onStatusChange: (payload: { tradeId: string; bid: LevelingBid; status: LevelingBid["status"] }) => void;
   onRemoveBid: (payload: { tradeId: string; bid: LevelingBid }) => void;
   onAddSub: (payload: { tradeId: string; subId: string }) => void;
+  onCreateAndAddSub: (payload: {
+    tradeId: string;
+    companyName: string;
+    contact: string;
+    email: string;
+    phone: string;
+  }) => Promise<void>;
 };
 
 export default function LevelingGrid({
@@ -29,6 +36,7 @@ export default function LevelingGrid({
   onStatusChange,
   onRemoveBid,
   onAddSub,
+  onCreateAndAddSub,
 }: LevelingGridProps) {
   const [expandedByTrade, setExpandedByTrade] = useState<Record<string, boolean>>({});
 
@@ -38,7 +46,10 @@ export default function LevelingGrid({
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="max-h-[72vh] overflow-auto">
-        <table className="w-full table-fixed border-separate border-spacing-0" style={{ minWidth: `${tradeWidth + budgetWidth + 760}px` }}>
+        <table
+          className="w-full table-fixed border-separate border-spacing-0"
+          style={{ minWidth: `${tradeWidth + budgetWidth + 760}px` }}
+        >
           <colgroup>
             <col style={{ width: `${tradeWidth}px` }} />
             <col style={{ width: `${budgetWidth}px` }} />
@@ -79,6 +90,12 @@ export default function LevelingGrid({
                 onStatusChange={(bid, status) => onStatusChange({ tradeId: trade.id, bid, status })}
                 onRemoveBid={(bid) => onRemoveBid({ tradeId: trade.id, bid })}
                 onAddSub={(subId) => onAddSub({ tradeId: trade.id, subId })}
+                onCreateAndAddSub={(payload) =>
+                  onCreateAndAddSub({
+                    tradeId: trade.id,
+                    ...payload,
+                  })
+                }
               />
             ))}
           </tbody>

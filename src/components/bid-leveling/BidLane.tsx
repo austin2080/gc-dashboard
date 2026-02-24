@@ -15,6 +15,12 @@ type BidLaneProps = {
   onStatusChange: (bid: LevelingBid, status: LevelingBid["status"]) => void;
   onRemoveBid: (bid: LevelingBid) => void;
   onAddSub: (subId: string) => void;
+  onCreateAndAddSub: (payload: {
+    companyName: string;
+    contact: string;
+    email: string;
+    phone: string;
+  }) => Promise<void>;
   getBidCardId?: (bid: LevelingBid) => string;
 };
 
@@ -27,6 +33,7 @@ export default function BidLane({
   onStatusChange,
   onRemoveBid,
   onAddSub,
+  onCreateAndAddSub,
   getBidCardId,
 }: BidLaneProps) {
   const stats = computeTradeStats(bids, budgetAmount);
@@ -40,7 +47,12 @@ export default function BidLane({
         <div className="flex min-w-[220px] items-center rounded-xl border border-dashed border-slate-300 px-3 text-sm text-slate-500">
           No bids yet
         </div>
-        <AddSubCard availableSubs={availableSubs} readOnly={readOnly} onAdd={onAddSub} />
+        <AddSubCard
+          availableSubs={availableSubs}
+          readOnly={readOnly}
+          onAdd={onAddSub}
+          onCreateAndAdd={onCreateAndAddSub}
+        />
       </div>
     );
   }
@@ -63,7 +75,12 @@ export default function BidLane({
           />
         );
       })}
-      <AddSubCard availableSubs={availableSubs} readOnly={readOnly} onAdd={onAddSub} />
+      <AddSubCard
+        availableSubs={availableSubs}
+        readOnly={readOnly}
+        onAdd={onAddSub}
+        onCreateAndAdd={onCreateAndAddSub}
+      />
     </div>
   );
 }

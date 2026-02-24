@@ -2,11 +2,13 @@
 
 import BudgetCell from "@/components/bid-leveling/BudgetCell";
 import BidLane from "@/components/bid-leveling/BidLane";
-import { computeTradeStats, formatCurrency, formatPercent } from "@/components/bid-leveling/utils";
+import {
+  computeTradeStats,
+  formatCurrency,
+  formatPercent,
+} from "@/components/bid-leveling/utils";
 import type { BidTrade, BidProjectSub } from "@/lib/bidding/types";
 import type { LevelingBid } from "@/lib/bidding/leveling-types";
-
-
 
 type RecommendationRiskLevel = "Low" | "Med" | "High";
 
@@ -19,19 +21,33 @@ type TradeRecommendation = {
   ruleExplanation: string;
 };
 
-function getTradeRecommendation(bids: LevelingBid[], allSubs: BidProjectSub[], budgetAmount: number | null): TradeRecommendation | null {
-  const submittedBids = bids.filter((bid) => bid.status === "submitted" && bid.base_bid_amount !== null);
+function getTradeRecommendation(
+  bids: LevelingBid[],
+  allSubs: BidProjectSub[],
+  budgetAmount: number | null,
+): TradeRecommendation | null {
+  const submittedBids = bids.filter(
+    (bid) => bid.status === "submitted" && bid.base_bid_amount !== null,
+  );
   if (!submittedBids.length) return null;
 
-  const rankedBids = [...submittedBids].sort((a, b) => (a.base_bid_amount as number) - (b.base_bid_amount as number));
+  const rankedBids = [...submittedBids].sort(
+    (a, b) => (a.base_bid_amount as number) - (b.base_bid_amount as number),
+  );
   const recommendedBid = rankedBids[0];
   const amount = recommendedBid.base_bid_amount as number;
-  const subName = allSubs.find((sub) => sub.id === recommendedBid.sub_id)?.subcontractor?.company_name ?? "Unknown sub";
+  const subName =
+    allSubs.find((sub) => sub.id === recommendedBid.sub_id)?.subcontractor
+      ?.company_name ?? "Unknown sub";
 
   const lowBid = rankedBids[0].base_bid_amount as number;
   const secondBid = rankedBids[1]?.base_bid_amount ?? null;
-  const spreadFromSecond = secondBid !== null && lowBid > 0 ? ((secondBid - lowBid) / lowBid) * 100 : null;
-  const overBudgetPct = budgetAmount !== null && budgetAmount > 0 ? ((amount - budgetAmount) / budgetAmount) * 100 : null;
+  const spreadFromSecond =
+    secondBid !== null && lowBid > 0 ? ((secondBid - lowBid) / lowBid) * 100 : null;
+  const overBudgetPct =
+    budgetAmount !== null && budgetAmount > 0
+      ? ((amount - budgetAmount) / budgetAmount) * 100
+      : null;
 
   const rationales: string[] = ["Lowest qualified"];
   if (budgetAmount !== null) {
@@ -41,9 +57,16 @@ function getTradeRecommendation(bids: LevelingBid[], allSubs: BidProjectSub[], b
   }
 
   let riskLevel: RecommendationRiskLevel = "Med";
-  if ((overBudgetPct !== null && overBudgetPct > 5) || (spreadFromSecond !== null && spreadFromSecond > 12)) {
+  if (
+    (overBudgetPct !== null && overBudgetPct > 5) ||
+    (spreadFromSecond !== null && spreadFromSecond > 12)
+  ) {
     riskLevel = "High";
-  } else if ((overBudgetPct !== null && overBudgetPct <= 0) || (spreadFromSecond !== null && spreadFromSecond <= 5) || secondBid === null) {
+  } else if (
+    (overBudgetPct !== null && overBudgetPct <= 0) ||
+    (spreadFromSecond !== null && spreadFromSecond <= 5) ||
+    secondBid === null
+  ) {
     riskLevel = "Low";
   }
 
@@ -80,6 +103,12 @@ type TradeRowProps = {
   onStatusChange: (bid: LevelingBid, status: LevelingBid["status"]) => void;
   onRemoveBid: (bid: LevelingBid) => void;
   onAddSub: (subId: string) => void;
+  onCreateAndAddSub: (payload: {
+    companyName: string;
+    contact: string;
+    email: string;
+    phone: string;
+  }) => Promise<void>;
 };
 
 export default function TradeRow({
@@ -95,19 +124,29 @@ export default function TradeRow({
   onStatusChange,
   onRemoveBid,
   onAddSub,
+  onCreateAndAddSub,
 }: TradeRowProps) {
   const stats = computeTradeStats(bids, budget.amount);
-  const submittedBids = bids.filter((bid) => bid.status === "submitted" && bid.base_bid_amount !== null);
-  const selectedBidAmount = submittedBids.length ? Math.min(...submittedBids.map((bid) => bid.base_bid_amount as number)) : null;
+  const submittedBids = bids.filter(
+    (bid) => bid.status === "submitted" && bid.base_bid_amount !== null,
+  );
+  const selectedBidAmount = submittedBids.length
+    ? Math.min(...submittedBids.map((bid) => bid.base_bid_amount as number))
+    : null;
   const recommendedBidAmount = submittedBids.length
-    ? submittedBids.reduce((sum, bid) => sum + (bid.base_bid_amount as number), 0) / submittedBids.length
+    ? submittedBids.reduce(
+        (sum, bid) => sum + (bid.base_bid_amount as number),
+        0,
+      ) / submittedBids.length
     : null;
   const recommendation = getTradeRecommendation(bids, allSubs, budget.amount);
 
   const handleRecommendationClick = () => {
     if (!recommendation) return;
     const bidCardId = `${recommendation.bid.trade_id}:${recommendation.bid.sub_id}`;
-    const el = document.querySelector<HTMLElement>(`[data-bid-card-id="${bidCardId}"]`);
+    const el = document.querySelector<HTMLElement>(
+      `[data-bid-card-id="${bidCardId}"]`,
+    );
     if (!el) return;
     el.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "center" });
     el.focus();
@@ -122,7 +161,9 @@ export default function TradeRow({
             onClick={onToggleExpand}
             className="mb-1 inline-flex items-center gap-1 text-xs font-semibold text-slate-500"
           >
-            <span className={`inline-block transition ${expanded ? "rotate-90" : ""}`}>▶</span>
+            <span className={`inline-block transition ${expanded ? "rotate-90" : ""}`}>
+              ▶
+            </span>
             Details
           </button>
           <div className="text-sm font-semibold text-slate-900">{trade.trade_name}</div>
@@ -138,7 +179,10 @@ export default function TradeRow({
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                 {recommendation.rationales.map((reason) => (
-                  <span key={reason} className="rounded-full bg-white px-1.5 py-0.5 text-[10px] font-medium text-blue-700 ring-1 ring-blue-200">
+                  <span
+                    key={reason}
+                    className="rounded-full bg-white px-1.5 py-0.5 text-[10px] font-medium text-blue-700 ring-1 ring-blue-200"
+                  >
                     {reason}
                   </span>
                 ))}
@@ -194,6 +238,7 @@ export default function TradeRow({
             onStatusChange={onStatusChange}
             onRemoveBid={onRemoveBid}
             onAddSub={onAddSub}
+            onCreateAndAddSub={onCreateAndAddSub}
             getBidCardId={(bid) => `${bid.trade_id}:${bid.sub_id}`}
           />
         </td>
@@ -201,11 +246,16 @@ export default function TradeRow({
 
       {expanded ? (
         <tr className="border-b border-slate-200 bg-slate-50/50">
-          <td className="sticky left-0 z-20 border-r border-slate-200 bg-slate-50/50 px-3 py-2 text-xs text-slate-600" colSpan={2}>
+          <td
+            className="sticky left-0 z-20 border-r border-slate-200 bg-slate-50/50 px-3 py-2 text-xs text-slate-600"
+            colSpan={2}
+          >
             Trade details
           </td>
           <td className="px-3 py-2 text-xs text-slate-600">
-            {bids.length ? `${bids.length} invited/submitted subs in this trade.` : "No subs in this trade yet."}
+            {bids.length
+              ? `${bids.length} invited/submitted subs in this trade.`
+              : "No subs in this trade yet."}
           </td>
         </tr>
       ) : null}

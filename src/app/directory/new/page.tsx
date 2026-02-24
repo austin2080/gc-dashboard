@@ -56,7 +56,8 @@ async function createCompany(prevState: FormState, formData: FormData): Promise<
   redirect("/directory");
 }
 
-export default function NewCompanyPage() {
+export default function NewCompanyPage({ searchParams }: { searchParams?: { name?: string } }) {
+  const initialName = (searchParams?.name ?? "").trim();
   return (
     <main className="p-6 space-y-6">
       <header className="flex items-start justify-between gap-4">
@@ -73,7 +74,7 @@ export default function NewCompanyPage() {
 
       <section className="border rounded-lg p-4 space-y-4">
         <h2 className="font-semibold">Company Details</h2>
-        <NewCompanyForm action={createCompany} />
+        <NewCompanyForm action={createCompany} initialName={initialName} />
       </section>
     </main>
   );
