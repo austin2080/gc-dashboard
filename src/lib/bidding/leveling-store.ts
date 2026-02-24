@@ -264,9 +264,85 @@ export async function removeTradeBid(payload: {
   projectId: string;
   tradeId: string;
   subId: string;
+  bidId?: string | null;
+  relatedProjectSubIds?: string[];
+  subcontractorId?: string | null;
   legacyBidId?: string | null;
 }): Promise<boolean> {
   const supabase = createClient();
+  let relatedProjectSubIds = Array.from(
+    new Set((payload.relatedProjectSubIds ?? []).filter((value) => Boolean(value && value.trim())))
+  );
+  const candidateBidIds = new Set<string>();
+  if (payload.bidId) candidateBidIds.add(payload.bidId);
+
+  if (relatedProjectSubIds.length === 0 && payload.subcontractorId) {
+    const { data: relatedRows, error: relatedRowsError } = await supabase
+      .from("bid_project_subs")
+      .select("id")
+      .eq("project_id", payload.projectId)
+      .eq("subcontractor_id", payload.subcontractorId);
+    if (relatedRowsError) {
+      console.error("Failed to load related project subs for delete", relatedRowsError);
+      return false;
+    }
+    relatedProjectSubIds = Array.from(
+      new Set((relatedRows ?? []).map((row) => String(row.id ?? "")).filter(Boolean))
+    );
+  }
+
+  const candidateSubIds = Array.from(
+    new Set(
+      [payload.subId, payload.subcontractorId ?? null, ...relatedProjectSubIds]
+        .filter((value): value is string => Boolean(value && value.trim()))
+    )
+  );
+
+  if (candidateSubIds.length > 0) {
+    const { data: matchedTradeBids, error: matchedTradeBidsError } = await supabase
+      .from("trade_bid")
+      .select("id")
+      .eq("project_id", payload.projectId)
+      .eq("trade_id", payload.tradeId)
+      .in("sub_id", candidateSubIds);
+    if (matchedTradeBidsError && !isOptionalLevelingTableError(matchedTradeBidsError)) {
+      console.error("Failed to load trade_bid ids before delete", matchedTradeBidsError);
+      return false;
+    }
+    for (const row of (matchedTradeBids ?? []) as Array<{ id: string }>) {
+      candidateBidIds.add(row.id);
+    }
+  }
+
+  const bidIds = Array.from(candidateBidIds);
+  if (bidIds.length > 0) {
+    const { error: deleteItemsError } = await supabase
+      .from("trade_bid_items")
+      .delete()
+      .in("bid_id", bidIds);
+    if (deleteItemsError && !isOptionalLevelingTableError(deleteItemsError)) {
+      console.error("Failed to remove trade_bid_items", deleteItemsError);
+      return false;
+    }
+
+    const { error: deleteAlternatesError } = await supabase
+      .from("trade_bid_alternates")
+      .delete()
+      .in("bid_id", bidIds);
+    if (deleteAlternatesError && !isOptionalLevelingTableError(deleteAlternatesError)) {
+      console.error("Failed to remove trade_bid_alternates", deleteAlternatesError);
+      return false;
+    }
+
+    const { error: deleteByIdsError } = await supabase
+      .from("trade_bid")
+      .delete()
+      .in("id", bidIds);
+    if (deleteByIdsError && !isOptionalLevelingTableError(deleteByIdsError)) {
+      console.error("Failed to remove trade_bid rows by id", deleteByIdsError);
+      return false;
+    }
+  }
 
   const { error: enhancedError } = await supabase
     .from("trade_bid")
@@ -278,6 +354,32 @@ export async function removeTradeBid(payload: {
   if (enhancedError && !isOptionalLevelingTableError(enhancedError)) {
     console.error("Failed to remove trade_bid", enhancedError);
     return false;
+  }
+
+  if (relatedProjectSubIds.length > 0) {
+    const { error: enhancedRelatedError } = await supabase
+      .from("trade_bid")
+      .delete()
+      .eq("project_id", payload.projectId)
+      .eq("trade_id", payload.tradeId)
+      .in("sub_id", relatedProjectSubIds);
+    if (enhancedRelatedError && !isOptionalLevelingTableError(enhancedRelatedError)) {
+      console.error("Failed to remove related trade_bid rows", enhancedRelatedError);
+      return false;
+    }
+  }
+
+  if (payload.subcontractorId) {
+    const { error: enhancedSubcontractorError } = await supabase
+      .from("trade_bid")
+      .delete()
+      .eq("project_id", payload.projectId)
+      .eq("trade_id", payload.tradeId)
+      .eq("sub_id", payload.subcontractorId);
+    if (enhancedSubcontractorError && !isOptionalLevelingTableError(enhancedSubcontractorError)) {
+      console.error("Failed to remove subcontractor trade_bid rows", enhancedSubcontractorError);
+      return false;
+    }
   }
 
   if (payload.legacyBidId) {
@@ -295,6 +397,19 @@ export async function removeTradeBid(payload: {
       .eq("project_sub_id", payload.subId);
     if (error) {
       console.error("Failed to delete bid_trade_bids by trade+sub", error);
+      return false;
+    }
+  }
+
+  if (relatedProjectSubIds.length > 0) {
+    const { error: legacyRelatedError } = await supabase
+      .from("bid_trade_bids")
+      .delete()
+      .eq("project_id", payload.projectId)
+      .eq("trade_id", payload.tradeId)
+      .in("project_sub_id", relatedProjectSubIds);
+    if (legacyRelatedError) {
+      console.error("Failed to delete related bid_trade_bids rows", legacyRelatedError);
       return false;
     }
   }

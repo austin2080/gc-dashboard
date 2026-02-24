@@ -15,7 +15,6 @@ import {
   getCurrentUserId,
   getSnapshotItems,
   getTradeBidBreakdownByTradeSub,
-  removeTradeBid,
   saveTradeBidBreakdownByTradeSub,
   upsertProjectTradeBudget,
   upsertTradeBid,
@@ -270,7 +269,7 @@ export default function LevelingPage() {
   const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(
     null,
   );
-  const [removingBid, setRemovingBid] = useState(false);
+  const [hiddenBidKeys, setHiddenBidKeys] = useState<Set<string>>(new Set());
   const [undoToast, setUndoToast] = useState<UndoToast | null>(null);
   const [restoringBid, setRestoringBid] = useState(false);
   const [createSubNotice, setCreateSubNotice] = useState<{
@@ -379,6 +378,33 @@ export default function LevelingPage() {
   }, [mappedBidProjectId, queryProjectId]);
 
   useEffect(() => {
+    if (!data?.project.id) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setHiddenBidKeys(new Set());
+      return;
+    }
+    try {
+      const raw = localStorage.getItem(`bidLevelingHiddenBidKeys:${data.project.id}`);
+      if (!raw) {
+        setHiddenBidKeys(new Set());
+        return;
+      }
+      const parsed = JSON.parse(raw) as string[];
+      setHiddenBidKeys(new Set(Array.isArray(parsed) ? parsed : []));
+    } catch {
+      setHiddenBidKeys(new Set());
+    }
+  }, [data?.project.id]);
+
+  useEffect(() => {
+    if (!data?.project.id) return;
+    localStorage.setItem(
+      `bidLevelingHiddenBidKeys:${data.project.id}`,
+      JSON.stringify(Array.from(hiddenBidKeys)),
+    );
+  }, [data?.project.id, hiddenBidKeys]);
+
+  useEffect(() => {
     if (!data) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setBudgetsByTrade(new Map());
@@ -436,6 +462,7 @@ export default function LevelingPage() {
     const map = new Map<string, LevelingBid>();
     if (!data) return map;
     for (const row of data.bids) {
+      if (hiddenBidKeys.has(`${row.trade_id}:${row.sub_id}`)) continue;
       map.set(`${row.trade_id}:${row.sub_id}`, row);
     }
     if (readOnlySnapshot) {
@@ -465,7 +492,7 @@ export default function LevelingPage() {
       }
     }
     return map;
-  }, [data, readOnlySnapshot, snapshotItemByTradeSub]);
+  }, [data, hiddenBidKeys, readOnlySnapshot, snapshotItemByTradeSub]);
 
   const subs = useMemo(() => {
     if (!data) return [];
@@ -1258,6 +1285,11 @@ export default function LevelingPage() {
           if (!data || readOnlySnapshot) return;
           const existing = bidsByTradeSub.get(`${tradeId}:${subId}`) ?? null;
           if (existing) return;
+          setHiddenBidKeys((prev) => {
+            const next = new Set(prev);
+            next.delete(`${tradeId}:${subId}`);
+            return next;
+          });
           const ok = await upsertTradeBid({
             projectId: data.project.id,
             tradeId,
@@ -1362,6 +1394,11 @@ export default function LevelingPage() {
             receivedAt: null,
           });
           if (!ok) return;
+          setHiddenBidKeys((prev) => {
+            const next = new Set(prev);
+            next.delete(`${tradeId}:${invite.id}`);
+            return next;
+          });
           setCreateSubNotice(notice);
           const refreshed = await getBidLevelingProjectData(data.project.id);
           if (refreshed) setData(refreshed);
@@ -1478,7 +1515,6 @@ export default function LevelingPage() {
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
-                disabled={removingBid}
                 onClick={() => setPendingRemoval(null)}
                 className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-700"
               >
@@ -1486,29 +1522,19 @@ export default function LevelingPage() {
               </button>
               <button
                 type="button"
-                disabled={removingBid}
-                onClick={async () => {
-                  if (!data) return;
-                  setRemovingBid(true);
+                onClick={() => {
                   const bid = pendingRemoval.bid;
-                  const ok = await removeTradeBid({
-                    projectId: data.project.id,
-                    tradeId: bid.trade_id,
-                    subId: bid.sub_id,
-                    legacyBidId: bid.legacy_bid_id ?? null,
+                  setHiddenBidKeys((prev) => {
+                    const next = new Set(prev);
+                    next.add(`${bid.trade_id}:${bid.sub_id}`);
+                    return next;
                   });
-                  setRemovingBid(false);
                   setPendingRemoval(null);
-                  if (!ok) return;
-                  const refreshed = await getBidLevelingProjectData(
-                    data.project.id,
-                  );
-                  if (refreshed) setData(refreshed);
                   setUndoToast({ bid, subName: pendingRemoval.subName });
                 }}
                 className="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-semibold text-white disabled:bg-rose-300"
               >
-                {removingBid ? "Removing..." : "Remove"}
+                Remove
               </button>
             </div>
           </div>
@@ -1525,25 +1551,14 @@ export default function LevelingPage() {
               type="button"
               disabled={restoringBid}
               onClick={async () => {
-                if (!data) return;
                 setRestoringBid(true);
                 const bid = undoToast.bid;
-                const ok = await upsertTradeBid({
-                  projectId: data.project.id,
-                  tradeId: bid.trade_id,
-                  subId: bid.sub_id,
-                  legacyBidId: bid.legacy_bid_id ?? null,
-                  status: bid.status,
-                  baseBidAmount: bid.base_bid_amount,
-                  notes: bid.notes ?? null,
-                  receivedAt: bid.received_at,
+                setHiddenBidKeys((prev) => {
+                  const next = new Set(prev);
+                  next.delete(`${bid.trade_id}:${bid.sub_id}`);
+                  return next;
                 });
                 setRestoringBid(false);
-                if (!ok) return;
-                const refreshed = await getBidLevelingProjectData(
-                  data.project.id,
-                );
-                if (refreshed) setData(refreshed);
                 setUndoToast(null);
               }}
               className="text-sm font-semibold text-slate-900 underline underline-offset-2 disabled:text-slate-400"
