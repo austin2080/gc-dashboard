@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type DragEvent } from "react";
 import { useSearchParams } from "next/navigation";
 
 type SelectableProject = { id: string; name: string };
@@ -168,6 +168,8 @@ export default function TasksWorkspace() {
   const [quickAssignee, setQuickAssignee] = useState("");
   const [quickDueDate, setQuickDueDate] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [dragTaskId, setDragTaskId] = useState<string | null>(null);
+  const [dragOverStatus, setDragOverStatus] = useState<TaskStatus | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -284,19 +286,21 @@ export default function TasksWorkspace() {
     setTasks((prev) =>
       prev.map((task) =>
         task.id === taskId
-          ? {
-              ...task,
-              status,
-              updatedAt: nowIso(),
-              activity: [
-                {
-                  id: crypto.randomUUID(),
-                  message: `Status changed to ${labelForStatus(status)}`,
-                  createdAt: nowIso(),
-                },
-                ...task.activity,
-              ],
-            }
+          ? task.status === status
+            ? task
+            : {
+                ...task,
+                status,
+                updatedAt: nowIso(),
+                activity: [
+                  {
+                    id: crypto.randomUUID(),
+                    message: `Status changed to ${labelForStatus(status)}`,
+                    createdAt: nowIso(),
+                  },
+                  ...task.activity,
+                ],
+              }
           : task
       )
     );
@@ -318,6 +322,31 @@ export default function TasksWorkspace() {
           : task
       )
     );
+  };
+
+  const removeTask = (taskId: string) => {
+    setTasks((prev) => prev.filter((task) => task.id !== taskId));
+    setSelectedTaskId((prev) => (prev === taskId ? null : prev));
+  };
+
+  const handleTaskDragStart = (event: DragEvent<HTMLElement>, taskId: string) => {
+    setDragTaskId(taskId);
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", taskId);
+  };
+
+  const handleTaskDragEnd = () => {
+    setDragTaskId(null);
+    setDragOverStatus(null);
+  };
+
+  const handleColumnDrop = (event: DragEvent<HTMLElement>, status: TaskStatus) => {
+    event.preventDefault();
+    const droppedTaskId = event.dataTransfer.getData("text/plain") || dragTaskId;
+    if (!droppedTaskId) return;
+    moveTask(droppedTaskId, status);
+    setDragTaskId(null);
+    setDragOverStatus(null);
   };
 
   if (!projectId) {
@@ -477,10 +506,9 @@ export default function TasksWorkspace() {
               <h3 className="font-semibold text-slate-900">{status.label}</h3>
               <div className="mt-2 space-y-2">
                 {(groupedByStatus.get(status.value) ?? []).map((task) => (
-                  <button
+                  <article
                     key={task.id}
-                    type="button"
-                    className="w-full rounded-md border border-slate-200 px-3 py-2 text-left hover:bg-slate-50"
+                    className="cursor-pointer rounded-md border border-slate-200 px-3 py-2 hover:bg-slate-50"
                     onClick={() => setSelectedTaskId(task.id)}
                   >
                     <div className="flex items-center justify-between gap-2">
@@ -488,7 +516,7 @@ export default function TasksWorkspace() {
                       <span className="text-xs uppercase text-slate-500">{task.priority}</span>
                     </div>
                     <p className="text-xs text-slate-600">{task.assignee} · Due {task.dueDate ?? "--"}</p>
-                  </button>
+                  </article>
                 ))}
                 {(groupedByStatus.get(status.value)?.length ?? 0) === 0 && (
                   <p className="text-sm text-slate-500">No tasks in this group.</p>
@@ -500,27 +528,35 @@ export default function TasksWorkspace() {
       ) : (
         <div className="grid gap-3 md:grid-cols-4">
           {STATUSES.map((status) => (
-            <section key={status.value} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+            <section
+              key={status.value}
+              className={`rounded-xl border bg-white p-3 shadow-sm ${
+                dragOverStatus === status.value ? "border-sky-400 bg-sky-50/40" : "border-slate-200"
+              }`}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setDragOverStatus(status.value);
+              }}
+              onDrop={(event) => handleColumnDrop(event, status.value)}
+            >
               <h3 className="mb-2 text-sm font-semibold text-slate-900">{status.label}</h3>
               <div className="space-y-2">
                 {(groupedByStatus.get(status.value) ?? []).map((task) => (
-                  <article key={task.id} className="rounded-md border border-slate-200 p-2">
-                    <button type="button" className="text-left" onClick={() => setSelectedTaskId(task.id)}>
+                  <article
+                    key={task.id}
+                    className={`cursor-grab rounded-md border border-slate-200 p-2 active:cursor-grabbing ${
+                      dragTaskId === task.id ? "opacity-50" : ""
+                    }`}
+                    draggable
+                    onDragStart={(event) => handleTaskDragStart(event, task.id)}
+                    onDragEnd={handleTaskDragEnd}
+                    onClick={() => setSelectedTaskId(task.id)}
+                  >
+                    <div className="flex items-start justify-between gap-2">
                       <p className="text-sm font-medium text-slate-900">{task.title}</p>
-                    </button>
+                    </div>
                     <p className="text-xs text-slate-600">{task.assignee}</p>
                     <p className="text-xs text-slate-500">Due {task.dueDate ?? "--"}</p>
-                    <select
-                      className="mt-2 w-full rounded border border-slate-300 px-1 py-1 text-xs"
-                      value={task.status}
-                      onChange={(event) => moveTask(task.id, event.target.value as TaskStatus)}
-                    >
-                      {STATUSES.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
                   </article>
                 ))}
               </div>
@@ -583,6 +619,15 @@ export default function TasksWorkspace() {
                 ))}
               </ol>
             </section>
+            <div className="border-t border-slate-200 pt-4">
+              <button
+                type="button"
+                onClick={() => removeTask(selectedTask.id)}
+                className="rounded border border-rose-200 px-3 py-1.5 text-sm text-rose-700 hover:bg-rose-50"
+              >
+                Delete task
+              </button>
+            </div>
           </div>
         </aside>
       )}

@@ -749,8 +749,19 @@ export default function ScheduleGantt() {
                   ) : (
                     laneTasks.map((task) => (
                       <div key={task.id} className={`rounded border p-3 text-sm ${URGENCY_STYLES[lane.key].row}`}>
-                        <div className="font-semibold">{task.name}</div>
-                        <div className="text-xs opacity-70">{task.owner || "Unassigned"} · {task.phase}</div>
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="font-semibold">{task.name}</div>
+                            <div className="text-xs opacity-70">{task.owner || "Unassigned"} · {task.phase}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemove(task.id)}
+                            className="text-xs rounded border border-black/20 px-2 py-1"
+                          >
+                            Remove
+                          </button>
+                        </div>
                         <div className="mt-2 text-xs opacity-70">Due {task.end}</div>
                       </div>
                     ))
@@ -764,3 +775,4 @@ export default function ScheduleGantt() {
     </section>
   );
 }
+
