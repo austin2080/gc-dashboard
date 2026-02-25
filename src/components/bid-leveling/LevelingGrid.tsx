@@ -41,7 +41,7 @@ export default function LevelingGrid({
   const [expandedByTrade, setExpandedByTrade] = useState<Record<string, boolean>>({});
 
   const tradeWidth = 280;
-  const budgetWidth = 190;
+  const budgetWidth = 220;
 
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">

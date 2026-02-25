@@ -27,7 +27,7 @@ function parseCurrencyDraft(value: string): { parsed: number | null; invalid: bo
 }
 
 export default function BudgetCell({ value, selectedBidAmount, recommendedBidAmount, notes, readOnly, onChange }: BudgetCellProps) {
-  const [draft, setDraft] = useState(value !== null ? String(value) : "");
+  const [draft, setDraft] = useState(value !== null ? formatMoneyInputBlur(String(value)) : "");
   const [notesDraft, setNotesDraft] = useState(notes ?? "");
   const [isNoteOpen, setIsNoteOpen] = useState(false);
 
@@ -55,10 +55,6 @@ export default function BudgetCell({ value, selectedBidAmount, recommendedBidAmo
         <input
           value={draft}
           onChange={(event) => setDraft(formatMoneyInputTyping(event.target.value))}
-          onFocus={() => {
-            const parsed = parseCurrencyInput(draft);
-            if (parsed !== null) setDraft(String(parsed));
-          }}
           onBlur={() => {
             const { parsed, invalid } = parseCurrencyDraft(draft);
             if (!invalid) {
@@ -69,8 +65,10 @@ export default function BudgetCell({ value, selectedBidAmount, recommendedBidAmo
           disabled={readOnly}
           inputMode="decimal"
           placeholder={placeholder}
-          className={`w-full rounded-md border bg-white px-2 py-1 text-xs text-slate-900 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100 ${
-            draftState.invalid ? "border-rose-300 focus:border-rose-400" : "border-slate-200 focus:border-slate-400"
+          className={`w-full rounded-lg border bg-white px-3 py-2 text-sm font-semibold text-slate-900 shadow-sm focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100 ${
+            draftState.invalid
+              ? "border-rose-300 focus:border-rose-400 focus:ring-2 focus:ring-rose-100"
+              : "border-slate-300 focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
           }`}
         />
         {draftState.invalid ? <p className="mt-1 text-[11px] text-rose-700">Enter a valid currency amount (max 2 decimals).</p> : null}

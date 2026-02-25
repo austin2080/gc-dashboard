@@ -1,19 +1,18 @@
 "use client";
 
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
-type TaskStatus = "on-track" | "at-risk" | "off-track";
+import {
+  buildTaskAnalytics,
+  type ScheduleTask,
+  type TaskAnalytics,
+} from "@/lib/tasks/analytics";
+import { INITIAL_SCHEDULE_TASKS } from "@/lib/tasks/mock";
 
-type Task = {
-  id: string;
-  name: string;
-  owner: string;
-  phase: string;
-  start: string;
-  end: string;
-  progress: number;
-  status: TaskStatus;
-};
+type TaskStatus = ScheduleTask["status"] | "done";
+type Task = Omit<ScheduleTask, "status"> & { status: TaskStatus };
+type ViewMode = "list" | "board";
+type UrgencyLevel = "overdue" | "due-soon" | "upcoming" | "none";
 
 type ScaleOption = {
   label: string;
@@ -30,82 +29,22 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
   "on-track": "On track",
   "at-risk": "At risk",
   "off-track": "Off track",
+  done: "Done",
 };
 
 const STATUS_BADGE: Record<TaskStatus, string> = {
   "on-track": "bg-emerald-100 text-emerald-700 border-emerald-200",
   "at-risk": "bg-amber-100 text-amber-700 border-amber-200",
   "off-track": "bg-rose-100 text-rose-700 border-rose-200",
+  done: "bg-slate-100 text-slate-700 border-slate-200",
 };
 
 const STATUS_BAR: Record<TaskStatus, string> = {
   "on-track": "bg-emerald-500",
   "at-risk": "bg-amber-500",
   "off-track": "bg-rose-500",
+  done: "bg-slate-500",
 };
-
-const INITIAL_TASKS: Task[] = [
-  {
-    id: "task-1",
-    name: "Mobilization + temp utilities",
-    owner: "GC",
-    phase: "Precon",
-    start: "2026-02-03",
-    end: "2026-02-07",
-    progress: 80,
-    status: "on-track",
-  },
-  {
-    id: "task-2",
-    name: "Foundations + underground",
-    owner: "Site/Civil",
-    phase: "Structure",
-    start: "2026-02-10",
-    end: "2026-03-04",
-    progress: 45,
-    status: "at-risk",
-  },
-  {
-    id: "task-3",
-    name: "Steel + deck install",
-    owner: "Steel",
-    phase: "Structure",
-    start: "2026-03-05",
-    end: "2026-04-12",
-    progress: 15,
-    status: "on-track",
-  },
-  {
-    id: "task-4",
-    name: "Exterior envelope",
-    owner: "Envelope",
-    phase: "Envelope",
-    start: "2026-04-01",
-    end: "2026-05-10",
-    progress: 0,
-    status: "on-track",
-  },
-  {
-    id: "task-5",
-    name: "MEP rough-in",
-    owner: "MEP",
-    phase: "Interiors",
-    start: "2026-04-15",
-    end: "2026-05-30",
-    progress: 0,
-    status: "on-track",
-  },
-  {
-    id: "task-6",
-    name: "Inspections + closeout",
-    owner: "GC",
-    phase: "Closeout",
-    start: "2026-06-03",
-    end: "2026-06-14",
-    progress: 0,
-    status: "on-track",
-  },
-];
 
 const DEFAULT_TASK: Omit<Task, "id"> = {
   name: "",
@@ -115,6 +54,17 @@ const DEFAULT_TASK: Omit<Task, "id"> = {
   end: "",
   progress: 0,
   status: "on-track",
+};
+
+const REMINDER_OPTIONS = [72, 48, 24, 12, 6] as const;
+
+type NotificationItem = {
+  id: string;
+  taskId: string;
+  taskName: string;
+  message: string;
+  channel: "in-app" | "in-app + email";
+  createdAt: string;
 };
 
 const DAY_MS = 1000 * 60 * 60 * 24;
@@ -147,12 +97,86 @@ const buildId = () =>
     ? crypto.randomUUID()
     : `task-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
+const getUrgencyLevel = (task: Task, now = new Date()): UrgencyLevel => {
+  if (task.status === "done") return "none";
+  const due = parseDate(task.end);
+  if (Number.isNaN(due.getTime())) return "none";
+  const dueAt = startOfDay(due);
+  if (dueAt.getTime() < startOfDay(now).getTime()) return "overdue";
+  const hoursUntil = (dueAt.getTime() - now.getTime()) / (1000 * 60 * 60);
+  if (hoursUntil <= 48) return "due-soon";
+  return "upcoming";
+};
+
+const URGENCY_STYLES: Record<UrgencyLevel, { row: string; label: string; dot: string }> = {
+  overdue: {
+    row: "border-l-4 border-l-rose-500 bg-rose-50/60",
+    label: "Overdue",
+    dot: "bg-rose-500",
+  },
+  "due-soon": {
+    row: "border-l-4 border-l-amber-500 bg-amber-50/60",
+    label: "Due soon",
+    dot: "bg-amber-500",
+  },
+  upcoming: {
+    row: "border-l-4 border-l-sky-500 bg-sky-50/40",
+    label: "Upcoming",
+    dot: "bg-sky-500",
+  },
+  none: {
+    row: "border-l-4 border-l-slate-300",
+    label: "Done",
+    dot: "bg-slate-400",
+  },
+};
+
 export default function ScheduleGantt() {
-  const [tasks, setTasks] = useState<Task[]>(INITIAL_TASKS);
+  const toAnalyticsTasks = (items: Task[]): ScheduleTask[] =>
+    items
+      .filter((task): task is Task & { status: ScheduleTask["status"] => task.status !== "done")
+      .map((task) => ({ ...task, status: task.status }));
+
+  const [tasks, setTasks] = useState<Task[]>(INITIAL_SCHEDULE_TASKS);
+  const [analytics, setAnalytics] = useState<TaskAnalytics>(() =>
+    buildTaskAnalytics(toAnalyticsTasks(INITIAL_SCHEDULE_TASKS))
+  );
   const [form, setForm] = useState(DEFAULT_TASK);
   const [scale, setScale] = useState<ScaleOption>(SCALE_OPTIONS[1]);
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "all">("all");
   const [ownerFilter, setOwnerFilter] = useState("all");
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [reminderHours, setReminderHours] = useState<number[]>([48, 24]);
+  const [emailNotificationsEnabled, setEmailNotificationsEnabled] = useState(false);
+  const sentNotificationKeys = useRef(new Set<string>());
+
+  useEffect(() => {
+    setAnalytics(buildTaskAnalytics(toAnalyticsTasks(tasks)));
+  }, [tasks]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadAnalytics = async () => {
+      try {
+        const response = await fetch("/api/tasks/analytics");
+        if (!response.ok) return;
+        const payload = (await response.json()) as TaskAnalytics;
+        if (isMounted) {
+          setAnalytics(payload);
+        }
+      } catch {
+        // Fall back to local calculations when endpoint is unavailable.
+      }
+    };
+
+    void loadAnalytics();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const owners = useMemo(() => {
     const unique = new Set(tasks.map((task) => task.owner).filter(Boolean));
@@ -167,6 +191,18 @@ export default function ScheduleGantt() {
     });
     return filtered.sort((a, b) => parseDate(a.start).getTime() - parseDate(b.start).getTime());
   }, [tasks, statusFilter, ownerFilter]);
+
+  const urgencyCounts = useMemo(() => {
+    return tasks.reduce(
+      (totals, task) => {
+        const urgency = getUrgencyLevel(task);
+        if (urgency === "overdue") totals.overdue += 1;
+        if (urgency === "due-soon") totals.dueSoon += 1;
+        return totals;
+      },
+      { overdue: 0, dueSoon: 0 }
+    );
+  }, [tasks]);
 
   const { chartStart, chartEnd, totalDays } = useMemo(() => {
     if (!tasks.length) {
@@ -231,6 +267,54 @@ export default function ScheduleGantt() {
     setForm(DEFAULT_TASK);
   };
 
+  useEffect(() => {
+    const pushNotification = (task: Task, message: string, dedupeKey: string) => {
+      if (sentNotificationKeys.current.has(dedupeKey)) return;
+      sentNotificationKeys.current.add(dedupeKey);
+      setNotifications((prev) => [
+        {
+          id: buildId(),
+          taskId: task.id,
+          taskName: task.name,
+          message,
+          channel: emailNotificationsEnabled ? "in-app + email" : "in-app",
+          createdAt: new Date().toISOString(),
+        },
+        ...prev,
+      ]);
+    };
+
+    const evaluateDueDates = () => {
+      const now = new Date();
+      tasks.forEach((task) => {
+        if (task.status === "done") return;
+        const due = parseDate(task.end);
+        if (Number.isNaN(due.getTime())) return;
+        const dueAt = startOfDay(due);
+        const hoursUntil = (dueAt.getTime() - now.getTime()) / (1000 * 60 * 60);
+
+        if (dueAt.getTime() < startOfDay(now).getTime()) {
+          pushNotification(task, `Task is overdue (due ${task.end}).`, `overdue:${task.id}`);
+          return;
+        }
+
+        reminderHours.forEach((offset) => {
+          if (hoursUntil <= offset) {
+            pushNotification(
+              task,
+              `Reminder: ${task.name} is due in less than ${offset}h (${task.end}).`,
+              `reminder:${task.id}:${offset}`
+            );
+          }
+        });
+      });
+    };
+
+    evaluateDueDates();
+    const intervalId = window.setInterval(evaluateDueDates, 60_000);
+    return () => window.clearInterval(intervalId);
+  }, [emailNotificationsEnabled, reminderHours, tasks]);
+
   return (
     <section className="space-y-6">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -241,6 +325,29 @@ export default function ScheduleGantt() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {(["list", "board"] as const).map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setViewMode(tab)}
+              className={`rounded-full border px-3 py-1 text-xs capitalize ${
+                viewMode === tab ? "bg-black text-white" : "bg-white"
+              }`}
+            >
+              {tab}
+              {tab === "list" && urgencyCounts.overdue > 0 ? (
+                <span className="ml-2 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                  {urgencyCounts.overdue}
+                </span>
+              ) : null}
+              {tab === "board" && urgencyCounts.dueSoon > 0 ? (
+                <span className="ml-2 rounded-full bg-amber-500 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                  {urgencyCounts.dueSoon}
+                </span>
+              ) : null}
+            </button>
+          ))}
+          <div className="mx-2 h-5 w-px bg-black/10" />
           <div className="text-xs uppercase tracking-wide opacity-60">Zoom</div>
           {SCALE_OPTIONS.map((option) => (
             <button
@@ -256,6 +363,47 @@ export default function ScheduleGantt() {
           ))}
         </div>
       </header>
+
+      <section className="rounded-lg border bg-black/[0.02] p-3 md:p-4">
+        <div className="mb-3 text-xs font-semibold uppercase tracking-wide opacity-60">Tasks insights</div>
+        <div className="grid gap-2 md:grid-cols-5">
+          <div className="rounded border bg-white p-2 text-xs">
+            <div className="opacity-60">Open by status</div>
+            <div className="mt-1 font-semibold">
+              {analytics.openByStatus["on-track"]} on track · {analytics.openByStatus["at-risk"]} at risk ·{" "}
+              {analytics.openByStatus["off-track"]} off track
+            </div>
+          </div>
+          <div className="rounded border bg-white p-2 text-xs">
+            <div className="opacity-60">Overdue tasks</div>
+            <div className="mt-1 text-lg font-semibold">{analytics.overdueTasks}</div>
+          </div>
+          <div className="rounded border bg-white p-2 text-xs">
+            <div className="opacity-60">Completion rate</div>
+            <div className="mt-1 font-semibold">
+              7d: {analytics.completionRate.last7Days}% · 30d: {analytics.completionRate.last30Days}%
+            </div>
+          </div>
+          <div className="rounded border bg-white p-2 text-xs">
+            <div className="opacity-60">Avg. time to completion</div>
+            <div className="mt-1 font-semibold">
+              {analytics.averageTimeToCompletionDays === null
+                ? "—"
+                : `${analytics.averageTimeToCompletionDays} days`}
+            </div>
+          </div>
+          <div className="rounded border bg-white p-2 text-xs">
+            <div className="opacity-60">Workload by assignee</div>
+            <div className="mt-1 space-y-0.5">
+              {analytics.workloadByAssignee.slice(0, 3).map((entry) => (
+                <div key={entry.assignee}>
+                  <span className="font-semibold">{entry.assignee}</span>: {entry.openTasks} open ({entry.scheduledDays}d)
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
 
       <div className="grid gap-3 md:grid-cols-[1.2fr_0.8fr]">
         <form
@@ -358,6 +506,39 @@ export default function ScheduleGantt() {
 
         <div className="rounded-lg border p-4 space-y-3">
           <div className="text-sm font-semibold">Filters</div>
+          <div className="space-y-2 rounded border border-black/10 bg-black/[0.02] p-3">
+            <div className="text-xs font-semibold uppercase tracking-wide opacity-70">Reminder job</div>
+            <div className="text-xs opacity-70">
+              Scheduled evaluator runs every minute and creates in-app reminders; email is optional.
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {REMINDER_OPTIONS.map((hours) => {
+                const selected = reminderHours.includes(hours);
+                return (
+                  <button
+                    key={hours}
+                    type="button"
+                    onClick={() =>
+                      setReminderHours((prev) =>
+                        prev.includes(hours) ? prev.filter((value) => value !== hours) : [...prev, hours]
+                      )
+                    }
+                    className={`rounded-full border px-2 py-1 text-xs ${selected ? "bg-black text-white" : "bg-white"}`}
+                  >
+                    {hours}h
+                  </button>
+                );
+              })}
+            </div>
+            <label className="flex items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={emailNotificationsEnabled}
+                onChange={(event) => setEmailNotificationsEnabled(event.target.checked)}
+              />
+              Send email when allowed by notification settings
+            </label>
+          </div>
           <label className="text-xs uppercase tracking-wide opacity-60 block">
             Status
             <select
@@ -388,13 +569,29 @@ export default function ScheduleGantt() {
               ))}
             </select>
           </label>
-          <div className="text-xs opacity-60">
-            Tip: Drag the horizontal scroll bar to navigate the timeline.
+          <div className="rounded border border-black/10 bg-black/[0.02] p-3">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide opacity-60">Recent notifications</div>
+            {notifications.length === 0 ? (
+              <div className="text-xs opacity-60">No reminders sent yet.</div>
+            ) : (
+              <ul className="space-y-2">
+                {notifications.slice(0, 4).map((item) => (
+                  <li key={item.id} className="rounded border border-black/10 bg-white p-2 text-xs">
+                    <div className="font-semibold">{item.taskName}</div>
+                    <div className="opacity-70">{item.message}</div>
+                    <div className="mt-1 opacity-60">
+                      {new Date(item.createdAt).toLocaleString()} · {item.channel}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       </div>
 
-      <div className="rounded-lg border overflow-hidden">
+      {viewMode === "list" ? (
+        <div className="rounded-lg border overflow-hidden">
         <div className="grid grid-cols-[320px_1fr] bg-black/[0.03]">
           <div className="border-b border-r px-4 py-3 text-xs uppercase tracking-wide opacity-60">
             Task details
@@ -410,7 +607,10 @@ export default function ScheduleGantt() {
               <div className="px-4 py-6 text-sm opacity-70">No tasks match the filters.</div>
             ) : (
               sortedTasks.map((task) => (
-                <div key={task.id} className="px-4 py-4 space-y-2">
+                <div
+                  key={task.id}
+                  className={`px-4 py-4 space-y-2 ${URGENCY_STYLES[getUrgencyLevel(task)].row}`}
+                >
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <div className="text-sm font-semibold">{task.name}</div>
@@ -431,6 +631,10 @@ export default function ScheduleGantt() {
                       className={`inline-flex items-center rounded-full border px-2 py-0.5 ${STATUS_BADGE[task.status]}`}
                     >
                       {STATUS_LABELS[task.status]}
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-full border border-black/10 px-2 py-0.5">
+                      <span className={`inline-block size-2 rounded-full ${URGENCY_STYLES[getUrgencyLevel(task)].dot}`} />
+                      {URGENCY_STYLES[getUrgencyLevel(task)].label}
                     </span>
                     <span className="opacity-60">
                       {task.start} → {task.end}
@@ -520,7 +724,43 @@ export default function ScheduleGantt() {
             </div>
           </div>
         </div>
-      </div>
+        </div>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-3">
+          {([
+            { key: "overdue", title: "Overdue" },
+            { key: "due-soon", title: "Due soon (≤48h)" },
+            { key: "upcoming", title: "Upcoming" },
+          ] as const).map((lane) => {
+            const laneTasks = sortedTasks.filter((task) => getUrgencyLevel(task) === lane.key);
+            return (
+              <div key={lane.key} className="rounded-lg border bg-black/[0.02] p-3">
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold">{lane.title}</h3>
+                  <span className="rounded-full border border-black/10 bg-white px-2 py-0.5 text-xs">
+                    {laneTasks.length}
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {laneTasks.length === 0 ? (
+                    <div className="rounded border border-dashed border-black/20 px-3 py-6 text-center text-xs opacity-60">
+                      No tasks in this lane.
+                    </div>
+                  ) : (
+                    laneTasks.map((task) => (
+                      <div key={task.id} className={`rounded border p-3 text-sm ${URGENCY_STYLES[lane.key].row}`}>
+                        <div className="font-semibold">{task.name}</div>
+                        <div className="text-xs opacity-70">{task.owner || "Unassigned"} · {task.phase}</div>
+                        <div className="mt-2 text-xs opacity-70">Due {task.end}</div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }

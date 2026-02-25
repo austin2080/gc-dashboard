@@ -7,6 +7,7 @@ const VIEWS = [
   { label: "Overview", href: "/bidding" },
   { label: "Invites", href: "/bidding/itbs" },
   { label: "Leveling", href: "/bidding/bid-leveling" },
+  { label: "Tasks", href: "/bidding/tasks" },
 ];
 
 function withProjectQuery(href: string, projectId: string | null) {
