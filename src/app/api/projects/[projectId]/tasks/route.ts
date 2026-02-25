@@ -35,7 +35,7 @@ export async function GET(req: Request, context: RouteContext) {
     let query = supabase
       .from("tasks")
       .select(
-        "id,project_id,title,description,status,assignee_id,priority,due_date,created_by,created_at,updated_at",
+        "id,project_id,title,description,status,assignee_id,assignee_name,priority,due_date,created_by,created_at,updated_at",
         { count: "exact" }
       )
       .eq("company_id", companyId)
@@ -121,6 +121,7 @@ export async function POST(req: Request, context: RouteContext) {
       description?: string;
       status?: string;
       assignee?: string;
+      assignee_name?: string | null;
       priority?: string;
       due_date?: string;
     } | null;
@@ -137,6 +138,7 @@ export async function POST(req: Request, context: RouteContext) {
       description: body?.description?.trim() || null,
       status: body?.status ?? "todo",
       assignee_id: body?.assignee ?? null,
+      assignee_name: body?.assignee_name?.trim() || null,
       priority: body?.priority ?? "medium",
       due_date: toIsoDate(body?.due_date) ?? null,
       created_by: userId,
@@ -146,7 +148,7 @@ export async function POST(req: Request, context: RouteContext) {
     const { data, error } = await supabase
       .from("tasks")
       .insert(insertPayload)
-      .select("id,project_id,title,description,status,assignee_id,priority,due_date,created_by,created_at,updated_at")
+      .select("id,project_id,title,description,status,assignee_id,assignee_name,priority,due_date,created_by,created_at,updated_at")
       .single();
 
     if (error) {

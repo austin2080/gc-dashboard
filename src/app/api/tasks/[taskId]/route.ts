@@ -25,6 +25,7 @@ export async function PATCH(req: Request, context: RouteContext) {
       description?: string;
       status?: string;
       assignee?: string | null;
+      assignee_name?: string | null;
       priority?: string;
       due_date?: string | null;
     } | null;
@@ -44,6 +45,7 @@ export async function PATCH(req: Request, context: RouteContext) {
     if (body?.description !== undefined) updates.description = body.description?.trim() || null;
     if (body?.status !== undefined) updates.status = body.status;
     if (body?.assignee !== undefined) updates.assignee_id = body.assignee || null;
+    if (body?.assignee_name !== undefined) updates.assignee_name = body.assignee_name?.trim() || null;
     if (body?.priority !== undefined) updates.priority = body.priority;
     if (body?.due_date !== undefined) updates.due_date = toIsoDate(body.due_date) ?? null;
 
@@ -53,7 +55,7 @@ export async function PATCH(req: Request, context: RouteContext) {
       .eq("id", taskId)
       .eq("company_id", companyId)
       .is("deleted_at", null)
-      .select("id,project_id,title,description,status,assignee_id,priority,due_date,created_by,created_at,updated_at")
+      .select("id,project_id,title,description,status,assignee_id,assignee_name,priority,due_date,created_by,created_at,updated_at")
       .single();
 
     if (error) {
@@ -72,6 +74,7 @@ export async function PATCH(req: Request, context: RouteContext) {
           description: existing.description,
           status: existing.status,
           assignee_id: existing.assignee_id,
+          assignee_name: existing.assignee_name,
           priority: existing.priority,
           due_date: existing.due_date,
         },
@@ -80,6 +83,7 @@ export async function PATCH(req: Request, context: RouteContext) {
           description: data.description,
           status: data.status,
           assignee_id: data.assignee_id,
+          assignee_name: data.assignee_name,
           priority: data.priority,
           due_date: data.due_date,
         },

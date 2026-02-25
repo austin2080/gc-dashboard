@@ -11,6 +11,7 @@ export type TaskRecord = {
   description: string | null;
   status: string;
   assignee_id: string | null;
+  assignee_name: string | null;
   priority: string;
   due_date: string | null;
   created_by: string | null;
@@ -52,7 +53,7 @@ export async function findTaskById(
 ): Promise<TaskRecord | null> {
   const { data, error } = await supabase
     .from("tasks")
-    .select("id,project_id,title,description,status,assignee_id,priority,due_date,created_by,created_at,updated_at,deleted_at")
+    .select("id,project_id,title,description,status,assignee_id,assignee_name,priority,due_date,created_by,created_at,updated_at,deleted_at")
     .eq("id", taskId)
     .eq("company_id", companyId)
     .maybeSingle();

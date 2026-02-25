@@ -44,6 +44,7 @@ type ApiTask = {
   description: string | null;
   status: TaskStatus;
   assignee_id: string | null;
+  assignee_name: string | null;
   priority: TaskPriority;
   due_date: string | null;
   created_at: string;
@@ -108,7 +109,7 @@ function fromApiTask(task: ApiTask): TaskItem {
     id: task.id,
     projectId: task.project_id,
     title: task.title,
-    assignee: task.assignee_id ?? "",
+    assignee: task.assignee_name ?? "",
     dueDate: task.due_date ? task.due_date.slice(0, 10) : null,
     status: task.status,
     priority: task.priority,
@@ -131,6 +132,7 @@ export default function TasksWorkspace() {
     filters: DEFAULT_FILTERS,
   });
   const [quickTitle, setQuickTitle] = useState("");
+  const [quickAssignee, setQuickAssignee] = useState("");
   const [quickDueDate, setQuickDueDate] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [dragTaskId, setDragTaskId] = useState<string | null>(null);
@@ -251,12 +253,14 @@ export default function TasksWorkspace() {
   const addQuickTask = () => {
     if (!projectId || !quickTitle.trim()) return;
     const title = quickTitle.trim();
+    const assigneeName = quickAssignee.trim() || null;
     const dueDate = quickDueDate || null;
     fetch(`/api/projects/${projectId}/tasks`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         title,
+        assignee_name: assigneeName,
         status: "todo",
         priority: "medium",
         due_date: dueDate,
@@ -270,6 +274,7 @@ export default function TasksWorkspace() {
         const apiTask = payload.task;
         setTasks((prev) => [fromApiTask(apiTask), ...prev]);
         setQuickTitle("");
+        setQuickAssignee("");
         setQuickDueDate("");
       })
       .catch((error: unknown) => {
@@ -485,12 +490,18 @@ export default function TasksWorkspace() {
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Quick add task</h3>
-        <div className="mt-2 grid gap-2 md:grid-cols-[1.5fr_1fr_auto]">
+        <div className="mt-2 grid gap-2 md:grid-cols-[1.3fr_1fr_1fr_auto]">
           <input
             placeholder="Task title"
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
             value={quickTitle}
             onChange={(event) => setQuickTitle(event.target.value)}
+          />
+          <input
+            placeholder="Responsible"
+            className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+            value={quickAssignee}
+            onChange={(event) => setQuickAssignee(event.target.value)}
           />
           <input
             type="date"
