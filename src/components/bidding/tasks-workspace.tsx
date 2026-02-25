@@ -261,7 +261,8 @@ export default function TasksWorkspace() {
         if (!response.ok || !payload?.task) {
           throw new Error(payload?.error || "Failed to create task");
         }
-        setTasks((prev) => [fromApiTask(payload.task), ...prev]);
+        const apiTask = payload.task;
+        setTasks((prev) => [fromApiTask(apiTask), ...prev]);
         setQuickTitle("");
         setQuickDueDate("");
       })
@@ -285,7 +286,8 @@ export default function TasksWorkspace() {
         if (!response.ok || !payload?.task) {
           throw new Error(payload?.error || "Failed to update task status");
         }
-        setTasks((prev) => prev.map((task) => (task.id === taskId ? fromApiTask(payload.task) : task)));
+        const apiTask = payload.task;
+        setTasks((prev) => prev.map((task) => (task.id === taskId ? fromApiTask(apiTask) : task)));
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : "Failed to update task status";
@@ -308,7 +310,8 @@ export default function TasksWorkspace() {
         if (!response.ok || !payload?.task) {
           throw new Error(payload?.error || "Failed to update task description");
         }
-        setTasks((prev) => prev.map((task) => (task.id === taskId ? fromApiTask(payload.task) : task)));
+        const apiTask = payload.task;
+        setTasks((prev) => prev.map((task) => (task.id === taskId ? fromApiTask(apiTask) : task)));
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : "Failed to update task description";
