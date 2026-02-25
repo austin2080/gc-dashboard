@@ -37,6 +37,19 @@ type TaskItem = {
   activity: TaskActivity[];
 };
 
+type ApiTask = {
+  id: string;
+  project_id: string;
+  title: string;
+  description: string | null;
+  status: TaskStatus;
+  assignee_id: string | null;
+  priority: TaskPriority;
+  due_date: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 type TaskFilters = {
   assignee: string;
   status: TaskStatus | "all";
@@ -68,14 +81,6 @@ const DEFAULT_FILTERS: TaskFilters = {
   dueEnd: "",
 };
 
-function nowIso() {
-  return new Date().toISOString();
-}
-
-function labelForStatus(status: TaskStatus): string {
-  return STATUSES.find((item) => item.value === status)?.label ?? status;
-}
-
 function isWithinDateRange(task: TaskItem, dueStart: string, dueEnd: string): boolean {
   if (!task.dueDate) return !dueStart && !dueEnd;
   if (dueStart && task.dueDate < dueStart) return false;
@@ -94,63 +99,24 @@ function sortTasks(tasks: TaskItem[], sort: SortOption): TaskItem[] {
   });
 }
 
-function taskStorageKey(projectId: string) {
-  return `biddingTasks:${projectId}`;
-}
-
 function prefsStorageKey(projectId: string) {
   return `biddingTaskPrefs:${projectId}`;
 }
 
-function seededTasks(projectId: string): TaskItem[] {
-  const base = nowIso();
-  return [
-    {
-      id: crypto.randomUUID(),
-      projectId,
-      title: "Issue structural steel bid clarification",
-      assignee: "Alex Kim",
-      dueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 2).toISOString().slice(0, 10),
-      status: "in_progress",
-      priority: "high",
-      description: "Need to align addendum scope with latest drawing set before final leveling review.",
-      updatedAt: base,
-      comments: [
-        {
-          id: crypto.randomUUID(),
-          author: "Taylor",
-          body: "Waiting on engineer response to RFI-42 before we close this out.",
-          createdAt: base,
-        },
-      ],
-      activity: [
-        {
-          id: crypto.randomUUID(),
-          message: "Task created",
-          createdAt: base,
-        },
-      ],
-    },
-    {
-      id: crypto.randomUUID(),
-      projectId,
-      title: "Confirm roofing alternates",
-      assignee: "Jordan Lee",
-      dueDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 5).toISOString().slice(0, 10),
-      status: "todo",
-      priority: "medium",
-      description: "Collect revised alternate pricing and lock final recommendation.",
-      updatedAt: base,
-      comments: [],
-      activity: [
-        {
-          id: crypto.randomUUID(),
-          message: "Task created",
-          createdAt: base,
-        },
-      ],
-    },
-  ];
+function fromApiTask(task: ApiTask): TaskItem {
+  return {
+    id: task.id,
+    projectId: task.project_id,
+    title: task.title,
+    assignee: task.assignee_id ?? "",
+    dueDate: task.due_date ? task.due_date.slice(0, 10) : null,
+    status: task.status,
+    priority: task.priority,
+    description: task.description ?? "",
+    updatedAt: task.updated_at,
+    comments: [],
+    activity: [],
+  };
 }
 
 export default function TasksWorkspace() {
@@ -165,11 +131,12 @@ export default function TasksWorkspace() {
     filters: DEFAULT_FILTERS,
   });
   const [quickTitle, setQuickTitle] = useState("");
-  const [quickAssignee, setQuickAssignee] = useState("");
   const [quickDueDate, setQuickDueDate] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [dragTaskId, setDragTaskId] = useState<string | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<TaskStatus | null>(null);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [tasksError, setTasksError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -208,18 +175,6 @@ export default function TasksWorkspace() {
       queueMicrotask(() => setPrefs({ viewMode: "list", sort: "due_soonest", filters: DEFAULT_FILTERS }));
     }
 
-    const storedTasks = localStorage.getItem(taskStorageKey(projectId));
-    if (storedTasks) {
-      try {
-        queueMicrotask(() => setTasks(JSON.parse(storedTasks) as TaskItem[]));
-      } catch {
-        queueMicrotask(() => setTasks(seededTasks(projectId)));
-      }
-    } else {
-      const seeded = seededTasks(projectId);
-      queueMicrotask(() => setTasks(seeded));
-      localStorage.setItem(taskStorageKey(projectId), JSON.stringify(seeded));
-    }
     queueMicrotask(() => setSelectedTaskId(null));
   }, [projectId]);
 
@@ -230,8 +185,35 @@ export default function TasksWorkspace() {
 
   useEffect(() => {
     if (!projectId) return;
-    localStorage.setItem(taskStorageKey(projectId), JSON.stringify(tasks));
-  }, [tasks, projectId]);
+    let active = true;
+    queueMicrotask(() => {
+      if (!active) return;
+      setTasksLoading(true);
+      setTasksError(null);
+    });
+    fetch(`/api/projects/${projectId}/tasks?limit=100`, { cache: "no-store" })
+      .then(async (response) => {
+        const payload = (await response.json().catch(() => null)) as
+          | { tasks?: ApiTask[]; error?: string }
+          | null;
+        if (!active) return;
+        if (!response.ok) throw new Error(payload?.error || "Failed to load tasks");
+        setTasks((payload?.tasks ?? []).map(fromApiTask));
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        const message = error instanceof Error ? error.message : "Failed to load tasks";
+        setTasksError(message);
+        setTasks([]);
+      })
+      .finally(() => {
+        if (!active) return;
+        setTasksLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [projectId]);
 
   const assignees = useMemo(() => {
     const known = new Set(tasks.map((task) => task.assignee).filter(Boolean));
@@ -261,72 +243,96 @@ export default function TasksWorkspace() {
   const selectedTask = tasks.find((task) => task.id === selectedTaskId) ?? null;
 
   const addQuickTask = () => {
-    if (!projectId || !quickTitle.trim() || !quickAssignee.trim()) return;
-    const createdAt = nowIso();
-    const task: TaskItem = {
-      id: crypto.randomUUID(),
-      projectId,
-      title: quickTitle.trim(),
-      assignee: quickAssignee.trim(),
-      dueDate: quickDueDate || null,
-      status: "todo",
-      priority: "medium",
-      description: "",
-      updatedAt: createdAt,
-      comments: [],
-      activity: [{ id: crypto.randomUUID(), message: "Task created via quick-add", createdAt }],
-    };
-    setTasks((prev) => [task, ...prev]);
-    setQuickTitle("");
-    setQuickAssignee("");
-    setQuickDueDate("");
+    if (!projectId || !quickTitle.trim()) return;
+    const title = quickTitle.trim();
+    const dueDate = quickDueDate || null;
+    fetch(`/api/projects/${projectId}/tasks`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title,
+        status: "todo",
+        priority: "medium",
+        due_date: dueDate,
+      }),
+    })
+      .then(async (response) => {
+        const payload = (await response.json().catch(() => null)) as { task?: ApiTask; error?: string } | null;
+        if (!response.ok || !payload?.task) {
+          throw new Error(payload?.error || "Failed to create task");
+        }
+        setTasks((prev) => [fromApiTask(payload.task), ...prev]);
+        setQuickTitle("");
+        setQuickDueDate("");
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Failed to create task";
+        setTasksError(message);
+      });
   };
 
   const moveTask = (taskId: string, status: TaskStatus) => {
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === taskId
-          ? task.status === status
-            ? task
-            : {
-                ...task,
-                status,
-                updatedAt: nowIso(),
-                activity: [
-                  {
-                    id: crypto.randomUUID(),
-                    message: `Status changed to ${labelForStatus(status)}`,
-                    createdAt: nowIso(),
-                  },
-                  ...task.activity,
-                ],
-              }
-          : task
-      )
-    );
+    const existing = tasks.find((task) => task.id === taskId);
+    if (!existing || existing.status === status) return;
+    setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, status } : task)));
+    fetch(`/api/tasks/${taskId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status }),
+    })
+      .then(async (response) => {
+        const payload = (await response.json().catch(() => null)) as { task?: ApiTask; error?: string } | null;
+        if (!response.ok || !payload?.task) {
+          throw new Error(payload?.error || "Failed to update task status");
+        }
+        setTasks((prev) => prev.map((task) => (task.id === taskId ? fromApiTask(payload.task) : task)));
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Failed to update task status";
+        setTasksError(message);
+        setTasks((prev) => prev.map((task) => (task.id === taskId ? existing : task)));
+      });
   };
 
   const updateTaskDescription = (taskId: string, description: string) => {
-    setTasks((prev) =>
-      prev.map((task) =>
-        task.id === taskId
-          ? {
-              ...task,
-              description,
-              updatedAt: nowIso(),
-              activity: [
-                { id: crypto.randomUUID(), message: "Description updated", createdAt: nowIso() },
-                ...task.activity,
-              ],
-            }
-          : task
-      )
-    );
+    const existing = tasks.find((task) => task.id === taskId);
+    if (!existing) return;
+    setTasks((prev) => prev.map((task) => (task.id === taskId ? { ...task, description } : task)));
+    fetch(`/api/tasks/${taskId}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ description }),
+    })
+      .then(async (response) => {
+        const payload = (await response.json().catch(() => null)) as { task?: ApiTask; error?: string } | null;
+        if (!response.ok || !payload?.task) {
+          throw new Error(payload?.error || "Failed to update task description");
+        }
+        setTasks((prev) => prev.map((task) => (task.id === taskId ? fromApiTask(payload.task) : task)));
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Failed to update task description";
+        setTasksError(message);
+        setTasks((prev) => prev.map((task) => (task.id === taskId ? existing : task)));
+      });
   };
 
   const removeTask = (taskId: string) => {
+    const existing = tasks.find((task) => task.id === taskId);
+    if (!existing) return;
     setTasks((prev) => prev.filter((task) => task.id !== taskId));
     setSelectedTaskId((prev) => (prev === taskId ? null : prev));
+    fetch(`/api/tasks/${taskId}`, { method: "DELETE" })
+      .then(async (response) => {
+        if (response.ok) return;
+        const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(payload?.error || "Failed to delete task");
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Failed to delete task";
+        setTasksError(message);
+        setTasks((prev) => [existing, ...prev]);
+      });
   };
 
   const handleTaskDragStart = (event: DragEvent<HTMLElement>, taskId: string) => {
@@ -470,18 +476,12 @@ export default function TasksWorkspace() {
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Quick add task</h3>
-        <div className="mt-2 grid gap-2 md:grid-cols-[1.5fr_1fr_1fr_auto]">
+        <div className="mt-2 grid gap-2 md:grid-cols-[1.5fr_1fr_auto]">
           <input
             placeholder="Task title"
             className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
             value={quickTitle}
             onChange={(event) => setQuickTitle(event.target.value)}
-          />
-          <input
-            placeholder="Assignee"
-            className="rounded-md border border-slate-300 px-2 py-1.5 text-sm"
-            value={quickAssignee}
-            onChange={(event) => setQuickAssignee(event.target.value)}
           />
           <input
             type="date"
@@ -497,9 +497,12 @@ export default function TasksWorkspace() {
             Add task
           </button>
         </div>
+        {tasksError ? <p className="mt-2 text-xs text-rose-600">{tasksError}</p> : null}
       </section>
 
-      {prefs.viewMode === "list" ? (
+      {tasksLoading ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">Loading tasks...</div>
+      ) : prefs.viewMode === "list" ? (
         <div className="space-y-3">
           {STATUSES.map((status) => (
             <section key={status.value} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -515,7 +518,7 @@ export default function TasksWorkspace() {
                       <p className="font-medium text-slate-900">{task.title}</p>
                       <span className="text-xs uppercase text-slate-500">{task.priority}</span>
                     </div>
-                    <p className="text-xs text-slate-600">{task.assignee} · Due {task.dueDate ?? "--"}</p>
+                    <p className="text-xs text-slate-600">{task.assignee || "Unassigned"} · Due {task.dueDate ?? "--"}</p>
                   </article>
                 ))}
                 {(groupedByStatus.get(status.value)?.length ?? 0) === 0 && (
@@ -555,7 +558,7 @@ export default function TasksWorkspace() {
                     <div className="flex items-start justify-between gap-2">
                       <p className="text-sm font-medium text-slate-900">{task.title}</p>
                     </div>
-                    <p className="text-xs text-slate-600">{task.assignee}</p>
+                    <p className="text-xs text-slate-600">{task.assignee || "Unassigned"}</p>
                     <p className="text-xs text-slate-500">Due {task.dueDate ?? "--"}</p>
                   </article>
                 ))}
@@ -572,7 +575,7 @@ export default function TasksWorkspace() {
               <p className="text-xs uppercase tracking-wide text-slate-500">Task details</p>
               <h3 className="text-lg font-semibold text-slate-900">{selectedTask.title}</h3>
               <p className="text-sm text-slate-600">
-                {selectedTask.assignee} · Due {selectedTask.dueDate ?? "--"}
+                {selectedTask.assignee || "Unassigned"} · Due {selectedTask.dueDate ?? "--"}
               </p>
             </div>
             <button type="button" onClick={() => setSelectedTaskId(null)} className="text-sm text-slate-600">
