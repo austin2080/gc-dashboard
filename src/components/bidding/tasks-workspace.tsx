@@ -147,8 +147,14 @@ export default function TasksWorkspace() {
         if (!active) return;
         const next = Array.isArray(payload?.projects) ? payload.projects : [];
         setProjects(next);
-        if (!projectId && next.length) {
-          setProjectId(queryProjectId && next.some((p) => p.id === queryProjectId) ? queryProjectId : next[0].id);
+        if (!next.length) {
+          setProjectId("");
+          return;
+        }
+        const hasCurrent = next.some((p) => p.id === projectId);
+        if (!hasCurrent) {
+          const fallback = queryProjectId && next.some((p) => p.id === queryProjectId) ? queryProjectId : next[0].id;
+          setProjectId(fallback);
         }
       } catch {
         if (!active) return;
