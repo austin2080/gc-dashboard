@@ -134,7 +134,7 @@ const URGENCY_STYLES: Record<UrgencyLevel, { row: string; label: string; dot: st
 export default function ScheduleGantt() {
   const toAnalyticsTasks = (items: Task[]): ScheduleTask[] =>
     items
-      .filter((task): task is Task & { status: ScheduleTask["status"] => task.status !== "done")
+      .filter((task): task is Task & { status: ScheduleTask["status"] } => task.status !== "done")
       .map((task) => ({ ...task, status: task.status }));
 
   const [tasks, setTasks] = useState<Task[]>(INITIAL_SCHEDULE_TASKS);
