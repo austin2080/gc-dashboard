@@ -243,6 +243,22 @@ export async function listBidProjects(): Promise<BidProjectSummary[]> {
   return data as BidProjectRow[];
 }
 
+export async function listArchivedBidProjects(): Promise<BidProjectSummary[]> {
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("bid_projects")
+    .select("id, project_name, owner, location, budget, due_date")
+    .not("archived_at", "is", null)
+    .order("updated_at", { ascending: false });
+
+  if (error || !data) {
+    console.error("Failed to load archived bid projects", error);
+    return [];
+  }
+
+  return data as BidProjectRow[];
+}
+
 export async function createBidProject(payload: {
   project_name: string;
   owner?: string | null;
