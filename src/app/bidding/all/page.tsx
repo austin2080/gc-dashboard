@@ -44,6 +44,7 @@ export default function AllBidsPage() {
   const [archivedRows, setArchivedRows] = useState<BidProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  const [rowSortDirection, setRowSortDirection] = useState<"asc" | "desc">("asc");
 
   useEffect(() => {
     let active = true;
@@ -100,6 +101,10 @@ export default function AllBidsPage() {
   const tab = searchParams.get("tab");
   const activeTab = tab === "open" || tab === "closed" || tab === "recycle" ? tab : "all";
   const visibleRows = activeTab === "open" ? openRows : activeTab === "closed" ? closedRows : activeTab === "recycle" ? sortedArchivedRows : sortedRows;
+  const orderedRows = useMemo(
+    () => (rowSortDirection === "asc" ? visibleRows : [...visibleRows].reverse()),
+    [rowSortDirection, visibleRows]
+  );
   const emptyMessage =
     activeTab === "open"
       ? "No open bid packages."
@@ -114,14 +119,16 @@ export default function AllBidsPage() {
     { key: "closed", label: "Closed", count: closedRows.length },
     { key: "recycle", label: "Recycle Bin", count: sortedArchivedRows.length },
   ];
-  const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(orderedRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
-  const rangeStart = visibleRows.length ? (currentPage - 1) * PAGE_SIZE + 1 : 0;
-  const rangeEnd = Math.min(currentPage * PAGE_SIZE, visibleRows.length);
+  const rangeStart = orderedRows.length ? (currentPage - 1) * PAGE_SIZE + 1 : 0;
+  const rangeEnd = Math.min(currentPage * PAGE_SIZE, orderedRows.length);
+  const displayRangeStart = rowSortDirection === "asc" ? rangeStart : Math.max(orderedRows.length - rangeStart + 1, 0);
+  const displayRangeEnd = rowSortDirection === "asc" ? rangeEnd : Math.max(orderedRows.length - rangeEnd + 1, 0);
   const pagedRows = useMemo(() => {
     const start = (currentPage - 1) * PAGE_SIZE;
-    return visibleRows.slice(start, start + PAGE_SIZE);
-  }, [currentPage, visibleRows]);
+    return orderedRows.slice(start, start + PAGE_SIZE);
+  }, [currentPage, orderedRows]);
 
   return (
     <main className="bg-slate-50 px-4 pb-4 sm:px-6 sm:pb-6">
@@ -180,7 +187,7 @@ export default function AllBidsPage() {
           <section className="space-y-2">
             <div className="flex items-center justify-end gap-8 px-1 text-[32px] text-slate-400">
               <span className="text-sm font-semibold italic text-slate-500">
-                {rangeStart}-{rangeEnd} of {visibleRows.length}
+                {displayRangeStart}-{displayRangeEnd} of {orderedRows.length}
               </span>
               <div className="flex items-center gap-3 text-sm font-semibold text-slate-500">
                 <span>Page:</span>
@@ -226,14 +233,22 @@ export default function AllBidsPage() {
                 <thead className="bg-slate-100 text-slate-700">
                   <tr>
                     <th className="w-36 border-r border-slate-100 px-4 py-4 text-left font-semibold">&nbsp;</th>
-                    <th className="w-20 border-r border-slate-100 px-4 py-4 text-left font-semibold">
-                      <span className="inline-flex items-center gap-4">
+                    <th className="w-20 border-r border-slate-100 px-4 py-4 text-left font-semibold" aria-sort={rowSortDirection === "asc" ? "ascending" : "descending"}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRowSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+                          setPage(1);
+                        }}
+                        className="inline-flex items-center gap-4 text-left"
+                        aria-label={`Sort rows ${rowSortDirection === "asc" ? "descending" : "ascending"}`}
+                      >
                         #
                         <svg viewBox="0 0 20 20" className="size-4" aria-hidden>
-                          <path d="M10 4 5.5 9h9L10 4z" fill="#3B82F6" />
-                          <path d="M10 16 14.5 11h-9L10 16z" fill="#CBD5E1" />
+                          <path d="M10 4 5.5 9h9L10 4z" fill={rowSortDirection === "asc" ? "#3B82F6" : "#CBD5E1"} />
+                          <path d="M10 16 14.5 11h-9L10 16z" fill={rowSortDirection === "desc" ? "#3B82F6" : "#CBD5E1"} />
                         </svg>
-                      </span>
+                      </button>
                     </th>
                     <th className="border-r border-slate-100 px-4 py-4 text-left font-semibold">Bid Packages</th>
                     <th className="border-r border-slate-100 px-4 py-4 text-left font-semibold">Due Date/Time</th>
@@ -246,7 +261,9 @@ export default function AllBidsPage() {
                 </thead>
                 <tbody>
                   {pagedRows.map((row, index) => {
-                    const rowNumber = rangeStart + index;
+                    const absoluteIndex = (currentPage - 1) * PAGE_SIZE + index;
+                    const rowNumber =
+                      rowSortDirection === "asc" ? absoluteIndex + 1 : orderedRows.length - absoluteIndex;
                     const statusLabel =
                       activeTab === "recycle"
                         ? "Archived"
