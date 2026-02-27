@@ -131,7 +131,47 @@ const URGENCY_STYLES: Record<UrgencyLevel, { row: string; label: string; dot: st
   },
 };
 
-export default function ScheduleGantt() {
+type ScheduleGanttProps = {
+  projectId?: string;
+};
+
+function toTaskList(value: unknown): Task[] | null {
+  if (!Array.isArray(value)) return null;
+  const parsed = value
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const task = item as Partial<Task>;
+      if (
+        typeof task.id !== "string" ||
+        typeof task.name !== "string" ||
+        typeof task.phase !== "string" ||
+        typeof task.start !== "string" ||
+        typeof task.end !== "string" ||
+        typeof task.progress !== "number" ||
+        typeof task.status !== "string"
+      ) {
+        return null;
+      }
+      if (!["on-track", "at-risk", "off-track", "done"].includes(task.status)) {
+        return null;
+      }
+      return {
+        id: task.id,
+        name: task.name,
+        owner: typeof task.owner === "string" ? task.owner : "",
+        phase: task.phase,
+        start: task.start,
+        end: task.end,
+        progress: clampProgress(task.progress),
+        status: task.status as TaskStatus,
+      };
+    })
+    .filter((task): task is Task => Boolean(task));
+
+  return parsed;
+}
+
+export default function ScheduleGantt({ projectId = "" }: ScheduleGanttProps) {
   const toAnalyticsTasks = (items: Task[]): ScheduleTask[] =>
     items
       .filter((task): task is Task & { status: ScheduleTask["status"] } => task.status !== "done")
@@ -150,6 +190,37 @@ export default function ScheduleGantt() {
   const [reminderHours, setReminderHours] = useState<number[]>([48, 24]);
   const [emailNotificationsEnabled, setEmailNotificationsEnabled] = useState(false);
   const sentNotificationKeys = useRef(new Set<string>());
+  const hydratedTasksRef = useRef(false);
+  const taskStorageKey = useMemo(
+    () => `scheduleTasks:${projectId.trim() || "default"}`,
+    [projectId]
+  );
+
+  useEffect(() => {
+    hydratedTasksRef.current = false;
+    const stored = localStorage.getItem(taskStorageKey);
+
+    if (!stored) {
+      setTasks(INITIAL_SCHEDULE_TASKS);
+      hydratedTasksRef.current = true;
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(stored) as unknown;
+      const next = toTaskList(parsed);
+      setTasks(next ?? INITIAL_SCHEDULE_TASKS);
+    } catch {
+      setTasks(INITIAL_SCHEDULE_TASKS);
+    } finally {
+      hydratedTasksRef.current = true;
+    }
+  }, [taskStorageKey]);
+
+  useEffect(() => {
+    if (!hydratedTasksRef.current) return;
+    localStorage.setItem(taskStorageKey, JSON.stringify(tasks));
+  }, [taskStorageKey, tasks]);
 
   useEffect(() => {
     setAnalytics(buildTaskAnalytics(toAnalyticsTasks(tasks)));
@@ -775,4 +846,3 @@ export default function ScheduleGantt() {
     </section>
   );
 }
-

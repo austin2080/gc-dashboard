@@ -563,12 +563,13 @@ export async function getBidProjectDetail(projectId: string): Promise<BidProject
     .from("bid_projects")
     .select("id, project_name, owner, location, budget, due_date")
     .eq("id", projectId)
-    .single();
+    .maybeSingle();
 
-  if (projectError || !project) {
+  if (projectError) {
     console.error("Failed to load bid project", projectError);
     return null;
   }
+  if (!project) return null;
 
   const { data: trades, error: tradesError } = await supabase
     .from("bid_trades")
