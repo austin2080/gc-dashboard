@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createBidProject } from "@/lib/bidding/store";
 
 type BidPackageDraft = {
@@ -38,6 +38,23 @@ type BidPackageDraft = {
   include_bid_documents: boolean;
   bid_submission_confirmation_message: string;
 };
+
+type FileSectionKey = "drawings" | "documents" | "specifications";
+
+type UploadedBidFile = {
+  id: string;
+  name: string;
+  size: number;
+  uploadedAt: string;
+  section: FileSectionKey;
+  url: string;
+};
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 function createDefaultDraft(): BidPackageDraft {
   return {
@@ -80,9 +97,38 @@ function createDefaultDraft(): BidPackageDraft {
 
 export default function NewBidPackagePage() {
   const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activePanel, setActivePanel] = useState<"general" | "files">("general");
+  const [activeFileSection, setActiveFileSection] = useState<FileSectionKey>("drawings");
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedBidFile[]>([]);
   const [draft, setDraft] = useState<BidPackageDraft>(createDefaultDraft());
+  const filesInActiveSection = useMemo(
+    () => uploadedFiles.filter((file) => file.section === activeFileSection),
+    [activeFileSection, uploadedFiles]
+  );
+
+  const handleUploadFiles = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const next = Array.from(files);
+    if (next.length > 25) {
+      setFileError("Upload up to 25 files at a time.");
+      return;
+    }
+    setFileError(null);
+    const now = new Date().toISOString();
+    const mapped = next.map((file) => ({
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      name: file.name,
+      size: file.size,
+      uploadedAt: now,
+      section: activeFileSection,
+      url: URL.createObjectURL(file),
+    }));
+    setUploadedFiles((prev) => [...mapped, ...prev]);
+  };
 
   return (
     <main className="bg-slate-50 pl-4 pr-0 pb-8 sm:pl-6 sm:pr-0">
@@ -133,6 +179,8 @@ export default function NewBidPackagePage() {
       >
         <div className="grid items-start gap-0 lg:grid-cols-[minmax(0,1fr)_300px]">
           <div className="space-y-4 pr-4 pt-12 lg:px-12">
+        {activePanel === "general" ? (
+          <>
         <section id="general-information" className="scroll-mt-24 rounded-xl border border-slate-200 bg-white p-5">
           <h3 className="text-[18px] font-semibold text-slate-900">General Information</h3>
           <div className="mt-5 grid gap-4 sm:grid-cols-6">
@@ -484,13 +532,6 @@ export default function NewBidPackagePage() {
           </div>
         </section>
 
-        <section id="files" className="scroll-mt-24 rounded-xl border border-slate-200 bg-white p-5">
-          <h3 className="text-[18px] font-semibold text-slate-900">Files</h3>
-          <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600">
-            Attach files for this bid package. File upload wiring can be added next.
-          </div>
-        </section>
-
         {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
         <div className="flex items-center justify-end gap-2 pt-2">
@@ -508,14 +549,127 @@ export default function NewBidPackagePage() {
             {submitting ? "Creating..." : "Create Bid Package"}
           </button>
         </div>
+          </>
+        ) : (
+          <section className="rounded-xl border border-slate-200 bg-white p-5">
+            <h3 className="text-[18px] font-semibold text-slate-900">Drawings</h3>
+            <div className="mt-6 grid gap-6 md:grid-cols-[340px_minmax(0,1fr)]">
+              <div>
+                <div className="space-y-1 border border-slate-200 bg-slate-50">
+                  <button
+                    type="button"
+                    onClick={() => setActiveFileSection("drawings")}
+                    className={`flex w-full items-center px-4 py-3 text-left text-base ${
+                      activeFileSection === "drawings"
+                        ? "border-l-4 border-l-orange-400 bg-slate-100 font-semibold text-slate-800"
+                        : "font-medium text-slate-500 hover:bg-slate-100"
+                    }`}
+                  >
+                    Drawings
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveFileSection("documents")}
+                    className={`flex w-full items-center px-4 py-3 text-left text-base ${
+                      activeFileSection === "documents"
+                        ? "border-l-4 border-l-orange-400 bg-slate-100 font-semibold text-slate-800"
+                        : "font-medium text-slate-500 hover:bg-slate-100"
+                    }`}
+                  >
+                    Documents
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveFileSection("specifications")}
+                    className={`flex w-full items-center px-4 py-3 text-left text-base ${
+                      activeFileSection === "specifications"
+                        ? "border-l-4 border-l-orange-400 bg-slate-100 font-semibold text-slate-800"
+                        : "font-medium text-slate-500 hover:bg-slate-100"
+                    }`}
+                  >
+                    Specifications
+                  </button>
+                </div>
+              </div>
+              <div className="min-h-[540px]">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div className="max-w-[220px]">
+                    <select className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-base text-slate-700">
+                      <option>Current</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={(event) => {
+                        handleUploadFiles(event.target.files);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Upload files
+                    </button>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="text-[18px] font-semibold text-slate-800">
+                    {activeFileSection === "drawings"
+                      ? "Drawings"
+                      : activeFileSection === "documents"
+                        ? "Documents"
+                        : "Specifications"}
+                  </div>
+                  <div className="flex items-center gap-4 text-xl text-slate-400">
+                    <span>☰</span>
+                    <span>▦</span>
+                  </div>
+                </div>
+                {fileError ? <p className="mt-2 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{fileError}</p> : null}
+                {filesInActiveSection.length ? (
+                  <ul className="mt-4 space-y-3">
+                    {filesInActiveSection.map((file) => (
+                      <li key={file.id} className="rounded-lg border border-slate-200 bg-white px-3 py-3">
+                        <a
+                          href={file.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sm font-semibold text-blue-700 hover:underline"
+                        >
+                          {file.name}
+                        </a>
+                        <div className="mt-1 text-xs text-slate-500">
+                          {formatFileSize(file.size)} · Uploaded {new Date(file.uploadedAt).toLocaleString()}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
+                    No files uploaded in this section yet.
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
           </div>
 
           <aside className="hidden -mt-[88px] h-[calc(100%+88px)] self-stretch border-l border-slate-200 bg-white pt-[88px] lg:block">
             <div className="sticky top-0 min-h-screen pt-2">
               <nav className="space-y-1 px-3">
-                <a
-                  href="#general-information"
-                  className="flex items-center gap-3 rounded-md px-4 py-3 text-base font-medium text-slate-700 hover:bg-slate-100"
+                <button
+                  type="button"
+                  onClick={() => setActivePanel("general")}
+                  className={`flex w-full items-center gap-3 rounded-md px-4 py-3 text-left text-base font-medium hover:bg-slate-100 ${
+                    activePanel === "general" ? "bg-slate-100 text-slate-900" : "text-slate-700"
+                  }`}
                 >
                   <svg viewBox="0 0 20 20" className="size-5 text-slate-500" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
                     <path d="M6 2.75h6l3 3V17a1.25 1.25 0 0 1-1.25 1.25h-7.5A1.25 1.25 0 0 1 5 17V4a1.25 1.25 0 0 1 1-1.22Z" />
@@ -523,16 +677,19 @@ export default function NewBidPackagePage() {
                     <path d="M7.5 9.5h5M7.5 12h5M7.5 14.5h3.5" />
                   </svg>
                   General Information
-                </a>
-                <a
-                  href="#files"
-                  className="flex items-center gap-3 rounded-md px-4 py-3 text-base font-medium text-slate-700 hover:bg-slate-100"
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActivePanel("files")}
+                  className={`flex w-full items-center gap-3 rounded-md px-4 py-3 text-left text-base font-medium hover:bg-slate-100 ${
+                    activePanel === "files" ? "bg-slate-100 text-slate-900" : "text-slate-700"
+                  }`}
                 >
                   <svg viewBox="0 0 20 20" className="size-5 text-slate-500" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
                     <path d="M2.75 5.25A1.25 1.25 0 0 1 4 4h4.2l1.2 1.5H16A1.25 1.25 0 0 1 17.25 6.75v8.5A1.25 1.25 0 0 1 16 16.5H4a1.25 1.25 0 0 1-1.25-1.25z" />
                   </svg>
                   Files
-                </a>
+                </button>
               </nav>
             </div>
           </aside>
