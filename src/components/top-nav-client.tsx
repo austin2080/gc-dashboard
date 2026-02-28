@@ -200,9 +200,10 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
   const allProjects = filteredProjects.filter((project) => !recentProjectIds.includes(project.id));
 
   const homeHref = withContext(mode === "waiverdesk" ? "/waiverdesk/dashboard" : "/dashboard");
-  const isAllBidsPage = pathname === withMode("/bidding/all");
-  const activeProjectLabel = isAllBidsPage
-    ? "All projects"
+  const biddingAllPath = withMode("/bidding/all");
+  const isAllBidsRoute = pathname === biddingAllPath || pathname.startsWith(`${biddingAllPath}/`);
+  const activeProjectLabel = isAllBidsRoute
+    ? "All Projects"
     : activeProject
       ? projectLabel(activeProject)
       : "No project selected";
