@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import type { BidProjectSummary } from "@/lib/bidding/types";
 import {
   archiveBidProject,
+  createBidProject,
   listArchivedBidProjects,
   listBidProjects,
   reopenBidProject,
@@ -54,6 +55,45 @@ export default function AllBidsPage() {
   const [deleteSubmitting, setDeleteSubmitting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [reopeningId, setReopeningId] = useState<string | null>(null);
+  const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [createSubmitting, setCreateSubmitting] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [draft, setDraft] = useState({
+    project_name: "",
+    package_number: "",
+    status: "open",
+    owner: "",
+    location: "",
+    budget: "",
+    due_date: "",
+    due_hour: "12",
+    due_minute: "00",
+    due_period: "am",
+    tbd_due_date: false,
+    primary_bidding_contact: "Project Manager",
+    bidding_cc_group: "",
+    bidding_instructions:
+      "For help with submitting a bid, please visit Procore's bidding support page.\n\n" +
+      "If you need assistance accessing the bid documents, please email Procore's customer support department at support@procore.com, and one of their support representatives will provide you with assistance.\n\n" +
+      "BuilderOS looks forward to the opportunity to work with your project team in our new bidding process.",
+    rfi_deadline_enabled: true,
+    rfi_deadline_date: "2024-11-30",
+    rfi_deadline_hour: "12",
+    rfi_deadline_minute: "00",
+    rfi_deadline_period: "am",
+    site_walkthrough_enabled: false,
+    site_walkthrough_date: "",
+    site_walkthrough_hour: "12",
+    site_walkthrough_minute: "00",
+    site_walkthrough_period: "am",
+    anticipated_award_date: "",
+    countdown_emails: false,
+    accept_submissions_past_due: false,
+    enable_blind_bidding: false,
+    disable_electronic_submission: false,
+    include_bid_documents: true,
+    bid_submission_confirmation_message: "",
+  });
 
   useEffect(() => {
     let active = true;
@@ -170,6 +210,12 @@ export default function AllBidsPage() {
     setPendingDelete(null);
   };
 
+  const closeCreateModal = () => {
+    if (createSubmitting) return;
+    setCreateModalOpen(false);
+    setCreateError(null);
+  };
+
   return (
     <>
       <main className="bg-slate-50 px-4 pb-4 sm:px-6 sm:pb-6">
@@ -209,13 +255,17 @@ export default function AllBidsPage() {
               })}
             </nav>
           </div>
-          <Link
-            href="/bidding"
+          <button
+            type="button"
+            onClick={() => {
+              setCreateError(null);
+              setCreateModalOpen(true);
+            }}
             className="inline-flex items-center gap-2 rounded-md bg-orange-500 px-4 py-2 text-base font-semibold text-white shadow-sm transition hover:bg-orange-600"
           >
             <span aria-hidden>＋</span>
             Add Bid Package
-          </Link>
+          </button>
         </div>
       </header>
 
@@ -450,6 +500,649 @@ export default function AllBidsPage() {
                 {deleteSubmitting ? "Moving..." : "Move to Recycle Bin"}
               </button>
             </div>
+          </div>
+        </div>
+      ) : null}
+
+      {createModalOpen ? (
+        <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/40">
+          <div className="h-full w-full max-w-4xl overflow-y-auto border-l border-slate-200 bg-white shadow-2xl">
+            <div className="sticky top-0 flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-6 py-4">
+              <div>
+                <h2 className="text-xl font-semibold text-slate-900">Add Bid Package</h2>
+                <p className="mt-1 text-sm text-slate-500">Create a new bid package without leaving this page.</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeCreateModal}
+                disabled={createSubmitting}
+                className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                aria-label="Close add bid package dialog"
+              >
+                ✕
+              </button>
+            </div>
+            <form
+              className="space-y-4 px-6 py-5"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                if (!draft.project_name.trim()) {
+                  setCreateError("Project name is required.");
+                  return;
+                }
+                setCreateSubmitting(true);
+                setCreateError(null);
+                const budgetValue = draft.budget.trim() ? Number(draft.budget) : null;
+                const created = await createBidProject({
+                  project_name: draft.project_name.trim(),
+                  owner: draft.owner.trim() || null,
+                  location: draft.location.trim() || null,
+                  budget: Number.isFinite(budgetValue) ? budgetValue : null,
+                  due_date: draft.tbd_due_date ? null : draft.due_date.trim() || null,
+                });
+                if (!created) {
+                  setCreateError("Unable to create bid package. Please try again.");
+                  setCreateSubmitting(false);
+                  return;
+                }
+                setRows((prev) => [created, ...prev]);
+                setPage(1);
+                setCreateSubmitting(false);
+                setCreateModalOpen(false);
+                setDraft({
+                  project_name: "",
+                  package_number: "",
+                  status: "open",
+                  owner: "",
+                  location: "",
+                  budget: "",
+                  due_date: "",
+                  due_hour: "12",
+                  due_minute: "00",
+                  due_period: "am",
+                  tbd_due_date: false,
+                  primary_bidding_contact: "Project Manager",
+                  bidding_cc_group: "",
+                  bidding_instructions:
+                    "For help with submitting a bid, please visit Procore's bidding support page.\n\n" +
+                    "If you need assistance accessing the bid documents, please email Procore's customer support department at support@procore.com, and one of their support representatives will provide you with assistance.\n\n" +
+                    "BuilderOS looks forward to the opportunity to work with your project team in our new bidding process.",
+                  rfi_deadline_enabled: true,
+                  rfi_deadline_date: "2024-11-30",
+                  rfi_deadline_hour: "12",
+                  rfi_deadline_minute: "00",
+                  rfi_deadline_period: "am",
+                  site_walkthrough_enabled: false,
+                  site_walkthrough_date: "",
+                  site_walkthrough_hour: "12",
+                  site_walkthrough_minute: "00",
+                  site_walkthrough_period: "am",
+                  anticipated_award_date: "",
+                  countdown_emails: false,
+                  accept_submissions_past_due: false,
+                  enable_blind_bidding: false,
+                  disable_electronic_submission: false,
+                  include_bid_documents: true,
+                  bid_submission_confirmation_message: "",
+                });
+              }}
+            >
+              <section className="rounded-xl border border-slate-200 bg-white p-5">
+                <h3 className="text-[18px] font-semibold text-slate-900">General Information</h3>
+                <div className="mt-5 grid gap-4 sm:grid-cols-6">
+                  <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-2">
+                    <span className="inline-flex items-center gap-1">
+                      Title of Package <span className="text-rose-600">*</span>
+                    </span>
+                    <input
+                      value={draft.project_name}
+                      onChange={(event) => setDraft((prev) => ({ ...prev, project_name: event.target.value }))}
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                      placeholder="VBC CO #4"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-2">
+                    Number
+                    <input
+                      value={draft.package_number}
+                      onChange={(event) => setDraft((prev) => ({ ...prev, package_number: event.target.value }))}
+                      className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                      placeholder="8"
+                    />
+                  </label>
+                  <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-2">
+                    Status
+                    <div className="relative">
+                      <select
+                        value={draft.status}
+                        onChange={(event) => setDraft((prev) => ({ ...prev, status: event.target.value }))}
+                        className="w-full appearance-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                      >
+                        <option value="open">Open</option>
+                        <option value="closed">Closed</option>
+                      </select>
+                      <svg
+                        viewBox="0 0 20 20"
+                        className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-500"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        aria-hidden
+                      >
+                        <path d="M5 7l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </div>
+                  </label>
+                  <div className="sm:col-span-6">
+                    <div className="mb-2 text-sm font-semibold text-slate-700">
+                      Bid Due Date <span className="text-rose-600">*</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <input
+                        type="date"
+                        value={draft.due_date}
+                        onChange={(event) => setDraft((prev) => ({ ...prev, due_date: event.target.value }))}
+                        disabled={draft.tbd_due_date}
+                        className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+                      <select
+                        value={draft.due_hour}
+                        onChange={(event) => setDraft((prev) => ({ ...prev, due_hour: event.target.value }))}
+                        disabled={draft.tbd_due_date}
+                        className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
+                          <option key={hour} value={hour}>
+                            {hour}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={draft.due_minute}
+                        onChange={(event) => setDraft((prev) => ({ ...prev, due_minute: event.target.value }))}
+                        disabled={draft.tbd_due_date}
+                        className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {["00", "15", "30", "45"].map((minute) => (
+                          <option key={minute} value={minute}>
+                            {minute}
+                          </option>
+                        ))}
+                      </select>
+                      <select
+                        value={draft.due_period}
+                        onChange={(event) => setDraft((prev) => ({ ...prev, due_period: event.target.value }))}
+                        disabled={draft.tbd_due_date}
+                        className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <option value="am">am</option>
+                        <option value="pm">pm</option>
+                      </select>
+                      <span className="text-sm text-slate-600">America/Adak</span>
+                    </div>
+                    <label className="mt-3 inline-flex items-center gap-2 text-sm text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={draft.tbd_due_date}
+                        onChange={(event) =>
+                          setDraft((prev) => ({
+                            ...prev,
+                            tbd_due_date: event.target.checked,
+                            due_date: event.target.checked ? "" : prev.due_date,
+                          }))
+                        }
+                        className="size-4 rounded border-slate-300"
+                      />
+                      To be determined
+                    </label>
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-xl border border-slate-200 bg-white p-5">
+                <h3 className="text-[18px] font-semibold text-slate-900">Package Contacts</h3>
+                <div className="mt-5 space-y-5">
+                  <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
+                    <span className="inline-flex items-center gap-2">
+                      Primary Bidding Contact <span className="text-rose-600">*</span>
+                      <span
+                        className="inline-flex size-5 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white"
+                        title="Who receives and sends bidding communications."
+                        aria-label="Primary bidding contact help"
+                      >
+                        i
+                      </span>
+                    </span>
+                    <div className="relative">
+                      <select
+                        value={draft.primary_bidding_contact}
+                        onChange={(event) =>
+                          setDraft((prev) => ({ ...prev, primary_bidding_contact: event.target.value }))
+                        }
+                        className="w-full appearance-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                      >
+                        <option value="Project Manager">Project Manager</option>
+                        <option value="Estimator">Estimator</option>
+                        <option value="Precon Manager">Precon Manager</option>
+                      </select>
+                      <svg
+                        viewBox="0 0 20 20"
+                        className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-500"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        aria-hidden
+                      >
+                        <path d="M5 7l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </div>
+                    <span className="text-sm font-normal text-slate-600">
+                      Emails will be sent from: test@builderos.com
+                    </span>
+                  </label>
+
+                  <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
+                    <span className="inline-flex items-center gap-2">
+                      Bidding CC Group
+                      <span
+                        className="inline-flex size-5 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white"
+                        title="Optional distribution list for copied recipients."
+                        aria-label="Bidding CC group help"
+                      >
+                        i
+                      </span>
+                    </span>
+                    <div className="relative">
+                      <select
+                        value={draft.bidding_cc_group}
+                        onChange={(event) => setDraft((prev) => ({ ...prev, bidding_cc_group: event.target.value }))}
+                        className="w-full appearance-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                      >
+                        <option value="">Choose a distribution group</option>
+                        <option value="estimating-team">Estimating Team</option>
+                        <option value="operations-leadership">Operations Leadership</option>
+                        <option value="executive-updates">Executive Updates</option>
+                      </select>
+                      <svg
+                        viewBox="0 0 20 20"
+                        className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-500"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        aria-hidden
+                      >
+                        <path d="M5 7l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </div>
+                  </label>
+                </div>
+              </section>
+
+              <section className="rounded-xl border border-slate-200 bg-white p-5">
+                <h3 className="text-[18px] font-semibold text-slate-900">Bidding Instructions</h3>
+                <div className="mt-4 overflow-hidden rounded-lg border border-slate-200">
+                  <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                    <button type="button" className="rounded px-2 py-1 font-semibold hover:bg-slate-200">B</button>
+                    <button type="button" className="rounded px-2 py-1 italic hover:bg-slate-200">I</button>
+                    <button type="button" className="rounded px-2 py-1 underline hover:bg-slate-200">U</button>
+                    <span className="mx-1 h-5 w-px bg-slate-300" />
+                    <button type="button" className="rounded px-2 py-1 hover:bg-slate-200">• List</button>
+                    <button type="button" className="rounded px-2 py-1 hover:bg-slate-200">1. List</button>
+                    <span className="mx-1 h-5 w-px bg-slate-300" />
+                    <button type="button" className="rounded px-2 py-1 hover:bg-slate-200">12pt</button>
+                    <button type="button" className="rounded px-2 py-1 hover:bg-slate-200">A</button>
+                  </div>
+                  <textarea
+                    value={draft.bidding_instructions}
+                    onChange={(event) => setDraft((prev) => ({ ...prev, bidding_instructions: event.target.value }))}
+                    className="min-h-56 w-full resize-y border-0 px-4 py-4 text-base leading-8 text-slate-800 focus:outline-none"
+                  />
+                </div>
+              </section>
+
+              <section className="rounded-xl border border-slate-200 bg-white p-5">
+                <h3 className="text-[18px] font-semibold text-slate-900">Pre-Bid Information</h3>
+                <div className="mt-5 space-y-4">
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={draft.rfi_deadline_enabled}
+                      onClick={() =>
+                        setDraft((prev) => ({ ...prev, rfi_deadline_enabled: !prev.rfi_deadline_enabled }))
+                      }
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
+                        draft.rfi_deadline_enabled ? "border-blue-600 bg-blue-600" : "border-slate-300 bg-slate-200"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block size-5 transform rounded-full bg-white transition ${
+                          draft.rfi_deadline_enabled ? "translate-x-5" : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
+                    <span className="text-sm font-medium text-slate-800">RFI Deadline</span>
+                    {draft.rfi_deadline_enabled ? (
+                      <div className="ml-4 flex flex-wrap items-center gap-2">
+                        <input
+                          type="date"
+                          value={draft.rfi_deadline_date}
+                          onChange={(event) =>
+                            setDraft((prev) => ({ ...prev, rfi_deadline_date: event.target.value }))
+                          }
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                        />
+                        <select
+                          value={draft.rfi_deadline_hour}
+                          onChange={(event) =>
+                            setDraft((prev) => ({ ...prev, rfi_deadline_hour: event.target.value }))
+                          }
+                          className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700"
+                        >
+                          {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
+                            <option key={`rfi-hour-${hour}`} value={hour}>
+                              {hour}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={draft.rfi_deadline_minute}
+                          onChange={(event) =>
+                            setDraft((prev) => ({ ...prev, rfi_deadline_minute: event.target.value }))
+                          }
+                          className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700"
+                        >
+                          {["00", "15", "30", "45"].map((minute) => (
+                            <option key={`rfi-minute-${minute}`} value={minute}>
+                              {minute}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={draft.rfi_deadline_period}
+                          onChange={(event) =>
+                            setDraft((prev) => ({ ...prev, rfi_deadline_period: event.target.value }))
+                          }
+                          className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700"
+                        >
+                          <option value="am">am</option>
+                          <option value="pm">pm</option>
+                        </select>
+                        <span className="text-sm text-slate-600">America/Adak</span>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={draft.site_walkthrough_enabled}
+                      onClick={() =>
+                        setDraft((prev) => ({ ...prev, site_walkthrough_enabled: !prev.site_walkthrough_enabled }))
+                      }
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
+                        draft.site_walkthrough_enabled ? "border-blue-600 bg-blue-600" : "border-slate-300 bg-slate-200"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block size-5 transform rounded-full bg-white transition ${
+                          draft.site_walkthrough_enabled ? "translate-x-5" : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
+                    <span className="text-sm font-medium text-slate-800">Site Walkthrough</span>
+                    {draft.site_walkthrough_enabled ? (
+                      <div className="ml-4 flex flex-wrap items-center gap-2">
+                        <input
+                          type="date"
+                          value={draft.site_walkthrough_date}
+                          onChange={(event) =>
+                            setDraft((prev) => ({ ...prev, site_walkthrough_date: event.target.value }))
+                          }
+                          className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                        />
+                        <select
+                          value={draft.site_walkthrough_hour}
+                          onChange={(event) =>
+                            setDraft((prev) => ({ ...prev, site_walkthrough_hour: event.target.value }))
+                          }
+                          className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700"
+                        >
+                          {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
+                            <option key={`walk-hour-${hour}`} value={hour}>
+                              {hour}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={draft.site_walkthrough_minute}
+                          onChange={(event) =>
+                            setDraft((prev) => ({ ...prev, site_walkthrough_minute: event.target.value }))
+                          }
+                          className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700"
+                        >
+                          {["00", "15", "30", "45"].map((minute) => (
+                            <option key={`walk-minute-${minute}`} value={minute}>
+                              {minute}
+                            </option>
+                          ))}
+                        </select>
+                        <select
+                          value={draft.site_walkthrough_period}
+                          onChange={(event) =>
+                            setDraft((prev) => ({ ...prev, site_walkthrough_period: event.target.value }))
+                          }
+                          className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700"
+                        >
+                          <option value="am">am</option>
+                          <option value="pm">pm</option>
+                        </select>
+                        <span className="text-sm text-slate-600">America/Adak</span>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </section>
+
+              <section className="rounded-xl border border-slate-200 bg-white p-5">
+                <h3 className="text-[18px] font-semibold text-slate-900">Advanced Settings</h3>
+                <div className="mt-4">
+                  <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
+                    Anticipated Award Date
+                    <input
+                      type="date"
+                      value={draft.anticipated_award_date}
+                      onChange={(event) =>
+                        setDraft((prev) => ({ ...prev, anticipated_award_date: event.target.value }))
+                      }
+                      className="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                    />
+                  </label>
+                </div>
+
+                <div className="mt-6 space-y-4">
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={draft.countdown_emails}
+                      onClick={() => setDraft((prev) => ({ ...prev, countdown_emails: !prev.countdown_emails }))}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
+                        draft.countdown_emails ? "border-blue-600 bg-blue-600" : "border-slate-300 bg-slate-200"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block size-5 transform rounded-full bg-white transition ${
+                          draft.countdown_emails ? "translate-x-5" : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
+                    <span className="text-sm font-medium text-slate-800">Countdown Email(s)</span>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={draft.accept_submissions_past_due}
+                      onClick={() =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          accept_submissions_past_due: !prev.accept_submissions_past_due,
+                        }))
+                      }
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
+                        draft.accept_submissions_past_due ? "border-blue-600 bg-blue-600" : "border-slate-300 bg-slate-200"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block size-5 transform rounded-full bg-white transition ${
+                          draft.accept_submissions_past_due ? "translate-x-5" : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
+                    <span className="text-sm font-medium text-slate-800">Accept Submissions past Due Date</span>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={draft.enable_blind_bidding}
+                      onClick={() =>
+                        setDraft((prev) => ({ ...prev, enable_blind_bidding: !prev.enable_blind_bidding }))
+                      }
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
+                        draft.enable_blind_bidding ? "border-blue-600 bg-blue-600" : "border-slate-300 bg-slate-200"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block size-5 transform rounded-full bg-white transition ${
+                          draft.enable_blind_bidding ? "translate-x-5" : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
+                    <span className="text-sm font-medium text-slate-800">Enable Blind Bidding</span>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={draft.disable_electronic_submission}
+                      onClick={() =>
+                        setDraft((prev) => ({
+                          ...prev,
+                          disable_electronic_submission: !prev.disable_electronic_submission,
+                        }))
+                      }
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
+                        draft.disable_electronic_submission ? "border-blue-600 bg-blue-600" : "border-slate-300 bg-slate-200"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block size-5 transform rounded-full bg-white transition ${
+                          draft.disable_electronic_submission ? "translate-x-5" : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
+                    <span className="text-sm font-medium text-slate-800">Disable Electronic Submission of Bids</span>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={draft.include_bid_documents}
+                      onClick={() =>
+                        setDraft((prev) => ({ ...prev, include_bid_documents: !prev.include_bid_documents }))
+                      }
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
+                        draft.include_bid_documents ? "border-blue-600 bg-blue-600" : "border-slate-300 bg-slate-200"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block size-5 transform rounded-full bg-white transition ${
+                          draft.include_bid_documents ? "translate-x-5" : "translate-x-0.5"
+                        }`}
+                      />
+                    </button>
+                    <span className="text-sm font-medium text-slate-800">Include Bid Documents</span>
+                  </div>
+                </div>
+
+                <label className="mt-6 flex flex-col gap-2 text-sm font-semibold text-slate-700">
+                  Bid Submission Confirmation Message
+                  <textarea
+                    value={draft.bid_submission_confirmation_message}
+                    onChange={(event) =>
+                      setDraft((prev) => ({ ...prev, bid_submission_confirmation_message: event.target.value }))
+                    }
+                    className="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="Bid Submission Confirmation Message"
+                  />
+                </label>
+              </section>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                  Owner / Client
+                  <input
+                    value={draft.owner}
+                    onChange={(event) => setDraft((prev) => ({ ...prev, owner: event.target.value }))}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                    placeholder="Owner name"
+                  />
+                </label>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                  Location
+                  <input
+                    value={draft.location}
+                    onChange={(event) => setDraft((prev) => ({ ...prev, location: event.target.value }))}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                    placeholder="City, State"
+                  />
+                </label>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                  Budget
+                  <input
+                    value={draft.budget}
+                    onChange={(event) => setDraft((prev) => ({ ...prev, budget: event.target.value }))}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                    placeholder="1000000"
+                    inputMode="decimal"
+                  />
+                </label>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                  Due date
+                  <input
+                    type="date"
+                    value={draft.due_date}
+                    onChange={(event) => setDraft((prev) => ({ ...prev, due_date: event.target.value }))}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                  />
+                </label>
+              </div>
+              {createError ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{createError}</p> : null}
+              <div className="flex items-center justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={closeCreateModal}
+                  disabled={createSubmitting}
+                  className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={createSubmitting}
+                  className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {createSubmitting ? "Creating..." : "Create Bid Package"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       ) : null}
