@@ -384,6 +384,21 @@ export async function archiveBidProject(projectId: string): Promise<boolean> {
   return true;
 }
 
+export async function reopenBidProject(projectId: string): Promise<boolean> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("bid_projects")
+    .update({ archived_at: null })
+    .eq("id", projectId);
+
+  if (error) {
+    console.error("Failed to reopen bid project", error);
+    return false;
+  }
+
+  return true;
+}
+
 export async function createBidSubcontractor(payload: {
   company_name: string;
   primary_contact?: string | null;

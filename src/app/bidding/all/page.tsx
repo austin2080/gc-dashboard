@@ -4,7 +4,12 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { BidProjectSummary } from "@/lib/bidding/types";
-import { listArchivedBidProjects, listBidProjects } from "@/lib/bidding/store";
+import {
+  archiveBidProject,
+  listArchivedBidProjects,
+  listBidProjects,
+  reopenBidProject,
+} from "@/lib/bidding/store";
 
 const PAGE_SIZE = 10;
 
@@ -45,6 +50,10 @@ export default function AllBidsPage() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [rowSortDirection, setRowSortDirection] = useState<"asc" | "desc">("asc");
+  const [pendingDelete, setPendingDelete] = useState<BidProjectSummary | null>(null);
+  const [deleteSubmitting, setDeleteSubmitting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [reopeningId, setReopeningId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -130,8 +139,40 @@ export default function AllBidsPage() {
     return orderedRows.slice(start, start + PAGE_SIZE);
   }, [currentPage, orderedRows]);
 
+  const openDeleteModal = (row: BidProjectSummary) => {
+    if (activeTab === "recycle") return;
+    setDeleteError(null);
+    setPendingDelete(row);
+  };
+
+  const closeDeleteModal = () => {
+    if (deleteSubmitting) return;
+    setDeleteError(null);
+    setPendingDelete(null);
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete) return;
+    setDeleteSubmitting(true);
+    setDeleteError(null);
+    const ok = await archiveBidProject(pendingDelete.id);
+    if (!ok) {
+      setDeleteSubmitting(false);
+      setDeleteError("Unable to move bid package to Recycle Bin. Please try again.");
+      return;
+    }
+    setRows((prev) => prev.filter((item) => item.id !== pendingDelete.id));
+    setArchivedRows((prev) => {
+      if (prev.some((item) => item.id === pendingDelete.id)) return prev;
+      return [pendingDelete, ...prev];
+    });
+    setDeleteSubmitting(false);
+    setPendingDelete(null);
+  };
+
   return (
-    <main className="bg-slate-50 px-4 pb-4 sm:px-6 sm:pb-6">
+    <>
+      <main className="bg-slate-50 px-4 pb-4 sm:px-6 sm:pb-6">
       <header className="-mx-4 border-b border-slate-200 bg-white sm:-mx-6">
         <div className="flex flex-wrap items-center justify-between gap-4 px-6 py-3">
           <div className="flex flex-wrap items-center gap-6">
@@ -327,16 +368,41 @@ export default function AllBidsPage() {
                         </span>
                       </td>
                       <td className="px-4 py-4">
-                        <button
-                          type="button"
-                          onClick={(event) => event.stopPropagation()}
-                          className="inline-flex size-8 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                          aria-label="Delete bid package"
-                        >
-                          <svg viewBox="0 0 24 24" className="size-5 fill-current" aria-hidden>
-                            <path d="M9 3h6l1 2h4v2H4V5h4l1-2zm1 6h2v8h-2V9zm4 0h2v8h-2V9zM7 9h2v8H7V9z" />
-                          </svg>
-                        </button>
+                        {activeTab === "recycle" ? (
+                          <button
+                            type="button"
+                            onClick={async (event) => {
+                              event.stopPropagation();
+                              setReopeningId(row.id);
+                              const ok = await reopenBidProject(row.id);
+                              if (!ok) {
+                                setReopeningId(null);
+                                return;
+                              }
+                              setArchivedRows((prev) => prev.filter((item) => item.id !== row.id));
+                              setRows((prev) => [row, ...prev]);
+                              setReopeningId(null);
+                            }}
+                            disabled={reopeningId === row.id}
+                            className="inline-flex items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {reopeningId === row.id ? "Reopening..." : "Reopen"}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              openDeleteModal(row);
+                            }}
+                            className="inline-flex size-8 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                            aria-label="Delete bid package"
+                          >
+                            <svg viewBox="0 0 24 24" className="size-5 fill-current" aria-hidden>
+                              <path d="M9 3h6l1 2h4v2H4V5h4l1-2zm1 6h2v8h-2V9zm4 0h2v8h-2V9zM7 9h2v8H7V9z" />
+                            </svg>
+                          </button>
+                        )}
                       </td>
                     </tr>
                   )})}
@@ -351,6 +417,42 @@ export default function AllBidsPage() {
           </section>
         )}
       </div>
-    </main>
+      </main>
+
+      {pendingDelete ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white shadow-xl">
+            <div className="border-b border-slate-200 px-6 py-4">
+              <h2 className="text-lg font-semibold text-slate-900">Move to Recycle Bin?</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                <span className="font-semibold text-slate-700">{pendingDelete.project_name}</span> will be removed from active bid packages.
+              </p>
+            </div>
+            <div className="px-6 py-4">
+              {deleteError ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{deleteError}</p> : null}
+              <p className="text-sm text-slate-600">You can view it later in the Recycle Bin tab.</p>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-6 py-4">
+              <button
+                type="button"
+                onClick={closeDeleteModal}
+                disabled={deleteSubmitting}
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={deleteSubmitting}
+                className="rounded-md bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deleteSubmitting ? "Moving..." : "Move to Recycle Bin"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
