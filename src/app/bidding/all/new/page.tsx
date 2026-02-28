@@ -542,122 +542,142 @@ export default function NewBidPackagePage() {
             Cancel
           </Link>
           <button
-            type="submit"
-            disabled={submitting}
+            type="button"
+            onClick={() => setActivePanel("files")}
             className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {submitting ? "Creating..." : "Create Bid Package"}
+            Add files
           </button>
         </div>
           </>
         ) : (
-          <section className="rounded-xl border border-slate-200 bg-white p-5">
-            <h3 className="text-[18px] font-semibold text-slate-900">Drawings</h3>
-            <div className="mt-6 grid gap-6 md:grid-cols-[340px_minmax(0,1fr)]">
-              <div>
-                <div className="space-y-1 border border-slate-200 bg-slate-50">
-                  <button
-                    type="button"
-                    onClick={() => setActiveFileSection("drawings")}
-                    className={`flex w-full items-center px-4 py-3 text-left text-base ${
-                      activeFileSection === "drawings"
-                        ? "border-l-4 border-l-orange-400 bg-slate-100 font-semibold text-slate-800"
-                        : "font-medium text-slate-500 hover:bg-slate-100"
-                    }`}
-                  >
-                    Drawings
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveFileSection("documents")}
-                    className={`flex w-full items-center px-4 py-3 text-left text-base ${
-                      activeFileSection === "documents"
-                        ? "border-l-4 border-l-orange-400 bg-slate-100 font-semibold text-slate-800"
-                        : "font-medium text-slate-500 hover:bg-slate-100"
-                    }`}
-                  >
-                    Documents
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setActiveFileSection("specifications")}
-                    className={`flex w-full items-center px-4 py-3 text-left text-base ${
-                      activeFileSection === "specifications"
-                        ? "border-l-4 border-l-orange-400 bg-slate-100 font-semibold text-slate-800"
-                        : "font-medium text-slate-500 hover:bg-slate-100"
-                    }`}
-                  >
-                    Specifications
-                  </button>
-                </div>
-              </div>
-              <div className="min-h-[540px]">
-                <div className="mb-4 flex items-center justify-between gap-3">
-                  <div className="max-w-[220px]">
-                    <select className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-base text-slate-700">
-                      <option>Current</option>
-                    </select>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      multiple
-                      className="hidden"
-                      onChange={(event) => {
-                        handleUploadFiles(event.target.files);
-                        event.currentTarget.value = "";
-                      }}
-                    />
+          <>
+            <section className="rounded-xl border border-slate-200 bg-white p-5">
+              <h3 className="text-[18px] font-semibold text-slate-900">Drawings</h3>
+              <div className="mt-6 grid gap-6 md:grid-cols-[340px_minmax(0,1fr)]">
+                <div>
+                  <div className="space-y-1 border border-slate-200 bg-slate-50">
                     <button
                       type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                      onClick={() => setActiveFileSection("drawings")}
+                      className={`flex w-full items-center px-4 py-3 text-left text-base ${
+                        activeFileSection === "drawings"
+                          ? "border-l-4 border-l-orange-400 bg-slate-100 font-semibold text-slate-800"
+                          : "font-medium text-slate-500 hover:bg-slate-100"
+                      }`}
                     >
-                      Upload files
+                      Drawings
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveFileSection("documents")}
+                      className={`flex w-full items-center px-4 py-3 text-left text-base ${
+                        activeFileSection === "documents"
+                          ? "border-l-4 border-l-orange-400 bg-slate-100 font-semibold text-slate-800"
+                          : "font-medium text-slate-500 hover:bg-slate-100"
+                      }`}
+                    >
+                      Documents
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveFileSection("specifications")}
+                      className={`flex w-full items-center px-4 py-3 text-left text-base ${
+                        activeFileSection === "specifications"
+                          ? "border-l-4 border-l-orange-400 bg-slate-100 font-semibold text-slate-800"
+                          : "font-medium text-slate-500 hover:bg-slate-100"
+                      }`}
+                    >
+                      Specifications
                     </button>
                   </div>
                 </div>
-                <div className="flex items-center justify-between">
-                  <div className="text-[18px] font-semibold text-slate-800">
-                    {activeFileSection === "drawings"
-                      ? "Drawings"
-                      : activeFileSection === "documents"
-                        ? "Documents"
-                        : "Specifications"}
+                <div className="min-h-[540px]">
+                  <div className="mb-4 flex items-center justify-between gap-3">
+                    <div className="max-w-[220px]">
+                      <select className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-base text-slate-700">
+                        <option>Current</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={(event) => {
+                          handleUploadFiles(event.target.files);
+                          event.currentTarget.value = "";
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                      >
+                        Upload files
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-4 text-xl text-slate-400">
-                    <span>☰</span>
-                    <span>▦</span>
+                  <div className="flex items-center justify-between">
+                    <div className="text-[18px] font-semibold text-slate-800">
+                      {activeFileSection === "drawings"
+                        ? "Drawings"
+                        : activeFileSection === "documents"
+                          ? "Documents"
+                          : "Specifications"}
+                    </div>
+                    <div className="flex items-center gap-4 text-xl text-slate-400">
+                      <span>☰</span>
+                      <span>▦</span>
+                    </div>
                   </div>
+                  {fileError ? <p className="mt-2 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{fileError}</p> : null}
+                  {filesInActiveSection.length ? (
+                    <ul className="mt-4 space-y-3">
+                      {filesInActiveSection.map((file) => (
+                        <li key={file.id} className="rounded-lg border border-slate-200 bg-white px-3 py-3">
+                          <a
+                            href={file.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-sm font-semibold text-blue-700 hover:underline"
+                          >
+                            {file.name}
+                          </a>
+                          <div className="mt-1 text-xs text-slate-500">
+                            {formatFileSize(file.size)} · Uploaded {new Date(file.uploadedAt).toLocaleString()}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
+                      No files uploaded in this section yet.
+                    </div>
+                  )}
                 </div>
-                {fileError ? <p className="mt-2 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{fileError}</p> : null}
-                {filesInActiveSection.length ? (
-                  <ul className="mt-4 space-y-3">
-                    {filesInActiveSection.map((file) => (
-                      <li key={file.id} className="rounded-lg border border-slate-200 bg-white px-3 py-3">
-                        <a
-                          href={file.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-sm font-semibold text-blue-700 hover:underline"
-                        >
-                          {file.name}
-                        </a>
-                        <div className="mt-1 text-xs text-slate-500">
-                          {formatFileSize(file.size)} · Uploaded {new Date(file.uploadedAt).toLocaleString()}
-                        </div>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
-                    No files uploaded in this section yet.
-                  </div>
-                )}
               </div>
+            </section>
+
+            {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Link
+                href="/bidding/all"
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </Link>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {submitting ? "Creating..." : "Create Bid Package"}
+              </button>
             </div>
-          </section>
+          </>
         )}
           </div>
 
