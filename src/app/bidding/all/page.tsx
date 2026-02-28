@@ -232,7 +232,7 @@ export default function AllBidsPage() {
                   <circle cx="12" cy="12" r="3" />
                 </svg>
               </span>
-              <h1 className="text-[32px] font-semibold text-slate-900">Bid Packages</h1>
+              <h1 className="text-[30px] font-semibold text-slate-900">Bid Packages</h1>
             </div>
             <nav className="flex flex-wrap items-center gap-2" aria-label="Bid Package Filters">
               {tabs.map((item) => {
@@ -255,17 +255,13 @@ export default function AllBidsPage() {
               })}
             </nav>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setCreateError(null);
-              setCreateModalOpen(true);
-            }}
+          <Link
+            href="/bidding/all/new"
             className="inline-flex items-center gap-2 rounded-md bg-orange-500 px-4 py-2 text-base font-semibold text-white shadow-sm transition hover:bg-orange-600"
           >
             <span aria-hidden>＋</span>
             Add Bid Package
-          </button>
+          </Link>
         </div>
       </header>
 
