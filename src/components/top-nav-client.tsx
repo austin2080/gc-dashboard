@@ -11,7 +11,7 @@ const ACTIVE_PROJECT_STORAGE_KEY = "activeProjectId";
 const RECENT_PROJECTS_STORAGE_KEY = "recentProjectIds";
 
 const PROJECT_TOOL_ITEMS = [
-  { label: "Bid Management", href: "/bidding", description: "Track bids, proposals, and award pipeline." },
+  { label: "Bid Management", href: "/bidding/all", description: "Track bids, proposals, and award pipeline." },
   { label: "WaiverDesk", href: "/waiverdesk/waivers", description: "Manage waivers and compliance status." },
   { label: "Project Management", href: "/dashboard", description: "Monitor daily progress across active jobs." },
 ];
@@ -200,7 +200,12 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
   const allProjects = filteredProjects.filter((project) => !recentProjectIds.includes(project.id));
 
   const homeHref = withContext(mode === "waiverdesk" ? "/waiverdesk/dashboard" : "/dashboard");
-  const activeProjectLabel = activeProject ? projectLabel(activeProject) : "No project selected";
+  const isAllBidsPage = pathname === withMode("/bidding/all");
+  const activeProjectLabel = isAllBidsPage
+    ? "All projects"
+    : activeProject
+      ? projectLabel(activeProject)
+      : "No project selected";
 
   useEffect(() => {
     if (!switchToast) return;
