@@ -74,6 +74,46 @@ type AssignedSub = SubOption & {
   bidInviteEmail: string;
 };
 
+type InvitationEmailDraft = {
+  subject: string;
+  message: string;
+  requireAcknowledgement: boolean;
+};
+
+type ToastState = {
+  type: "success" | "error";
+  message: string;
+};
+
+const INVITATION_EMAIL_DRAFT_STORAGE_KEY = "bidding-all-new-invitation-email-draft";
+const TOKEN_LIST = [
+  "{project_name}",
+  "{bid_package_name}",
+  "{bid_due_date}",
+  "{prebid_info}",
+  "{portal_link}",
+  "{contact_name}",
+  "{contact_email}",
+] as const;
+
+const DEFAULT_INVITATION_SUBJECT = "Invitation to Bid: {bid_package_name} for {project_name}";
+const DEFAULT_INVITATION_MESSAGE = [
+  "Hello,",
+  "",
+  "You are invited to bid on {bid_package_name} for {project_name}.",
+  "Bid due date: {bid_due_date}",
+  "",
+  "Pre-bid information:",
+  "{prebid_info}",
+  "",
+  "Submit your bid here: {portal_link}",
+  "",
+  "For questions, contact {contact_name} at {contact_email}.",
+  "",
+  "Thank you,",
+  "{contact_name}",
+].join("\n");
+
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -121,7 +161,7 @@ export default function NewBidPackagePage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activePanel, setActivePanel] = useState<"general" | "files" | "trade-coverage">("general");
+  const [activePanel, setActivePanel] = useState<"general" | "files" | "trade-coverage" | "invite-subs" | "bid-email">("general");
   const [activeFileSection, setActiveFileSection] = useState<FileSectionKey>("drawings");
   const [costCodes, setCostCodes] = useState<CostCodeOption[]>([]);
   const [loadingCostCodes, setLoadingCostCodes] = useState(false);
@@ -134,6 +174,8 @@ export default function NewBidPackagePage() {
   const [manageQueryByTradeId, setManageQueryByTradeId] = useState<Record<string, string>>({});
   const [manageSearchActiveByTradeId, setManageSearchActiveByTradeId] = useState<Record<string, boolean>>({});
   const [assignedSubsByTradeId, setAssignedSubsByTradeId] = useState<Record<string, AssignedSub[]>>({});
+  const [inviteQueryByTradeId, setInviteQueryByTradeId] = useState<Record<string, string>>({});
+  const [expandedInviteTradeId, setExpandedInviteTradeId] = useState<string | null>(null);
   const [newSubDrawerTradeId, setNewSubDrawerTradeId] = useState<string | null>(null);
   const [newSubDraft, setNewSubDraft] = useState({
     company_name: "",
@@ -143,9 +185,26 @@ export default function NewBidPackagePage() {
   });
   const [newSubSaving, setNewSubSaving] = useState(false);
   const [newSubError, setNewSubError] = useState<string | null>(null);
+  const [invitationEmailDraft, setInvitationEmailDraft] = useState<InvitationEmailDraft>({
+    subject: DEFAULT_INVITATION_SUBJECT,
+    message: DEFAULT_INVITATION_MESSAGE,
+    requireAcknowledgement: false,
+  });
+  const [invitationDraftHydrated, setInvitationDraftHydrated] = useState(false);
+  const [invitationSaving, setInvitationSaving] = useState(false);
+  const [invitationSavedAt, setInvitationSavedAt] = useState<string | null>(null);
+  const [focusedInvitationField, setFocusedInvitationField] = useState<"subject" | "message">("subject");
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
+  const [tokenValuesOpen, setTokenValuesOpen] = useState(false);
+  const [testDialogOpen, setTestDialogOpen] = useState(false);
+  const [testSendEmail, setTestSendEmail] = useState("");
+  const [testSendLoading, setTestSendLoading] = useState(false);
+  const [toast, setToast] = useState<ToastState | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedBidFile[]>([]);
   const [draft, setDraft] = useState<BidPackageDraft>(createDefaultDraft());
+  const subjectInputRef = useRef<HTMLInputElement | null>(null);
+  const messageTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const filesInActiveSection = useMemo(
     () => uploadedFiles.filter((file) => file.section === activeFileSection),
     [activeFileSection, uploadedFiles]
@@ -317,6 +376,137 @@ export default function NewBidPackagePage() {
           : item
       ),
     }));
+  };
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(INVITATION_EMAIL_DRAFT_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<InvitationEmailDraft>;
+        setInvitationEmailDraft({
+          subject: typeof parsed.subject === "string" ? parsed.subject : DEFAULT_INVITATION_SUBJECT,
+          message: typeof parsed.message === "string" ? parsed.message : DEFAULT_INVITATION_MESSAGE,
+          requireAcknowledgement: Boolean(parsed.requireAcknowledgement),
+        });
+      }
+    } catch {
+      setInvitationEmailDraft({
+        subject: DEFAULT_INVITATION_SUBJECT,
+        message: DEFAULT_INVITATION_MESSAGE,
+        requireAcknowledgement: false,
+      });
+    } finally {
+      setInvitationDraftHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!invitationDraftHydrated) return;
+    setInvitationSaving(true);
+    const timer = window.setTimeout(() => {
+      try {
+        localStorage.setItem(INVITATION_EMAIL_DRAFT_STORAGE_KEY, JSON.stringify(invitationEmailDraft));
+        const now = new Date().toISOString();
+        setInvitationSavedAt(now);
+      } finally {
+        setInvitationSaving(false);
+      }
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [invitationDraftHydrated, invitationEmailDraft]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = window.setTimeout(() => setToast(null), 3200);
+    return () => window.clearTimeout(timer);
+  }, [toast]);
+
+  const includedAttachments = useMemo(
+    () => ({
+      drawings: uploadedFiles.filter((file) => file.section === "drawings").length,
+      documents: uploadedFiles.filter((file) => file.section === "documents").length,
+      specifications: uploadedFiles.filter((file) => file.section === "specifications").length,
+    }),
+    [uploadedFiles]
+  );
+
+  const selectedSubsCount = useMemo(
+    () =>
+      Object.values(assignedSubsByTradeId).reduce((sum, subs) => {
+        return sum + subs.length;
+      }, 0),
+    [assignedSubsByTradeId]
+  );
+
+  const tokenValues = useMemo(() => {
+    const dueLabel = draft.due_date
+      ? `${new Date(draft.due_date).toLocaleDateString()} ${draft.due_hour}:${draft.due_minute} ${draft.due_period.toUpperCase()}`
+      : "TBD";
+    const prebidParts: string[] = [];
+    if (draft.rfi_deadline_enabled && draft.rfi_deadline_date) prebidParts.push(`RFI Deadline: ${draft.rfi_deadline_date}`);
+    if (draft.site_walkthrough_enabled && draft.site_walkthrough_date) prebidParts.push(`Site Walkthrough: ${draft.site_walkthrough_date}`);
+    const portalLink = typeof window !== "undefined" ? `${window.location.origin}/bidding/all` : "/bidding/all";
+    return {
+      "{project_name}": draft.project_name.trim() || "Project Name",
+      "{bid_package_name}": draft.project_name.trim() || "Bid Package Name",
+      "{bid_due_date}": dueLabel,
+      "{prebid_info}": prebidParts.length ? prebidParts.join(" | ") : "No pre-bid details available.",
+      "{portal_link}": portalLink,
+      "{contact_name}": draft.primary_bidding_contact || "Primary bidding contact",
+      "{contact_email}": "test@builderos.com",
+    } as Record<(typeof TOKEN_LIST)[number], string>;
+  }, [
+    draft.due_date,
+    draft.due_hour,
+    draft.due_minute,
+    draft.due_period,
+    draft.primary_bidding_contact,
+    draft.project_name,
+    draft.rfi_deadline_date,
+    draft.rfi_deadline_enabled,
+    draft.site_walkthrough_date,
+    draft.site_walkthrough_enabled,
+  ]);
+
+  const renderTokens = (input: string) =>
+    TOKEN_LIST.reduce((text, token) => text.split(token).join(tokenValues[token]), input);
+
+  const renderedSubject = renderTokens(invitationEmailDraft.subject);
+  const renderedMessage = renderTokens(invitationEmailDraft.message);
+
+  const insertTokenAtCursor = (token: (typeof TOKEN_LIST)[number]) => {
+    const target = focusedInvitationField === "subject" ? subjectInputRef.current : messageTextareaRef.current;
+    if (!target) return;
+    const selectionStart = target.selectionStart ?? target.value.length;
+    const selectionEnd = target.selectionEnd ?? selectionStart;
+    const nextValue = `${target.value.slice(0, selectionStart)}${token}${target.value.slice(selectionEnd)}`;
+    const nextCursor = selectionStart + token.length;
+
+    if (focusedInvitationField === "subject") {
+      setInvitationEmailDraft((prev) => ({ ...prev, subject: nextValue }));
+      window.requestAnimationFrame(() => {
+        subjectInputRef.current?.focus();
+        subjectInputRef.current?.setSelectionRange(nextCursor, nextCursor);
+      });
+      return;
+    }
+
+    setInvitationEmailDraft((prev) => ({ ...prev, message: nextValue }));
+    window.requestAnimationFrame(() => {
+      messageTextareaRef.current?.focus();
+      messageTextareaRef.current?.setSelectionRange(nextCursor, nextCursor);
+    });
+  };
+
+  const saveInvitationDraftNow = () => {
+    try {
+      localStorage.setItem(INVITATION_EMAIL_DRAFT_STORAGE_KEY, JSON.stringify(invitationEmailDraft));
+      const now = new Date().toISOString();
+      setInvitationSavedAt(now);
+      setToast({ type: "success", message: "Draft saved." });
+    } catch {
+      setToast({ type: "error", message: "Unable to save draft." });
+    }
   };
   const activeDrawerTrade = newSubDrawerTradeId
     ? selectedTrades.find((trade) => trade.id === newSubDrawerTradeId) ?? null
@@ -870,7 +1060,7 @@ export default function NewBidPackagePage() {
               </button>
             </div>
           </>
-        ) : (
+        ) : activePanel === "trade-coverage" ? (
           <>
             <section className="rounded-xl border border-slate-200 bg-white p-5">
               <h3 className="text-[18px] font-semibold text-slate-900">Trade Coverage</h3>
@@ -1078,11 +1268,415 @@ export default function NewBidPackagePage() {
                 Cancel
               </Link>
               <button
+                type="button"
+                onClick={() => {
+                  setActivePanel("invite-subs");
+                  setExpandedInviteTradeId(selectedTrades[0]?.id ?? null);
+                }}
+                className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Next
+              </button>
+            </div>
+          </>
+        ) : activePanel === "invite-subs" ? (
+          <>
+            <section className="rounded-xl border border-slate-200 bg-white p-0">
+              <div className="border-b border-slate-200 px-5 py-4">
+                <h3 className="text-[18px] font-semibold text-slate-900">Invite Subs</h3>
+                <p className="mt-1 text-sm text-slate-600">Invite subcontractors by trade and track response status.</p>
+              </div>
+
+              <div className="p-4">
+                {selectedTrades.length ? (
+                  <div className="space-y-4">
+                    {selectedTrades.map((trade) => {
+                      const assigned = assignedSubsByTradeId[trade.id] ?? [];
+                      const expanded = expandedInviteTradeId === trade.id;
+                      const dueLabel = draft.due_date
+                        ? `${new Date(draft.due_date).toLocaleDateString()} ${draft.due_hour}:${draft.due_minute} ${draft.due_period.toUpperCase()}`
+                        : "No due date";
+                      const recommended = subOptions.filter((option) => {
+                        const assignedIds = new Set(assigned.map((item) => item.id));
+                        if (assignedIds.has(option.id)) return false;
+                        const query = (inviteQueryByTradeId[trade.id] ?? "").trim().toLowerCase();
+                        if (!query) return true;
+                        return option.company.toLowerCase().includes(query);
+                      });
+                      return (
+                        <article key={`invite-${trade.id}`} className="overflow-hidden rounded-lg border border-slate-200">
+                          <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 px-4 py-3">
+                            <div className="flex items-center gap-3">
+                              <span className="inline-flex size-7 items-center justify-center rounded-full bg-emerald-600 text-sm text-white">✓</span>
+                              <div className="text-2xl font-semibold text-slate-900">{trade.code}</div>
+                              <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">Selected</span>
+                            </div>
+                            <div className="flex items-center gap-3 text-sm text-slate-600">
+                              <span>Due {dueLabel}</span>
+                              <button
+                                type="button"
+                                onClick={() => setExpandedInviteTradeId((prev) => (prev === trade.id ? null : trade.id))}
+                                className="inline-flex items-center rounded border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+                              >
+                                {expanded ? "Hide" : "Manage"}
+                              </button>
+                            </div>
+                          </div>
+
+                          {expanded ? (
+                            <>
+                              <div className="border-t border-slate-200 px-4 py-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="text-2xl font-semibold text-slate-900">Invite subs to this trade</div>
+                                  <button
+                                    type="button"
+                                    className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
+                                  >
+                                    Add
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="grid border-t border-slate-200 lg:grid-cols-2">
+                                <div className="border-r border-slate-200 p-4">
+                                  <div className="text-3xl font-semibold text-slate-900">Recommended for {trade.code}</div>
+                                  <input
+                                    value={inviteQueryByTradeId[trade.id] ?? ""}
+                                    onChange={(event) =>
+                                      setInviteQueryByTradeId((prev) => ({ ...prev, [trade.id]: event.target.value }))
+                                    }
+                                    placeholder="Search all subs..."
+                                    className="mt-3 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+                                  />
+                                  <div className="mt-4 overflow-hidden rounded-md border border-slate-200">
+                                    {recommended.length ? (
+                                      recommended.slice(0, 8).map((sub) => (
+                                        <div key={`${trade.id}-rec-${sub.id}`} className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 last:border-b-0">
+                                          <div className="min-w-0">
+                                            <div className="truncate text-sm font-semibold text-slate-800">{sub.company}</div>
+                                            <div className="text-xs text-slate-500">{sub.email ?? "No email in directory"}</div>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => addSubToTrade(trade.id, sub)}
+                                            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+                                          >
+                                            + Add
+                                          </button>
+                                        </div>
+                                      ))
+                                    ) : (
+                                      <div className="px-3 py-4 text-sm text-slate-500">No matching subcontractors.</div>
+                                    )}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setNewSubDrawerTradeId(trade.id);
+                                      setNewSubDraft({
+                                        company_name: "",
+                                        primary_contact: "",
+                                        email: "",
+                                        phone: "",
+                                      });
+                                      setNewSubError(null);
+                                    }}
+                                    className="mt-3 text-sm font-semibold text-blue-700 hover:underline"
+                                  >
+                                    + Add new subcontractor
+                                  </button>
+                                </div>
+
+                                <div className="p-4">
+                                  <div className="mb-3 flex items-center justify-between gap-2">
+                                    <div className="text-3xl font-semibold text-slate-900">Invited subs</div>
+                                    <div className="text-sm text-slate-600">
+                                      Selected: <span className="font-semibold">{assigned.length}</span>
+                                    </div>
+                                  </div>
+                                  <div className="overflow-hidden rounded-md border border-slate-200">
+                                    <div className="grid grid-cols-[minmax(0,1fr)_130px_110px] bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                                      <div>Company</div>
+                                      <div>Invite Status</div>
+                                      <div>Status</div>
+                                    </div>
+                                    {assigned.length ? (
+                                      assigned.map((sub) => (
+                                        <div key={`${trade.id}-assigned-${sub.id}`} className="grid grid-cols-[minmax(0,1fr)_130px_110px] border-t border-slate-200 px-3 py-2">
+                                          <div className="min-w-0">
+                                            <div className="truncate text-sm font-semibold text-slate-800">{sub.company}</div>
+                                            <div className="text-xs text-slate-500">{sub.bidInviteEmail || "No invite email set"}</div>
+                                          </div>
+                                          <div className="text-sm text-slate-600">{sub.invited ? "Invited" : "Not Sent"}</div>
+                                          <div>
+                                            <span
+                                              className={`inline-flex rounded px-2 py-0.5 text-xs font-semibold ${
+                                                sub.willBid
+                                                  ? "bg-emerald-100 text-emerald-700"
+                                                  : sub.invited
+                                                    ? "bg-slate-100 text-slate-700"
+                                                    : "bg-amber-100 text-amber-700"
+                                              }`}
+                                            >
+                                              {sub.willBid ? "Bidding" : sub.invited ? "Viewed" : "Draft"}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      ))
+                                    ) : (
+                                      <div className="border-t border-slate-200 px-3 py-4 text-sm text-slate-500">No subs added for this trade yet.</div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </>
+                          ) : null}
+                        </article>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
+                    No trades selected yet. Go to Trade Coverage and add trades first.
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setActivePanel("trade-coverage")}
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Back
+              </button>
+              <Link
+                href="/bidding/all"
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </Link>
+              <button
                 type="submit"
                 disabled={submitting}
                 className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {submitting ? "Creating..." : "Create Bid Package"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <section className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+              <div className="space-y-4">
+                <article className="rounded-xl border border-slate-200 bg-white p-5">
+                  <h3 className="text-[18px] font-semibold text-slate-900">Invitation Email</h3>
+                  <p className="mt-1 text-sm text-slate-600">Compose the email sent to selected subcontractors.</p>
+
+                  <div className="mt-4 space-y-4">
+                    <label className="block">
+                      <span className="text-sm font-semibold text-slate-700">Subject</span>
+                      <input
+                        ref={subjectInputRef}
+                        value={invitationEmailDraft.subject}
+                        onFocus={() => setFocusedInvitationField("subject")}
+                        onChange={(event) => setInvitationEmailDraft((prev) => ({ ...prev, subject: event.target.value }))}
+                        className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                        placeholder="Invitation subject"
+                      />
+                      <p className="mt-1 text-xs text-slate-500">Use tokens to auto-fill project details.</p>
+                    </label>
+
+                    <label className="block">
+                      <span className="text-sm font-semibold text-slate-700">Message</span>
+                      <textarea
+                        ref={messageTextareaRef}
+                        value={invitationEmailDraft.message}
+                        onFocus={() => setFocusedInvitationField("message")}
+                        onChange={(event) => setInvitationEmailDraft((prev) => ({ ...prev, message: event.target.value }))}
+                        className="mt-2 min-h-52 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                        placeholder="Invitation message"
+                      />
+                      <p className="mt-1 text-xs text-slate-500">Use tokens to auto-fill project details.</p>
+                    </label>
+                  </div>
+                </article>
+
+                <article className="rounded-xl border border-slate-200 bg-white p-5">
+                  <div className="mb-3 text-sm font-semibold text-slate-700">Insert Tokens</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {TOKEN_LIST.map((token) => (
+                      <button
+                        key={token}
+                        type="button"
+                        onClick={() => insertTokenAtCursor(token)}
+                        className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      >
+                        {token}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(tokenValues["{portal_link}"]);
+                          setToast({ type: "success", message: "Portal link copied." });
+                        } catch {
+                          setToast({ type: "error", message: "Unable to copy portal link." });
+                        }
+                      }}
+                      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Copy portal link
+                    </button>
+                  </div>
+                </article>
+
+                <article className="rounded-xl border border-slate-200 bg-white p-5">
+                  <div className="text-sm font-semibold text-slate-700">Included Attachments</div>
+                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                      Drawings: <span className="font-semibold">{includedAttachments.drawings || "None"}</span>
+                    </div>
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                      Specs: <span className="font-semibold">{includedAttachments.specifications || "None"}</span>
+                    </div>
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                      Documents: <span className="font-semibold">{includedAttachments.documents || "None"}</span>
+                    </div>
+                  </div>
+                </article>
+
+                <article className="rounded-xl border border-slate-200 bg-white p-5">
+                  <label className="flex items-start gap-3">
+                    <input
+                      type="checkbox"
+                      checked={invitationEmailDraft.requireAcknowledgement}
+                      onChange={(event) =>
+                        setInvitationEmailDraft((prev) => ({
+                          ...prev,
+                          requireAcknowledgement: event.target.checked,
+                        }))
+                      }
+                      className="mt-0.5 size-4 rounded border-slate-300"
+                    />
+                    <span>
+                      <span className="text-sm font-semibold text-slate-700">Require acknowledgement</span>
+                      <span className="mt-1 block text-xs text-slate-500">
+                        Subs must acknowledge receipt before submitting.
+                      </span>
+                    </span>
+                  </label>
+                </article>
+              </div>
+
+              <aside className="space-y-4 lg:sticky lg:top-24">
+                <article className="rounded-xl border border-slate-200 bg-white p-5">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-slate-800">Preview</h4>
+                    <button
+                      type="button"
+                      onClick={() => setTokenValuesOpen((open) => !open)}
+                      className="text-xs font-semibold text-slate-600 hover:text-slate-900"
+                    >
+                      Show token values
+                    </button>
+                  </div>
+                  {tokenValuesOpen ? (
+                    <div className="mb-3 rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600">
+                      {TOKEN_LIST.map((token) => (
+                        <div key={`token-map-${token}`} className="flex items-start justify-between gap-2 py-0.5">
+                          <span className="font-mono text-slate-700">{token}</span>
+                          <span className="text-right">{tokenValues[token] || "—"}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                    <div>
+                      <span className="font-semibold">From:</span> Primary bidding contact
+                    </div>
+                    <div>
+                      <span className="font-semibold">To:</span> Selected subs across trades
+                    </div>
+                    <div>
+                      <span className="font-semibold">Subject:</span> {renderedSubject || "—"}
+                    </div>
+                    <div>
+                      <span className="font-semibold">Message:</span>
+                      <p className="mt-1 whitespace-pre-wrap">{renderedMessage || "—"}</p>
+                    </div>
+                  </div>
+                </article>
+
+                <article className="rounded-xl border border-slate-200 bg-white p-5">
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewModalOpen(true)}
+                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Preview Email
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTestDialogOpen(true);
+                        setTestSendEmail("");
+                      }}
+                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Send test to myself
+                    </button>
+                    <button
+                      type="button"
+                      onClick={saveInvitationDraftNow}
+                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Save Draft
+                    </button>
+                  </div>
+                  <div className="mt-3 text-xs text-slate-500">
+                    {invitationSaving
+                      ? "Saving draft..."
+                      : invitationSavedAt
+                        ? `Draft saved ${new Date(invitationSavedAt).toLocaleTimeString()}`
+                        : "Draft not saved yet."}
+                  </div>
+                </article>
+              </aside>
+            </section>
+
+            {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
+            {selectedSubsCount === 0 ? (
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                Select at least 1 subcontractor to invite.
+              </p>
+            ) : null}
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setActivePanel("invite-subs")}
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Back
+              </button>
+              <Link
+                href="/bidding/all"
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </Link>
+              <button
+                type="submit"
+                disabled={submitting || selectedSubsCount === 0}
+                className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {submitting ? "Creating..." : "Send Invites"}
               </button>
             </div>
           </>
@@ -1131,11 +1725,145 @@ export default function NewBidPackagePage() {
                   </svg>
                   Trade Coverage
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setActivePanel("invite-subs")}
+                  className={`flex w-full items-center gap-3 rounded-md px-4 py-3 text-left text-base font-medium hover:bg-slate-100 ${
+                    activePanel === "invite-subs" ? "bg-slate-100 text-slate-900" : "text-slate-700"
+                  }`}
+                >
+                  <svg viewBox="0 0 20 20" className="size-5 text-slate-500" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                    <path d="M4 6.5h12M4 10h12M4 13.5h12" />
+                    <path d="M14.5 3.5v5m-2.5-2.5h5" />
+                  </svg>
+                  Invite Subs
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActivePanel("bid-email")}
+                  className={`flex w-full items-center gap-3 rounded-md px-4 py-3 text-left text-base font-medium hover:bg-slate-100 ${
+                    activePanel === "bid-email" ? "bg-slate-100 text-slate-900" : "text-slate-700"
+                  }`}
+                >
+                  <svg viewBox="0 0 20 20" className="size-5 text-slate-500" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                    <rect x="3" y="5" width="14" height="10" rx="1.5" />
+                    <path d="m4 6 6 5 6-5" />
+                  </svg>
+                  Bid Email
+                </button>
               </nav>
             </div>
           </aside>
         </div>
       </form>
+      {previewModalOpen ? (
+        <div className="fixed inset-0 z-50">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-950/50"
+            aria-label="Close email preview"
+            onClick={() => setPreviewModalOpen(false)}
+          />
+          <div className="absolute inset-x-6 top-8 mx-auto max-w-3xl rounded-xl border border-slate-200 bg-white shadow-2xl">
+            <div className="border-b border-slate-200 px-6 py-4">
+              <h2 className="text-lg font-semibold text-slate-900">Email Preview</h2>
+            </div>
+            <div className="space-y-3 px-6 py-5 text-sm text-slate-700">
+              <div>
+                <span className="font-semibold">From:</span> Primary bidding contact
+              </div>
+              <div>
+                <span className="font-semibold">To:</span> Selected subs across trades
+              </div>
+              <div>
+                <span className="font-semibold">Subject:</span> {renderedSubject}
+              </div>
+              <div className="rounded-md border border-slate-200 bg-slate-50 p-3 whitespace-pre-wrap">{renderedMessage}</div>
+            </div>
+            <div className="flex justify-end border-t border-slate-200 px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setPreviewModalOpen(false)}
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {testDialogOpen ? (
+        <div className="fixed inset-0 z-50">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-950/40"
+            aria-label="Close test send dialog"
+            onClick={() => setTestDialogOpen(false)}
+          />
+          <div className="absolute left-1/2 top-24 w-full max-w-md -translate-x-1/2 rounded-xl border border-slate-200 bg-white shadow-2xl">
+            <div className="border-b border-slate-200 px-5 py-4">
+              <h2 className="text-base font-semibold text-slate-900">Send Test Email</h2>
+            </div>
+            <form
+              className="space-y-4 px-5 py-4"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                if (!testSendEmail.trim()) {
+                  setToast({ type: "error", message: "Enter an email address." });
+                  return;
+                }
+                setTestSendLoading(true);
+                await new Promise((resolve) => window.setTimeout(resolve, 600));
+                setTestSendLoading(false);
+                setTestDialogOpen(false);
+                setToast({ type: "success", message: `Test email queued to ${testSendEmail.trim()}.` });
+              }}
+            >
+              <label className="block">
+                <span className="text-sm font-semibold text-slate-700">Email address</span>
+                <input
+                  type="email"
+                  value={testSendEmail}
+                  onChange={(event) => setTestSendEmail(event.target.value)}
+                  className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                  placeholder="you@company.com"
+                />
+              </label>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTestDialogOpen(false)}
+                  className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={testSendLoading}
+                  className="rounded-md bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {testSendLoading ? "Sending..." : "Send Test"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+      {toast ? (
+        <div className="fixed bottom-5 right-5 z-50">
+          <div
+            className={`rounded-md border px-3 py-2 text-sm shadow-lg ${
+              toast.type === "success"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                : "border-rose-200 bg-rose-50 text-rose-700"
+            }`}
+            role="status"
+            aria-live="polite"
+          >
+            {toast.message}
+          </div>
+        </div>
+      ) : null}
       {newSubDrawerTradeId ? (
         <div className="fixed inset-0 z-50">
           <button
