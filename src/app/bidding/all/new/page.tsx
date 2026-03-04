@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createBidProject } from "@/lib/bidding/store";
 
 type BidPackageDraft = {
@@ -50,6 +50,37 @@ type UploadedBidFile = {
   url: string;
 };
 
+type CostCodeOption = {
+  id: string;
+  code: string;
+  description: string | null;
+};
+
+type SelectedTrade = {
+  id: string;
+  code: string;
+  description: string | null;
+};
+
+type SubOption = {
+  id: string;
+  company: string;
+};
+
+type AssignedSub = SubOption & {
+  invited: boolean;
+  willBid: boolean;
+};
+
+const SUB_OPTIONS: SubOption[] = [
+  { id: "sub-1", company: "Alpha Concrete LLC" },
+  { id: "sub-2", company: "Delta Drywall Systems" },
+  { id: "sub-3", company: "Summit Electric Inc." },
+  { id: "sub-4", company: "Northwest Mechanical" },
+  { id: "sub-5", company: "Pioneer Plumbing Co." },
+  { id: "sub-6", company: "Skyline Roofing Group" },
+];
+
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -71,10 +102,7 @@ function createDefaultDraft(): BidPackageDraft {
     tbd_due_date: false,
     primary_bidding_contact: "Project Manager",
     bidding_cc_group: "",
-    bidding_instructions:
-      "For help with submitting a bid, please visit Procore's bidding support page.\n\n" +
-      "If you need assistance accessing the bid documents, please email Procore's customer support department at support@procore.com, and one of their support representatives will provide you with assistance.\n\n" +
-      "BuilderOS looks forward to the opportunity to work with your project team in our new bidding process.",
+    bidding_instructions: "",
     rfi_deadline_enabled: true,
     rfi_deadline_date: "2024-11-30",
     rfi_deadline_hour: "12",
@@ -100,8 +128,17 @@ export default function NewBidPackagePage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activePanel, setActivePanel] = useState<"general" | "files">("general");
+  const [activePanel, setActivePanel] = useState<"general" | "files" | "trade-coverage">("general");
   const [activeFileSection, setActiveFileSection] = useState<FileSectionKey>("drawings");
+  const [costCodes, setCostCodes] = useState<CostCodeOption[]>([]);
+  const [loadingCostCodes, setLoadingCostCodes] = useState(false);
+  const [costCodeLoadError, setCostCodeLoadError] = useState<string | null>(null);
+  const [costCodeQuery, setCostCodeQuery] = useState("");
+  const [selectedTrades, setSelectedTrades] = useState<SelectedTrade[]>([]);
+  const [expandedTradeId, setExpandedTradeId] = useState<string | null>(null);
+  const [manageQueryByTradeId, setManageQueryByTradeId] = useState<Record<string, string>>({});
+  const [manageSearchActiveByTradeId, setManageSearchActiveByTradeId] = useState<Record<string, boolean>>({});
+  const [assignedSubsByTradeId, setAssignedSubsByTradeId] = useState<Record<string, AssignedSub[]>>({});
   const [fileError, setFileError] = useState<string | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedBidFile[]>([]);
   const [draft, setDraft] = useState<BidPackageDraft>(createDefaultDraft());
@@ -128,6 +165,103 @@ export default function NewBidPackagePage() {
       url: URL.createObjectURL(file),
     }));
     setUploadedFiles((prev) => [...mapped, ...prev]);
+  };
+
+  useEffect(() => {
+    let active = true;
+    async function loadCostCodes() {
+      setLoadingCostCodes(true);
+      setCostCodeLoadError(null);
+      try {
+        const response = await fetch("/api/cost-codes", { cache: "no-store" });
+        const payload = (await response.json().catch(() => null)) as { costCodes?: unknown; error?: string } | null;
+        if (!active) return;
+        if (!response.ok) {
+          setCostCodeLoadError(payload?.error ?? "Unable to load cost codes.");
+          setCostCodes([]);
+          return;
+        }
+        const rows = Array.isArray(payload?.costCodes) ? payload.costCodes : [];
+        const mapped = rows
+          .map((row) => {
+            if (!row || typeof row !== "object") return null;
+            const raw = row as { id?: unknown; code?: unknown; description?: unknown };
+            if (typeof raw.id !== "string" || typeof raw.code !== "string") return null;
+            return {
+              id: raw.id,
+              code: raw.code,
+              description: typeof raw.description === "string" ? raw.description : null,
+            } satisfies CostCodeOption;
+          })
+          .filter((row): row is CostCodeOption => Boolean(row));
+        setCostCodes(mapped);
+      } catch {
+        if (!active) return;
+        setCostCodeLoadError("Unable to load cost codes.");
+        setCostCodes([]);
+      } finally {
+        if (active) setLoadingCostCodes(false);
+      }
+    }
+    loadCostCodes();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const filteredCostCodes = useMemo(() => {
+    const assigned = new Set(selectedTrades.map((trade) => trade.id));
+    const query = costCodeQuery.trim().toLowerCase();
+    return costCodes.filter((code) => {
+      if (assigned.has(code.id)) return false;
+      if (!query) return true;
+      return `${code.code} ${code.description ?? ""}`.toLowerCase().includes(query);
+    });
+  }, [costCodeQuery, costCodes, selectedTrades]);
+
+  const addTradeFromCostCode = (costCode: CostCodeOption) => {
+    setSelectedTrades((prev) => {
+      if (prev.some((trade) => trade.id === costCode.id)) return prev;
+      return [...prev, { id: costCode.id, code: costCode.code, description: costCode.description }];
+    });
+  };
+
+  const removeTrade = (tradeId: string) => {
+    setSelectedTrades((prev) => prev.filter((trade) => trade.id !== tradeId));
+    setExpandedTradeId((prev) => (prev === tradeId ? null : prev));
+    setManageQueryByTradeId((prev) => {
+      const next = { ...prev };
+      delete next[tradeId];
+      return next;
+    });
+    setManageSearchActiveByTradeId((prev) => {
+      const next = { ...prev };
+      delete next[tradeId];
+      return next;
+    });
+    setAssignedSubsByTradeId((prev) => {
+      const next = { ...prev };
+      delete next[tradeId];
+      return next;
+    });
+  };
+
+  const addSubToTrade = (tradeId: string, sub: SubOption) => {
+    setAssignedSubsByTradeId((prev) => {
+      const current = prev[tradeId] ?? [];
+      if (current.some((item) => item.id === sub.id)) return prev;
+      return {
+        ...prev,
+        [tradeId]: [...current, { ...sub, invited: false, willBid: false }],
+      };
+    });
+  };
+
+  const removeSubFromTrade = (tradeId: string, subId: string) => {
+    setAssignedSubsByTradeId((prev) => ({
+      ...prev,
+      [tradeId]: (prev[tradeId] ?? []).filter((item) => item.id !== subId),
+    }));
   };
 
   return (
@@ -550,7 +684,7 @@ export default function NewBidPackagePage() {
           </button>
         </div>
           </>
-        ) : (
+        ) : activePanel === "files" ? (
           <>
             <section className="rounded-xl border border-slate-200 bg-white p-5">
               <h3 className="text-[18px] font-semibold text-slate-900">Drawings</h3>
@@ -678,6 +812,196 @@ export default function NewBidPackagePage() {
               </button>
             </div>
           </>
+        ) : (
+          <>
+            <section className="rounded-xl border border-slate-200 bg-white p-5">
+              <h3 className="text-[18px] font-semibold text-slate-900">Trade Coverage</h3>
+              <p className="mt-2 text-sm text-slate-600">
+                Configure trade-level bid coverage for this package.
+              </p>
+
+              <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <div className="text-sm font-semibold text-slate-800">Add Trades By Cost Code</div>
+                <input
+                  value={costCodeQuery}
+                  onChange={(event) => setCostCodeQuery(event.target.value)}
+                  placeholder="Search cost codes"
+                  className="mt-3 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+                />
+                <div className="mt-3 max-h-52 overflow-auto rounded-md border border-slate-200 bg-white">
+                  {loadingCostCodes ? (
+                    <div className="px-3 py-3 text-sm text-slate-500">Loading cost codes...</div>
+                  ) : filteredCostCodes.length ? (
+                    filteredCostCodes.map((code) => (
+                      <div key={code.id} className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 last:border-b-0">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-slate-800">{code.code}</div>
+                          <div className="truncate text-xs text-slate-500">{code.description ?? "No description"}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => addTradeFromCostCode(code)}
+                          className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          Add
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="px-3 py-3 text-sm text-slate-500">{costCodeLoadError ?? "No cost codes found."}</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-5 overflow-hidden rounded-lg border border-slate-200">
+                <div className="grid grid-cols-[minmax(0,1fr)_120px_120px_132px] bg-slate-50 text-sm font-semibold text-slate-700">
+                  <div className="border-r border-slate-200 px-4 py-3">Trade</div>
+                  <div className="border-r border-slate-200 px-4 py-3 text-center">Invited</div>
+                  <div className="border-r border-slate-200 px-4 py-3 text-center">Will Bid</div>
+                  <div className="px-4 py-3 text-center">Actions</div>
+                </div>
+                <div className="divide-y divide-slate-200">
+                  {selectedTrades.length ? (
+                    selectedTrades.map((trade) => (
+                      <div key={trade.id}>
+                        <div className="grid grid-cols-[minmax(0,1fr)_120px_120px_132px] text-sm text-slate-700">
+                          <div className="border-r border-slate-200 px-4 py-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="truncate font-medium text-slate-800">{trade.code}</div>
+                                <div className="truncate text-xs text-slate-500">{trade.description ?? "No description"}</div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeTrade(trade.id)}
+                                className="rounded border border-slate-300 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500 hover:bg-slate-100"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                          <div className="border-r border-slate-200 px-4 py-3 text-center">0</div>
+                          <div className="border-r border-slate-200 px-4 py-3 text-center">0</div>
+                          <div className="px-3 py-2">
+                            <button
+                              type="button"
+                              onClick={() => setExpandedTradeId((prev) => (prev === trade.id ? null : trade.id))}
+                              className="inline-flex w-full items-center justify-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                            >
+                              Manage
+                              <span className={`transition-transform ${expandedTradeId === trade.id ? "rotate-180" : ""}`}>▾</span>
+                            </button>
+                          </div>
+                        </div>
+                        {(assignedSubsByTradeId[trade.id] ?? []).map((sub) => (
+                          <div
+                            key={`${trade.id}-sub-row-${sub.id}`}
+                            className="grid grid-cols-[minmax(0,1fr)_120px_120px_132px] border-t border-slate-200 bg-slate-50/40 text-sm text-slate-700"
+                          >
+                            <div className="border-r border-slate-200 px-4 py-2">
+                              <span className="mr-2 text-slate-400">↳</span>
+                              {sub.company}
+                            </div>
+                            <div className="border-r border-slate-200 px-4 py-2 text-center">
+                              {sub.invited ? "Yes" : "No"}
+                            </div>
+                            <div className="border-r border-slate-200 px-4 py-2 text-center">
+                              {sub.willBid ? "Yes" : "No"}
+                            </div>
+                            <div className="px-2 py-1.5 text-center">
+                              <button
+                                type="button"
+                                onClick={() => removeSubFromTrade(trade.id, sub.id)}
+                                className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                                aria-label={`Remove ${sub.company}`}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                        {expandedTradeId === trade.id ? (
+                          <div className="border-t border-slate-200 bg-slate-50 px-4 py-3">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                              Add Subcontractors
+                            </div>
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              <input
+                                value={manageQueryByTradeId[trade.id] ?? ""}
+                                onChange={(event) =>
+                                  setManageQueryByTradeId((prev) => ({ ...prev, [trade.id]: event.target.value }))
+                                }
+                                onFocus={() =>
+                                  setManageSearchActiveByTradeId((prev) => ({ ...prev, [trade.id]: true }))
+                                }
+                                placeholder="Search subcontractors"
+                                className="w-full max-w-md flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+                              />
+                              <button
+                                type="button"
+                                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                              >
+                                + New Contractor
+                              </button>
+                            </div>
+                            <div className="mt-2 max-h-40 overflow-auto rounded-md border border-slate-200 bg-white">
+                              {manageSearchActiveByTradeId[trade.id]
+                                ? SUB_OPTIONS.filter((option) => {
+                                    const query = (manageQueryByTradeId[trade.id] ?? "").trim().toLowerCase();
+                                    const assignedIds = new Set((assignedSubsByTradeId[trade.id] ?? []).map((item) => item.id));
+                                    if (assignedIds.has(option.id)) return false;
+                                    if (!query) return true;
+                                    return option.company.toLowerCase().includes(query);
+                                  }).map((option) => (
+                                    <div
+                                      key={`${trade.id}-${option.id}`}
+                                      className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 last:border-b-0"
+                                    >
+                                      <div className="text-sm text-slate-700">{option.company}</div>
+                                      <button
+                                        type="button"
+                                        onClick={() => addSubToTrade(trade.id, option)}
+                                        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                                      >
+                                        Add
+                                      </button>
+                                    </div>
+                                  ))
+                                : (
+                                  <div className="px-3 py-3 text-sm text-slate-500">
+                                    Click the search bar to view and add subcontractors.
+                                  </div>
+                                )}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))
+                  ) : (
+                    <div className="px-4 py-4 text-sm text-slate-500">Select one or more trades above to build coverage rows.</div>
+                  )}
+                </div>
+              </div>
+            </section>
+
+            {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <Link
+                href="/bidding/all"
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </Link>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {submitting ? "Creating..." : "Create Bid Package"}
+              </button>
+            </div>
+          </>
         )}
           </div>
 
@@ -709,6 +1033,19 @@ export default function NewBidPackagePage() {
                     <path d="M2.75 5.25A1.25 1.25 0 0 1 4 4h4.2l1.2 1.5H16A1.25 1.25 0 0 1 17.25 6.75v8.5A1.25 1.25 0 0 1 16 16.5H4a1.25 1.25 0 0 1-1.25-1.25z" />
                   </svg>
                   Files
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActivePanel("trade-coverage")}
+                  className={`flex w-full items-center gap-3 rounded-md px-4 py-3 text-left text-base font-medium hover:bg-slate-100 ${
+                    activePanel === "trade-coverage" ? "bg-slate-100 text-slate-900" : "text-slate-700"
+                  }`}
+                >
+                  <svg viewBox="0 0 20 20" className="size-5 text-slate-500" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                    <path d="M3.5 5.5h13v10h-13z" />
+                    <path d="M7 8.5h6M7 11.5h6" />
+                  </svg>
+                  Trade Coverage
                 </button>
               </nav>
             </div>
