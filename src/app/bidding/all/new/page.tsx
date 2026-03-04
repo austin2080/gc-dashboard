@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createBidProject } from "@/lib/bidding/store";
+import { createBidProject, createBidSubcontractor } from "@/lib/bidding/store";
 
 type BidPackageDraft = {
   project_name: string;
@@ -65,21 +65,14 @@ type SelectedTrade = {
 type SubOption = {
   id: string;
   company: string;
+  email?: string | null;
 };
 
 type AssignedSub = SubOption & {
   invited: boolean;
   willBid: boolean;
+  bidInviteEmail: string;
 };
-
-const SUB_OPTIONS: SubOption[] = [
-  { id: "sub-1", company: "Alpha Concrete LLC" },
-  { id: "sub-2", company: "Delta Drywall Systems" },
-  { id: "sub-3", company: "Summit Electric Inc." },
-  { id: "sub-4", company: "Northwest Mechanical" },
-  { id: "sub-5", company: "Pioneer Plumbing Co." },
-  { id: "sub-6", company: "Skyline Roofing Group" },
-];
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -136,9 +129,20 @@ export default function NewBidPackagePage() {
   const [costCodeQuery, setCostCodeQuery] = useState("");
   const [selectedTrades, setSelectedTrades] = useState<SelectedTrade[]>([]);
   const [expandedTradeId, setExpandedTradeId] = useState<string | null>(null);
+  const [subOptions, setSubOptions] = useState<SubOption[]>([]);
+  const [loadingSubOptions, setLoadingSubOptions] = useState(false);
   const [manageQueryByTradeId, setManageQueryByTradeId] = useState<Record<string, string>>({});
   const [manageSearchActiveByTradeId, setManageSearchActiveByTradeId] = useState<Record<string, boolean>>({});
   const [assignedSubsByTradeId, setAssignedSubsByTradeId] = useState<Record<string, AssignedSub[]>>({});
+  const [newSubDrawerTradeId, setNewSubDrawerTradeId] = useState<string | null>(null);
+  const [newSubDraft, setNewSubDraft] = useState({
+    company_name: "",
+    primary_contact: "",
+    email: "",
+    phone: "",
+  });
+  const [newSubSaving, setNewSubSaving] = useState(false);
+  const [newSubError, setNewSubError] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedBidFile[]>([]);
   const [draft, setDraft] = useState<BidPackageDraft>(createDefaultDraft());
@@ -209,6 +213,43 @@ export default function NewBidPackagePage() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    async function loadSubOptions() {
+      setLoadingSubOptions(true);
+      try {
+        const response = await fetch("/api/directory/overview", { cache: "no-store" });
+        const payload = (await response.json().catch(() => null)) as
+          | { companies?: Array<{ id?: string; name?: string; email?: string | null }>; error?: string }
+          | null;
+        if (!active) return;
+        if (!response.ok) {
+          setSubOptions([]);
+          setLoadingSubOptions(false);
+          return;
+        }
+        const mapped = Array.isArray(payload?.companies)
+          ? payload.companies
+              .map((company) => {
+                if (!company?.id || !company?.name) return null;
+                return { id: company.id, company: company.name, email: company.email ?? null };
+              })
+              .filter((item): item is SubOption => Boolean(item))
+          : [];
+        setSubOptions(mapped);
+      } catch {
+        if (!active) return;
+        setSubOptions([]);
+      } finally {
+        if (active) setLoadingSubOptions(false);
+      }
+    }
+    loadSubOptions();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const filteredCostCodes = useMemo(() => {
     const assigned = new Set(selectedTrades.map((trade) => trade.id));
     const query = costCodeQuery.trim().toLowerCase();
@@ -252,7 +293,7 @@ export default function NewBidPackagePage() {
       if (current.some((item) => item.id === sub.id)) return prev;
       return {
         ...prev,
-        [tradeId]: [...current, { ...sub, invited: false, willBid: false }],
+        [tradeId]: [...current, { ...sub, invited: false, willBid: false, bidInviteEmail: sub.email ?? "" }],
       };
     });
   };
@@ -263,6 +304,23 @@ export default function NewBidPackagePage() {
       [tradeId]: (prev[tradeId] ?? []).filter((item) => item.id !== subId),
     }));
   };
+
+  const setSubInviteEmail = (tradeId: string, subId: string, value: string) => {
+    setAssignedSubsByTradeId((prev) => ({
+      ...prev,
+      [tradeId]: (prev[tradeId] ?? []).map((item) =>
+        item.id === subId
+          ? {
+              ...item,
+              bidInviteEmail: value,
+            }
+          : item
+      ),
+    }));
+  };
+  const activeDrawerTrade = newSubDrawerTradeId
+    ? selectedTrades.find((trade) => trade.id === newSubDrawerTradeId) ?? null
+    : null;
 
   return (
     <main className="bg-slate-50 pl-4 pr-0 pb-8 sm:pl-6 sm:pr-0">
@@ -894,29 +952,42 @@ export default function NewBidPackagePage() {
                           </div>
                         </div>
                         {(assignedSubsByTradeId[trade.id] ?? []).map((sub) => (
-                          <div
-                            key={`${trade.id}-sub-row-${sub.id}`}
-                            className="grid grid-cols-[minmax(0,1fr)_120px_120px_132px] border-t border-slate-200 bg-slate-50/40 text-sm text-slate-700"
-                          >
-                            <div className="border-r border-slate-200 px-4 py-2">
-                              <span className="mr-2 text-slate-400">↳</span>
-                              {sub.company}
+                          <div key={`${trade.id}-sub-row-${sub.id}`}>
+                            <div className="grid grid-cols-[minmax(0,1fr)_120px_120px_132px] border-t border-slate-200 bg-slate-50/40 text-sm text-slate-700">
+                              <div className="border-r border-slate-200 px-4 py-2">
+                                <span className="mr-2 text-slate-400">↳</span>
+                                {sub.company}
+                              </div>
+                              <div className="border-r border-slate-200 px-4 py-2 text-center">
+                                {sub.invited ? "Yes" : "No"}
+                              </div>
+                              <div className="border-r border-slate-200 px-4 py-2 text-center">
+                                {sub.willBid ? "Yes" : "No"}
+                              </div>
+                              <div className="px-2 py-1.5 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => removeSubFromTrade(trade.id, sub.id)}
+                                  className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                                  aria-label={`Remove ${sub.company}`}
+                                >
+                                  Remove
+                                </button>
+                              </div>
                             </div>
-                            <div className="border-r border-slate-200 px-4 py-2 text-center">
-                              {sub.invited ? "Yes" : "No"}
-                            </div>
-                            <div className="border-r border-slate-200 px-4 py-2 text-center">
-                              {sub.willBid ? "Yes" : "No"}
-                            </div>
-                            <div className="px-2 py-1.5 text-center">
-                              <button
-                                type="button"
-                                onClick={() => removeSubFromTrade(trade.id, sub.id)}
-                                className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                                aria-label={`Remove ${sub.company}`}
-                              >
-                                Remove
-                              </button>
+                            <div className="grid grid-cols-[minmax(0,1fr)_120px_120px_132px] border-t border-slate-200 bg-white">
+                              <div className="col-span-4 px-4 py-2">
+                                <label className="flex items-center gap-3 text-sm text-slate-700">
+                                  <span className="font-medium text-slate-600">Bid Invite Email</span>
+                                  <input
+                                    type="email"
+                                    value={sub.bidInviteEmail}
+                                    onChange={(event) => setSubInviteEmail(trade.id, sub.id, event.target.value)}
+                                    placeholder="name@company.com"
+                                    className="w-full max-w-md rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+                                  />
+                                </label>
+                              </div>
                             </div>
                           </div>
                         ))}
@@ -939,6 +1010,16 @@ export default function NewBidPackagePage() {
                               />
                               <button
                                 type="button"
+                                onClick={() => {
+                                  setNewSubDrawerTradeId(trade.id);
+                                  setNewSubDraft({
+                                    company_name: "",
+                                    primary_contact: "",
+                                    email: "",
+                                    phone: "",
+                                  });
+                                  setNewSubError(null);
+                                }}
                                 className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                               >
                                 + New Contractor
@@ -946,7 +1027,7 @@ export default function NewBidPackagePage() {
                             </div>
                             <div className="mt-2 max-h-40 overflow-auto rounded-md border border-slate-200 bg-white">
                               {manageSearchActiveByTradeId[trade.id]
-                                ? SUB_OPTIONS.filter((option) => {
+                                ? subOptions.filter((option) => {
                                     const query = (manageQueryByTradeId[trade.id] ?? "").trim().toLowerCase();
                                     const assignedIds = new Set((assignedSubsByTradeId[trade.id] ?? []).map((item) => item.id));
                                     if (assignedIds.has(option.id)) return false;
@@ -972,6 +1053,9 @@ export default function NewBidPackagePage() {
                                     Click the search bar to view and add subcontractors.
                                   </div>
                                 )}
+                              {manageSearchActiveByTradeId[trade.id] && loadingSubOptions ? (
+                                <div className="border-t border-slate-100 px-3 py-2 text-sm text-slate-500">Loading subcontractors...</div>
+                              ) : null}
                             </div>
                           </div>
                         ) : null}
@@ -1052,6 +1136,163 @@ export default function NewBidPackagePage() {
           </aside>
         </div>
       </form>
+      {newSubDrawerTradeId ? (
+        <div className="fixed inset-0 z-50">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-950/40"
+            aria-label="Close new contractor drawer"
+            onClick={() => {
+              setNewSubDrawerTradeId(null);
+              setNewSubError(null);
+            }}
+          />
+          <aside className="absolute right-0 top-0 h-full w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white shadow-2xl">
+            <div className="border-b border-slate-200 px-6 py-4">
+              <h2 className="text-2xl font-semibold text-slate-900">New Contractor</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                {activeDrawerTrade ? `Add to ${activeDrawerTrade.code}` : "Add subcontractor to this trade"}
+              </p>
+            </div>
+            <form
+              className="space-y-4 px-6 py-5"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                const tradeId = newSubDrawerTradeId;
+                if (!tradeId) return;
+                const companyName = newSubDraft.company_name.trim();
+                if (!companyName) {
+                  setNewSubError("Company name is required.");
+                  return;
+                }
+                setNewSubSaving(true);
+                setNewSubError(null);
+
+                const directoryResponse = await fetch("/api/directory/companies", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    companies: [
+                      {
+                        company_name: companyName,
+                        trade: activeDrawerTrade?.code ?? null,
+                        primary_contact: newSubDraft.primary_contact.trim() || null,
+                        email: newSubDraft.email.trim() || null,
+                        phone: newSubDraft.phone.trim() || null,
+                        status: "Active",
+                      },
+                    ],
+                  }),
+                });
+                if (!directoryResponse.ok) {
+                  const payload = (await directoryResponse.json().catch(() => null)) as { error?: string } | null;
+                  setNewSubError(payload?.error ?? "Unable to save contractor to directory.");
+                  setNewSubSaving(false);
+                  return;
+                }
+                const directoryPayload = (await directoryResponse.json().catch(() => null)) as
+                  | { companies?: Array<{ id?: string; name?: string; email?: string | null }> }
+                  | null;
+                const directoryCompany = directoryPayload?.companies?.[0];
+                if (!directoryCompany?.id || !directoryCompany?.name) {
+                  setNewSubError("Contractor saved, but could not read directory record.");
+                  setNewSubSaving(false);
+                  return;
+                }
+
+                const created = await createBidSubcontractor({
+                  company_name: companyName,
+                  primary_contact: newSubDraft.primary_contact.trim() || null,
+                  email: newSubDraft.email.trim() || null,
+                  phone: newSubDraft.phone.trim() || null,
+                });
+                if (!created) {
+                  setNewSubError("Unable to create subcontractor.");
+                  setNewSubSaving(false);
+                  return;
+                }
+
+                const newOption = {
+                  id: directoryCompany.id,
+                  company: directoryCompany.name,
+                  email: directoryCompany.email ?? (newSubDraft.email.trim() || null),
+                };
+                setSubOptions((prev) => {
+                  if (prev.some((item) => item.id === newOption.id)) return prev;
+                  return [...prev, newOption].sort((a, b) => a.company.localeCompare(b.company));
+                });
+                addSubToTrade(tradeId, newOption);
+                setManageSearchActiveByTradeId((prev) => ({ ...prev, [tradeId]: true }));
+                setManageQueryByTradeId((prev) => ({ ...prev, [tradeId]: "" }));
+                setNewSubDrawerTradeId(null);
+                setNewSubSaving(false);
+              }}
+            >
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                Company Name <span className="sr-only">required</span>
+                <input
+                  value={newSubDraft.company_name}
+                  onChange={(event) => setNewSubDraft((prev) => ({ ...prev, company_name: event.target.value }))}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                  placeholder="Company name"
+                />
+              </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                Primary Contact
+                <input
+                  value={newSubDraft.primary_contact}
+                  onChange={(event) => setNewSubDraft((prev) => ({ ...prev, primary_contact: event.target.value }))}
+                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                  placeholder="Primary contact"
+                />
+              </label>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                  Email
+                  <input
+                    value={newSubDraft.email}
+                    onChange={(event) => setNewSubDraft((prev) => ({ ...prev, email: event.target.value }))}
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                    placeholder="name@company.com"
+                    type="email"
+                  />
+                </label>
+                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                  Phone
+                  <input
+                    value={newSubDraft.phone}
+                    onChange={(event) => setNewSubDraft((prev) => ({ ...prev, phone: event.target.value }))}
+                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                    placeholder="(555) 555-5555"
+                  />
+                </label>
+              </div>
+              {newSubError ? (
+                <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{newSubError}</p>
+              ) : null}
+              <div className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-slate-200 bg-white pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewSubDrawerTradeId(null);
+                    setNewSubError(null);
+                  }}
+                  className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={newSubSaving}
+                  className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {newSubSaving ? "Saving..." : "Save Contractor"}
+                </button>
+              </div>
+            </form>
+          </aside>
+        </div>
+      ) : null}
     </main>
   );
 }
