@@ -1246,6 +1246,31 @@ export default function BiddingPage() {
     () => new Set(tradeDrafts.map((trade) => trade.trade_name.trim().toLowerCase()).filter(Boolean)),
     [tradeDrafts]
   );
+  const overviewStats = useMemo(() => {
+    const trades = detail?.trades ?? [];
+    const projectSubs = detail?.projectSubs ?? [];
+    const tradeBids = detail?.tradeBids ?? [];
+    const totalTrades = trades.length;
+    const invitedSubs = projectSubs.filter((sub) => Boolean(sub.invited_at)).length;
+    const bidsReceived = tradeBids.filter((bid) => bid.status === "submitted").length;
+    const coveredTradeIds = new Set<string>();
+    tradeBids.forEach((bid) => {
+      if (bid.status === "submitted" || bid.status === "bidding" || bid.status === "invited") {
+        coveredTradeIds.add(bid.trade_id);
+      }
+    });
+    const coveredTrades = coveredTradeIds.size;
+    const uncoveredTrades = Math.max(0, totalTrades - coveredTrades);
+    const coveragePercent = totalTrades ? Math.round((coveredTrades / totalTrades) * 100) : 0;
+    return {
+      totalTrades,
+      invitedSubs,
+      bidsReceived,
+      coveredTrades,
+      uncoveredTrades,
+      coveragePercent,
+    };
+  }, [detail]);
 
   const openEditModal = () => {
     if (!selectedProject) return;
@@ -1314,6 +1339,47 @@ export default function BiddingPage() {
 
       {selectedProject ? (
         <section className="grid items-start gap-4 lg:grid-cols-12">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:col-span-12">
+            <h2 className="text-lg font-semibold text-slate-900">Bid Package Overview</h2>
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <article className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="text-3xl font-semibold text-slate-900">Trades: {overviewStats.totalTrades}</div>
+                <div className="mt-3 grid gap-2 text-sm text-slate-700 sm:grid-cols-2">
+                  <div>
+                    Invited subs: <span className="font-semibold">{overviewStats.invitedSubs}</span>
+                  </div>
+                  <div>
+                    Bids received: <span className="font-semibold">{overviewStats.bidsReceived}</span>
+                  </div>
+                  <div className="sm:col-span-2">
+                    Coverage: <span className="font-semibold">{overviewStats.coveragePercent}%</span>
+                  </div>
+                </div>
+              </article>
+              <article className="rounded-xl border border-slate-200 bg-white p-4">
+                <div className="text-base font-semibold text-slate-900">Bid Coverage</div>
+                <div className="mt-3 space-y-2 text-sm text-slate-700">
+                  <div className="flex items-center justify-between">
+                    <span>Trades covered</span>
+                    <span className="font-semibold">
+                      {overviewStats.coveredTrades} / {overviewStats.totalTrades}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Uncovered trades</span>
+                    <span className="font-semibold">{overviewStats.uncoveredTrades}</span>
+                  </div>
+                  <div className="h-2 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className="h-full rounded-full bg-emerald-500 transition-all"
+                      style={{ width: `${overviewStats.coveragePercent}%` }}
+                    />
+                  </div>
+                  <div className="text-xs text-slate-500">Coverage percentage is based on trades with at least one active bid.</div>
+                </div>
+              </article>
+            </div>
+          </div>
           <div className="self-start rounded-2xl border border-slate-200 bg-white px-5 pb-4 pt-5 shadow-sm lg:col-span-6 lg:aspect-[1/1]">
             <div className="h-full overflow-y-auto pr-1">
               <h2 className="text-lg font-semibold text-slate-900">Project Info</h2>

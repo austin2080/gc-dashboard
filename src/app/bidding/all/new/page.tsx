@@ -555,7 +555,7 @@ export default function NewBidPackagePage() {
           }
 
           setDraft(createDefaultDraft());
-          router.push("/bidding/all");
+          router.push(`/bidding?project=${created.id}`);
           router.refresh();
         }}
       >
@@ -1669,7 +1669,7 @@ export default function NewBidPackagePage() {
             {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
             {selectedSubsCount === 0 ? (
               <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                Select at least 1 subcontractor to invite.
+                Select at least 1 subcontractor to invite, or choose Skip to create the bid package without invites.
               </p>
             ) : null}
 
@@ -1687,6 +1687,13 @@ export default function NewBidPackagePage() {
               >
                 Cancel
               </Link>
+              <button
+                type="submit"
+                disabled={submitting}
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {submitting ? "Creating..." : "Skip and Create Bid Package"}
+              </button>
               <button
                 type="submit"
                 disabled={submitting || selectedSubsCount === 0}
