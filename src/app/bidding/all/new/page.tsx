@@ -560,7 +560,7 @@ export default function NewBidPackagePage() {
         }}
       >
         <div className="grid items-start gap-0 lg:grid-cols-[minmax(0,1fr)_300px]">
-          <div className="space-y-4 pr-4 pt-12 lg:px-12">
+          <div className="space-y-4 pr-4 pb-24 pt-12 lg:px-12">
         {activePanel === "general" ? (
           <>
         <section id="general-information" className="scroll-mt-24 rounded-xl border border-slate-200 bg-white p-5">
@@ -916,7 +916,7 @@ export default function NewBidPackagePage() {
 
         {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
-        <div className="flex items-center justify-end gap-2 pt-2">
+        <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85 sm:px-6 lg:px-12">
           <Link
             href="/bidding/all"
             className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
@@ -926,9 +926,9 @@ export default function NewBidPackagePage() {
           <button
             type="button"
             onClick={() => setActivePanel("files")}
-            className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-md bg-orange-500 px-8 py-2 text-base font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            Add files
+            Continue to Files
           </button>
         </div>
           </>
@@ -1044,7 +1044,7 @@ export default function NewBidPackagePage() {
 
             {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85 sm:px-6 lg:px-12">
               <Link
                 href="/bidding/all"
                 className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
@@ -1054,9 +1054,9 @@ export default function NewBidPackagePage() {
               <button
                 type="submit"
                 disabled={submitting}
-                className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md bg-orange-500 px-8 py-2 text-base font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {submitting ? "Creating..." : "Create Bid Package"}
+                {submitting ? "Creating..." : "Continue to Trades"}
               </button>
             </div>
           </>
@@ -1260,7 +1260,7 @@ export default function NewBidPackagePage() {
 
             {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85 sm:px-6 lg:px-12">
               <Link
                 href="/bidding/all"
                 className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
@@ -1273,9 +1273,9 @@ export default function NewBidPackagePage() {
                   setActivePanel("invite-subs");
                   setExpandedInviteTradeId(selectedTrades[0]?.id ?? null);
                 }}
-                className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md bg-orange-500 px-8 py-2 text-base font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Next
+                Invite Subcontractors
               </button>
             </div>
           </>
@@ -1308,7 +1308,10 @@ export default function NewBidPackagePage() {
                           <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 px-4 py-3">
                             <div className="flex items-center gap-3">
                               <span className="inline-flex size-7 items-center justify-center rounded-full bg-emerald-600 text-sm text-white">✓</span>
-                              <div className="text-2xl font-semibold text-slate-900">{trade.code}</div>
+                              <div className="text-2xl font-semibold text-slate-900">
+                                {trade.code}
+                                {trade.description ? <span className="ml-2 text-lg font-medium text-slate-600">{trade.description}</span> : null}
+                              </div>
                               <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">Selected</span>
                             </div>
                             <div className="flex items-center gap-3 text-sm text-slate-600">
@@ -1339,7 +1342,6 @@ export default function NewBidPackagePage() {
 
                               <div className="grid border-t border-slate-200 lg:grid-cols-2">
                                 <div className="border-r border-slate-200 p-4">
-                                  <div className="text-3xl font-semibold text-slate-900">Recommended for {trade.code}</div>
                                   <input
                                     value={inviteQueryByTradeId[trade.id] ?? ""}
                                     onChange={(event) =>
@@ -1445,7 +1447,7 @@ export default function NewBidPackagePage() {
 
             {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85 sm:px-6 lg:px-12">
               <button
                 type="button"
                 onClick={() => setActivePanel("trade-coverage")}
@@ -1462,9 +1464,9 @@ export default function NewBidPackagePage() {
               <button
                 type="submit"
                 disabled={submitting}
-                className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md bg-orange-500 px-8 py-2 text-base font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {submitting ? "Creating..." : "Create Bid Package"}
+                {submitting ? "Creating..." : "Review Email"}
               </button>
             </div>
           </>
@@ -1657,7 +1659,7 @@ export default function NewBidPackagePage() {
               </p>
             ) : null}
 
-            <div className="flex items-center justify-end gap-2 pt-2">
+            <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85 sm:px-6 lg:px-12">
               <button
                 type="button"
                 onClick={() => setActivePanel("invite-subs")}
@@ -1674,7 +1676,7 @@ export default function NewBidPackagePage() {
               <button
                 type="submit"
                 disabled={submitting || selectedSubsCount === 0}
-                className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md bg-orange-500 px-8 py-2 text-base font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {submitting ? "Creating..." : "Send Invites"}
               </button>
@@ -1840,7 +1842,7 @@ export default function NewBidPackagePage() {
                 <button
                   type="submit"
                   disabled={testSendLoading}
-                  className="rounded-md bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-md bg-orange-500 px-7 py-2 text-base font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {testSendLoading ? "Sending..." : "Send Test"}
                 </button>
@@ -2012,7 +2014,7 @@ export default function NewBidPackagePage() {
                 <button
                   type="submit"
                   disabled={newSubSaving}
-                  className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-md bg-orange-500 px-8 py-2 text-base font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {newSubSaving ? "Saving..." : "Save Contractor"}
                 </button>
