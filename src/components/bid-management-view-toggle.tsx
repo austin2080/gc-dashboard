@@ -5,6 +5,8 @@ import { usePathname, useSearchParams } from "next/navigation";
 
 const VIEWS = [
   { label: "Overview", href: "/bidding" },
+  { label: "Files", href: "/bidding/files" },
+  { label: "Bidding", href: "/bidding/all" },
   { label: "Invites", href: "/bidding/itbs" },
   { label: "Leveling", href: "/bidding/bid-leveling" },
   { label: "Tasks", href: "/bidding/tasks" },
@@ -23,18 +25,17 @@ export default function BidManagementViewToggle() {
   const projectId = searchParams.get("project");
 
   return (
-    <nav
-      aria-label="Bid Management Views"
-      className="inline-flex w-fit items-center gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm"
-    >
+    <nav aria-label="Bid Management Views" className="flex w-full flex-wrap items-center gap-8 border-b border-slate-200">
       {VIEWS.map((view) => {
         const active = pathname === view.href;
         return (
           <Link
             key={view.href}
             href={withProjectQuery(view.href, projectId)}
-            className={`rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-              active ? "bg-slate-900 text-white" : "text-slate-600 hover:bg-slate-100"
+            className={`border-b-2 px-1 pb-1 pt-2 text-base font-medium transition ${
+              active
+                ? "border-slate-900 text-slate-900"
+                : "border-transparent text-slate-600 hover:border-slate-300 hover:text-slate-900"
             }`}
           >
             {view.label}

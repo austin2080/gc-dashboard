@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type {
@@ -1286,14 +1287,22 @@ export default function BiddingPage() {
   };
 
   return (
-    <main className="space-y-6 bg-slate-50 p-4 sm:p-6">
+    <main className="space-y-6 bg-slate-50 px-4 pb-4 pt-[2px] sm:px-6 sm:pb-6 sm:pt-[2px]">
       <header className="-mx-4 border-b border-slate-200 bg-white sm:-mx-6">
-        <div className="flex flex-wrap items-start justify-between gap-4 px-6 py-1">
+        <div className="px-6 pt-3 pb-1">
+          <div className="mb-1 flex items-center gap-2 text-sm text-slate-500">
+            <Link href="/bidding/all" className="font-medium text-slate-600 hover:text-slate-900 hover:underline">
+              Bid Packages
+            </Link>
+            <span aria-hidden>/</span>
+            <span className="truncate text-slate-700">{selectedProject ? selectedProject.project_name : "Bid Management"}</span>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-start justify-between gap-4 px-6 pb-[2px]">
           <div>
-            <h1 className="text-4xl font-semibold text-slate-900">
+            <h1 className="text-3xl font-semibold text-slate-900">
               {selectedProject ? selectedProject.project_name : "Bid Management"}
             </h1>
-            <p className="mt-1 text-lg text-slate-500">Track active bids, subcontractors &amp; due dates</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             {selectedProject ? (
@@ -1320,8 +1329,10 @@ export default function BiddingPage() {
             </button>
           </div>
         </div>
+        <div className="px-6">
+          <BidManagementViewToggle />
+        </div>
       </header>
-      <BidManagementViewToggle />
 
       {loading ? (
         <section className="rounded-2xl border border-slate-200 bg-white px-6 py-6 text-sm text-slate-500 shadow-sm">
