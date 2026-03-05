@@ -365,7 +365,7 @@ export default function AllBidsPage() {
                             type="button"
                             onClick={(event) => {
                               event.stopPropagation();
-                              router.push(`/bidding?project=${row.id}`);
+                              router.push("/bidding/all/new");
                             }}
                             className="rounded-md bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-700 hover:bg-slate-200"
                           >
