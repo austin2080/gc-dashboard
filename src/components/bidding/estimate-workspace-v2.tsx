@@ -680,6 +680,7 @@ const INITIAL_GENERAL_CONDITIONS_ROWS: GeneralConditionsRow[] = [
 
 export default function EstimateWorkspaceV2() {
   const [selectedItem, setSelectedItem] = useState<string>(NAV_ITEMS[0]);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [rows, setRows] = useState<FactorRow[]>(INITIAL_ROWS);
   const [projectPlanningRows, setProjectPlanningRows] = useState<ProjectPlanningRow[]>(
     INITIAL_PROJECT_PLANNING_ROWS
@@ -780,8 +781,38 @@ export default function EstimateWorkspaceV2() {
 
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="grid min-h-[720px] grid-cols-[240px_minmax(0,1fr)]">
-        <aside className="border-r border-slate-200 bg-slate-50">
+      <div
+        className={`relative grid min-h-[720px] transition-[grid-template-columns] duration-300 ${
+          isSidebarCollapsed
+            ? "grid-cols-[0px_minmax(0,1fr)]"
+            : "grid-cols-[240px_minmax(0,1fr)]"
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => setIsSidebarCollapsed((prev) => !prev)}
+          className={`absolute top-4 z-20 flex h-8 w-8 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-700 shadow-sm transition-all ${
+            isSidebarCollapsed ? "left-2" : "left-[224px]"
+          }`}
+          aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          <svg
+            viewBox="0 0 20 20"
+            aria-hidden="true"
+            className={`h-4 w-4 transition-transform ${
+              isSidebarCollapsed ? "rotate-180" : "rotate-0"
+            }`}
+          >
+            <path d="M12.5 4.5L7 10l5.5 5.5" fill="none" stroke="currentColor" strokeWidth="2" />
+          </svg>
+        </button>
+
+        <aside
+          className={`overflow-hidden border-r border-slate-200 bg-slate-50 transition-opacity duration-200 ${
+            isSidebarCollapsed ? "opacity-0" : "opacity-100"
+          }`}
+        >
           <nav className="space-y-1 p-2">
             {NAV_ITEMS.map((item) => (
               <button
@@ -1268,28 +1299,6 @@ export default function EstimateWorkspaceV2() {
                     <col className="w-[8%]" />
                   </colgroup>
                   <tbody>
-                    <tr className="bg-[#e8792e] text-white">
-                      <td colSpan={2} className="border-b border-r border-[#c96420] px-3 py-2 font-semibold">
-                        DIVISION 01 - General Conditions
-                      </td>
-                      <td colSpan={2} className="border-b border-r border-[#c96420] px-3 py-2 font-semibold">
-                        PROJECT DURATION:
-                      </td>
-                      <td className="border-b border-r border-[#c96420] px-3 py-2 text-center font-semibold">
-                        14
-                      </td>
-                      <td
-                        colSpan={3}
-                        className="border-b border-[#c96420] px-3 py-2 font-semibold"
-                      >
-                        Weeks (Includes 1 Week for Closeout)
-                      </td>
-                    </tr>
-                    <tr className="bg-[#f6be00] text-slate-900">
-                      <td colSpan={8} className="border-b border-slate-400 px-3 py-2 text-center font-semibold">
-                        Preliminary Estimate
-                      </td>
-                    </tr>
                     <tr className="bg-slate-100 text-slate-800">
                       <td className="border-b border-r border-slate-400 px-2 py-2 font-semibold">Cost Code</td>
                       <td className="border-b border-r border-slate-400 px-2 py-2 font-semibold">Description</td>
