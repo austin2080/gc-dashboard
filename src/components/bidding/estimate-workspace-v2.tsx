@@ -33,6 +33,17 @@ type CostSummaryRow = {
   label: string;
   amount: string;
 };
+type GeneralConditionsRow = {
+  id: string;
+  costCode: string;
+  description: string;
+  percentage: string;
+  unit: string;
+  quantity: string;
+  unitPrice: string;
+  total: string;
+  comments: string;
+};
 type SectionKey =
   | "fees"
   | "projectData"
@@ -323,6 +334,350 @@ const INITIAL_COST_SUMMARY_ROWS: CostSummaryRow[] = [
   { id: "summary-ohp", label: "Overhead & Profit", amount: "37,900.59" },
 ];
 
+const INITIAL_GENERAL_CONDITIONS_ROWS: GeneralConditionsRow[] = [
+  {
+    id: "gc-010100",
+    costCode: "01 01 00",
+    description: "General Labor",
+    percentage: "15%",
+    unit: "wks",
+    quantity: "14",
+    unitPrice: "1,200.00",
+    total: "2,442.86",
+    comments: "",
+  },
+  {
+    id: "gc-010200-a",
+    costCode: "01 02 00",
+    description: "Sr. Project Manager / Project Executive",
+    percentage: "0%",
+    unit: "wks",
+    quantity: "14",
+    unitPrice: "4,480.00",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-010200-b",
+    costCode: "01 02 00",
+    description: "Project Manager",
+    percentage: "20%",
+    unit: "wks",
+    quantity: "14",
+    unitPrice: "3,000.00",
+    total: "8,142.86",
+    comments: "",
+  },
+  {
+    id: "gc-010200-c",
+    costCode: "",
+    description: "Sr. Superintendent / General Superintendent",
+    percentage: "0%",
+    unit: "wks",
+    quantity: "14",
+    unitPrice: "3,795.00",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-010300-a",
+    costCode: "01 03 00",
+    description: "Project Superintendent",
+    percentage: "100%",
+    unit: "wks",
+    quantity: "14",
+    unitPrice: "3,000.00",
+    total: "40,714.29",
+    comments: "",
+  },
+  {
+    id: "gc-010300-b",
+    costCode: "",
+    description: "Assistant Superintendent / Jr Superintendent",
+    percentage: "0%",
+    unit: "wks",
+    quantity: "14",
+    unitPrice: "2,600.00",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-010400",
+    costCode: "01 04 00",
+    description: "Project Engineer",
+    percentage: "0%",
+    unit: "wks",
+    quantity: "14",
+    unitPrice: "2,400.00",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-010500",
+    costCode: "01 05 00",
+    description: "Project Coordinator",
+    percentage: "15%",
+    unit: "wks",
+    quantity: "14",
+    unitPrice: "2,000.00",
+    total: "4,071.43",
+    comments: "",
+  },
+  {
+    id: "gc-010600",
+    costCode: "01 06 00",
+    description: "Safety",
+    percentage: "0%",
+    unit: "wks",
+    quantity: "14",
+    unitPrice: "4,400.00",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-010700",
+    costCode: "01 07 00",
+    description: "Pre-Construction",
+    percentage: "0%",
+    unit: "wks",
+    quantity: "14",
+    unitPrice: "3,680.00",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-010800",
+    costCode: "01 08 00",
+    description: "Cell Phone",
+    percentage: "",
+    unit: "mon",
+    quantity: "0",
+    unitPrice: "75.00",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-010900",
+    costCode: "01 09 00",
+    description: "Vehicle Allowance",
+    percentage: "",
+    unit: "mon",
+    quantity: "0",
+    unitPrice: "750.00",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-011000",
+    costCode: "01 10 00",
+    description: "Job Photos",
+    percentage: "",
+    unit: "mon",
+    quantity: "0",
+    unitPrice: "100.00",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-011100",
+    costCode: "01 11 00",
+    description: "Submittal/s",
+    percentage: "",
+    unit: "l/s",
+    quantity: "1",
+    unitPrice: "500.00",
+    total: "500.00",
+    comments: "",
+  },
+  {
+    id: "gc-011200",
+    costCode: "01 12 00",
+    description: "Special Procedures & Governmental Requirements",
+    percentage: "",
+    unit: "l/s",
+    quantity: "0",
+    unitPrice: "-",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-011300",
+    costCode: "01 13 00",
+    description: "Safety Requirements",
+    percentage: "",
+    unit: "l/s",
+    quantity: "0",
+    unitPrice: "-",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-011400",
+    costCode: "01 14 00",
+    description: "Security Procedures",
+    percentage: "",
+    unit: "l/s",
+    quantity: "0",
+    unitPrice: "-",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-011500",
+    costCode: "01 15 00",
+    description: "Quality Requirements - Material Testing & Special Inspections",
+    percentage: "",
+    unit: "l/s",
+    quantity: "0",
+    unitPrice: "4,000.00",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-011600",
+    costCode: "01 16 00",
+    description: "Temp Facilities & Control(s)",
+    percentage: "",
+    unit: "mon",
+    quantity: "0",
+    unitPrice: "-",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-011700",
+    costCode: "01 17 00",
+    description: "Temporary Utilities",
+    percentage: "",
+    unit: "mon",
+    quantity: "0",
+    unitPrice: "-",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-011800",
+    costCode: "01 18 00",
+    description: "Temp Light, Power, Generator",
+    percentage: "",
+    unit: "mon",
+    quantity: "1",
+    unitPrice: "650.00",
+    total: "650.00",
+    comments: "",
+  },
+  {
+    id: "gc-011900",
+    costCode: "01 19 00",
+    description: "Temporary Heating, Cooling, and Ventilating",
+    percentage: "",
+    unit: "ea",
+    quantity: "0",
+    unitPrice: "1,497.00",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-012000",
+    costCode: "01 20 00",
+    description: "Temporary Communications",
+    percentage: "",
+    unit: "mon",
+    quantity: "0",
+    unitPrice: "-",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-012100",
+    costCode: "01 21 00",
+    description: "Job Fuel",
+    percentage: "",
+    unit: "mon",
+    quantity: "0",
+    unitPrice: "-",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-012200",
+    costCode: "01 2200",
+    description: "Trailer Setup and Removal",
+    percentage: "",
+    unit: "l/s",
+    quantity: "0",
+    unitPrice: "4,200.00",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-012300",
+    costCode: "01 23 00",
+    description: "Construction Facilities - Field Offices & Sheds",
+    percentage: "",
+    unit: "mon",
+    quantity: "0",
+    unitPrice: "2,000.00",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-012400",
+    costCode: "01 24 00",
+    description: "Sanitary Facilities",
+    percentage: "",
+    unit: "mon",
+    quantity: "3",
+    unitPrice: "475.00",
+    total: "1,425.00",
+    comments: "",
+  },
+  {
+    id: "gc-012500",
+    costCode: "01 25 00",
+    description: "Temporary Construction",
+    percentage: "",
+    unit: "mon",
+    quantity: "0",
+    unitPrice: "-",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-012600",
+    costCode: "01 26 00",
+    description: "Construction Equipment",
+    percentage: "",
+    unit: "mon",
+    quantity: "0",
+    unitPrice: "1,000.00",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-012700",
+    costCode: "01 27 00",
+    description: "Temporary Lifting & Hoisting Equipment",
+    percentage: "",
+    unit: "mon",
+    quantity: "0",
+    unitPrice: "1,492.00",
+    total: "-",
+    comments: "",
+  },
+  {
+    id: "gc-012800",
+    costCode: "01 28 00",
+    description: "Scaffold & Temporary Platforms",
+    percentage: "",
+    unit: "mon",
+    quantity: "0",
+    unitPrice: "1,500.00",
+    total: "-",
+    comments: "",
+  },
+];
+
 export default function EstimateWorkspaceV2() {
   const [selectedItem, setSelectedItem] = useState<string>(NAV_ITEMS[0]);
   const [rows, setRows] = useState<FactorRow[]>(INITIAL_ROWS);
@@ -341,6 +696,9 @@ export default function EstimateWorkspaceV2() {
     INITIAL_COST_SUMMARY_ROWS
   );
   const [costSummaryPercent, setCostSummaryPercent] = useState<string>("28");
+  const [generalConditionsRows, setGeneralConditionsRows] = useState<GeneralConditionsRow[]>(
+    INITIAL_GENERAL_CONDITIONS_ROWS
+  );
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
     fees: true,
     projectData: true,
@@ -363,6 +721,7 @@ export default function EstimateWorkspaceV2() {
   };
 
   const worksheetView = selectedItem === "Data, Factors & Rates";
+  const generalConditionsView = selectedItem === "General Conditions";
   const updateProjectPlanningValue = (rowId: string, value: string) => {
     setProjectPlanningRows((prev) =>
       prev.map((row) => (row.id === rowId ? { ...row, value } : row))
@@ -388,6 +747,15 @@ export default function EstimateWorkspaceV2() {
       prev.map((row) => (row.id === rowId ? { ...row, amount } : row))
     );
   };
+  const updateGeneralConditionsCell = (
+    rowId: string,
+    key: keyof GeneralConditionsRow,
+    value: string
+  ) => {
+    setGeneralConditionsRows((prev) =>
+      prev.map((row) => (row.id === rowId ? { ...row, [key]: value } : row))
+    );
+  };
   const toggleSection = (section: SectionKey) => {
     setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
@@ -401,6 +769,14 @@ export default function EstimateWorkspaceV2() {
       maximumFractionDigits: 2,
     });
   }, [costSummaryRows]);
+  const generalConditionsTotal = useMemo(() => {
+    return generalConditionsRows.reduce((sum, row) => {
+      const numericTotal = Number.parseFloat(row.total.replace(/[$,]/g, ""));
+      return sum + (Number.isNaN(numericTotal) ? 0 : numericTotal);
+    }, 0);
+  }, [generalConditionsRows]);
+  const generalConditionsWeekly = generalConditionsTotal / 14;
+  const generalConditionsMonthly = generalConditionsWeekly * 4;
 
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -875,6 +1251,188 @@ export default function EstimateWorkspaceV2() {
                     </div>
                   ) : null}
                 </section>
+              </div>
+            </div>
+          ) : generalConditionsView ? (
+            <div className="p-3">
+              <div className="overflow-x-auto rounded-lg border border-slate-300 bg-white">
+                <table className="w-full min-w-[1200px] border-separate border-spacing-0 text-sm text-slate-800">
+                  <colgroup>
+                    <col className="w-[10%]" />
+                    <col className="w-[39%]" />
+                    <col className="w-[7%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[8%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[10%]" />
+                    <col className="w-[8%]" />
+                  </colgroup>
+                  <tbody>
+                    <tr className="bg-[#e8792e] text-white">
+                      <td colSpan={2} className="border-b border-r border-[#c96420] px-3 py-2 font-semibold">
+                        DIVISION 01 - General Conditions
+                      </td>
+                      <td colSpan={2} className="border-b border-r border-[#c96420] px-3 py-2 font-semibold">
+                        PROJECT DURATION:
+                      </td>
+                      <td className="border-b border-r border-[#c96420] px-3 py-2 text-center font-semibold">
+                        14
+                      </td>
+                      <td
+                        colSpan={3}
+                        className="border-b border-[#c96420] px-3 py-2 font-semibold"
+                      >
+                        Weeks (Includes 1 Week for Closeout)
+                      </td>
+                    </tr>
+                    <tr className="bg-[#f6be00] text-slate-900">
+                      <td colSpan={8} className="border-b border-slate-400 px-3 py-2 text-center font-semibold">
+                        Preliminary Estimate
+                      </td>
+                    </tr>
+                    <tr className="bg-slate-100 text-slate-800">
+                      <td className="border-b border-r border-slate-400 px-2 py-2 font-semibold">Cost Code</td>
+                      <td className="border-b border-r border-slate-400 px-2 py-2 font-semibold">Description</td>
+                      <td className="border-b border-r border-slate-400 px-2 py-2 font-semibold text-center"></td>
+                      <td className="border-b border-r border-slate-400 px-2 py-2 font-semibold text-center">Unit</td>
+                      <td className="border-b border-r border-slate-400 px-2 py-2 font-semibold text-center">Quan</td>
+                      <td className="border-b border-r border-slate-400 px-2 py-2 font-semibold text-center">$/Unit</td>
+                      <td className="border-b border-r border-slate-400 px-2 py-2 font-semibold text-center">Total</td>
+                      <td className="border-b border-slate-400 px-2 py-2 font-semibold text-center">Comments</td>
+                    </tr>
+                    {generalConditionsRows.map((row) => (
+                      <tr key={row.id} className="bg-white">
+                        <td className="border-b border-r border-slate-300 p-0">
+                          <input
+                            value={row.costCode}
+                            onChange={(event) =>
+                              updateGeneralConditionsCell(row.id, "costCode", event.target.value)
+                            }
+                            className="h-8 w-full border-0 bg-transparent px-2 text-xs text-slate-600 focus:bg-white focus:outline-none"
+                          />
+                        </td>
+                        <td
+                          colSpan={row.percentage ? 1 : 2}
+                          className="border-b border-r border-slate-300 p-0"
+                        >
+                          <input
+                            value={row.description}
+                            onChange={(event) =>
+                              updateGeneralConditionsCell(row.id, "description", event.target.value)
+                            }
+                            className="h-8 w-full border-0 bg-transparent px-2 text-sm font-semibold text-slate-700 focus:bg-white focus:outline-none"
+                          />
+                        </td>
+                        {row.percentage ? (
+                          <td className="border-b border-r border-slate-300 bg-[#efdfd4] p-0">
+                            <input
+                              value={row.percentage}
+                              onChange={(event) =>
+                                updateGeneralConditionsCell(row.id, "percentage", event.target.value)
+                              }
+                              className="h-8 w-full border-0 bg-transparent px-2 text-right text-base font-semibold text-slate-700 focus:bg-[#f6e7dd] focus:outline-none"
+                            />
+                          </td>
+                        ) : null}
+                        <td className="border-b border-r border-slate-300 p-0">
+                          <input
+                            value={row.unit}
+                            onChange={(event) =>
+                              updateGeneralConditionsCell(row.id, "unit", event.target.value)
+                            }
+                            className="h-8 w-full border-0 bg-transparent px-2 text-center text-sm text-slate-700 focus:bg-white focus:outline-none"
+                          />
+                        </td>
+                        <td className="border-b border-r border-slate-300 p-0">
+                          <input
+                            value={row.quantity}
+                            onChange={(event) =>
+                              updateGeneralConditionsCell(row.id, "quantity", event.target.value)
+                            }
+                            className={`h-8 w-full border-0 bg-transparent px-2 text-center text-sm font-semibold focus:bg-white focus:outline-none ${
+                              row.quantity !== "0" && row.quantity !== "" ? "text-orange-600" : "text-slate-700"
+                            }`}
+                          />
+                        </td>
+                        <td className="border-b border-r border-slate-300 p-0">
+                          {row.unitPrice === "-" || row.unitPrice === "" ? (
+                            <input
+                              value={row.unitPrice}
+                              onChange={(event) =>
+                                updateGeneralConditionsCell(row.id, "unitPrice", event.target.value)
+                              }
+                              className="h-8 w-full border-0 bg-transparent px-2 text-center text-sm text-slate-700 focus:bg-white focus:outline-none"
+                            />
+                          ) : (
+                            <div className="flex h-8 items-center gap-2 px-2 text-sm">
+                              <span className="text-slate-700">$</span>
+                              <input
+                                value={row.unitPrice}
+                                onChange={(event) =>
+                                  updateGeneralConditionsCell(row.id, "unitPrice", event.target.value)
+                                }
+                                className="h-full w-full border-0 bg-transparent text-right text-sm text-slate-700 focus:bg-white focus:outline-none"
+                              />
+                            </div>
+                          )}
+                        </td>
+                        <td className="border-b border-r border-slate-300 p-0">
+                          {row.total === "-" || row.total === "" ? (
+                            <input
+                              value={row.total}
+                              onChange={(event) =>
+                                updateGeneralConditionsCell(row.id, "total", event.target.value)
+                              }
+                              className="h-8 w-full border-0 bg-transparent px-2 text-center text-sm text-slate-700 focus:bg-white focus:outline-none"
+                            />
+                          ) : (
+                            <div className="flex h-8 items-center gap-2 px-2 text-sm">
+                              <span className="text-slate-700">$</span>
+                              <input
+                                value={row.total}
+                                onChange={(event) =>
+                                  updateGeneralConditionsCell(row.id, "total", event.target.value)
+                                }
+                                className="h-full w-full border-0 bg-transparent text-right text-sm text-slate-700 focus:bg-white focus:outline-none"
+                              />
+                            </div>
+                          )}
+                        </td>
+                        <td className="border-b border-slate-300 p-0">
+                          <input
+                            value={row.comments}
+                            onChange={(event) =>
+                              updateGeneralConditionsCell(row.id, "comments", event.target.value)
+                            }
+                            className="h-8 w-full border-0 bg-transparent px-2 text-sm text-slate-700 focus:bg-white focus:outline-none"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="bg-[#e8792e]">
+                      <td colSpan={8} className="border-b border-[#c96420] px-4 py-2 text-right text-2xl font-semibold text-white">
+                        ${generalConditionsTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                    <tr className="bg-slate-200">
+                      <td colSpan={5} className="border-b border-slate-300 px-2 py-2"></td>
+                      <td colSpan={3} className="border-b border-slate-300 px-4 py-2 text-right">
+                        <div className="space-y-1 text-2xl leading-tight text-slate-900">
+                          <div>
+                            <span className="mr-4 font-semibold">Wkly</span>
+                            <span className="mr-3">$</span>
+                            <span>{generalConditionsWeekly.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                          <div>
+                            <span className="mr-4 font-semibold">Monthly</span>
+                            <span className="mr-3">$</span>
+                            <span>{generalConditionsMonthly.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           ) : (
