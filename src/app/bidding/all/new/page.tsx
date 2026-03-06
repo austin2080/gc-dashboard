@@ -7,7 +7,10 @@ import {
   createBidProject,
   createBidSubcontractor,
   createBidTrades,
+  createTradeBid,
   getBidProjectDetail,
+  inviteSubToProject,
+  listBidSubcontractors,
   updateBidProject,
   updateBidTrades,
 } from "@/lib/bidding/store";
@@ -161,6 +164,10 @@ function createDefaultDraft(): BidPackageDraft {
     include_bid_documents: true,
     bid_submission_confirmation_message: "",
   };
+}
+
+function buildTradeLabel(trade: { code: string; description: string | null }): string {
+  return `${trade.code}${trade.description ? ` ${trade.description}` : ""}`.trim();
 }
 
 export default function NewBidPackagePage() {
@@ -561,6 +568,97 @@ export default function NewBidPackagePage() {
   const activeDrawerTrade = newSubDrawerTradeId
     ? selectedTrades.find((trade) => trade.id === newSubDrawerTradeId) ?? null
     : null;
+  const persistAssignedSubsForTrades = async (projectId: string): Promise<boolean> => {
+    const allAssignedSubs = Object.values(assignedSubsByTradeId).flat();
+    if (!allAssignedSubs.length) return true;
+
+    const detail = await getBidProjectDetail(projectId);
+    if (!detail) return false;
+
+    const tradeIdByName = new Map(
+      detail.trades.map((trade) => [trade.trade_name.trim().toLowerCase(), trade.id])
+    );
+    const existingBidPairs = new Set(
+      detail.tradeBids.map((bid) => `${bid.trade_id}:${bid.project_sub_id}`)
+    );
+
+    const projectSubIdByBidSubId = new Map(
+      detail.projectSubs.map((projectSub) => [projectSub.subcontractor_id, projectSub.id])
+    );
+
+    const bidSubcontractors = await listBidSubcontractors();
+    const bidSubByCompany = new Map(
+      bidSubcontractors.map((sub) => [sub.company_name.trim().toLowerCase(), sub])
+    );
+    let nextProjectSubSort =
+      detail.projectSubs.reduce((max, sub) => Math.max(max, sub.sort_order ?? 0), 0) + 1;
+
+    const projectSubIdByAssignedSubId = new Map<string, string>();
+    const uniqueAssignedSubs = new Map<string, AssignedSub>();
+    allAssignedSubs.forEach((sub) => {
+      uniqueAssignedSubs.set(sub.id, sub);
+    });
+
+    for (const sub of uniqueAssignedSubs.values()) {
+      const companyKey = sub.company.trim().toLowerCase();
+      let bidSubId = bidSubByCompany.get(companyKey)?.id ?? null;
+      if (!bidSubId) {
+        const createdBidSub = await createBidSubcontractor({
+          company_name: sub.company,
+          email: sub.email ?? null,
+        });
+        if (!createdBidSub) return false;
+        bidSubId = createdBidSub.id;
+        bidSubByCompany.set(companyKey, {
+          ...createdBidSub,
+          email: sub.email ?? null,
+          phone: null,
+        });
+      }
+
+      let projectSubId = projectSubIdByBidSubId.get(bidSubId) ?? null;
+      if (!projectSubId) {
+        const invited = await inviteSubToProject({
+          project_id: projectId,
+          subcontractor_id: bidSubId,
+          sort_order: nextProjectSubSort,
+        });
+        if (!invited) return false;
+        projectSubId = invited.id;
+        projectSubIdByBidSubId.set(bidSubId, projectSubId);
+        nextProjectSubSort += 1;
+      }
+
+      projectSubIdByAssignedSubId.set(sub.id, projectSubId);
+    }
+
+    for (const trade of selectedTrades) {
+      const tradeName = buildTradeLabel(trade).toLowerCase();
+      const tradeId = tradeIdByName.get(tradeName);
+      if (!tradeId) continue;
+
+      const assignedForTrade = assignedSubsByTradeId[trade.id] ?? [];
+      for (const sub of assignedForTrade) {
+        const projectSubId = projectSubIdByAssignedSubId.get(sub.id);
+        if (!projectSubId) continue;
+        const pairKey = `${tradeId}:${projectSubId}`;
+        if (existingBidPairs.has(pairKey)) continue;
+        const createdBid = await createTradeBid({
+          project_id: projectId,
+          trade_id: tradeId,
+          project_sub_id: projectSubId,
+          status: sub.willBid ? "bidding" : "invited",
+          contact_name: null,
+          bid_amount: null,
+          notes: null,
+        });
+        if (!createdBid) return false;
+        existingBidPairs.add(pairKey);
+      }
+    }
+
+    return true;
+  };
 
   return (
     <main className="bg-slate-50 pl-4 pr-0 pb-8 sm:pl-6 sm:pr-0">
@@ -600,7 +698,7 @@ export default function NewBidPackagePage() {
 
           const budgetValue = draft.budget.trim() ? Number(draft.budget) : null;
           const tradePayload = selectedTrades.map((trade, index) => ({
-            trade_name: `${trade.code}${trade.description ? ` ${trade.description}` : ""}`.trim(),
+            trade_name: buildTradeLabel(trade),
             sort_order: index + 1,
           }));
 
@@ -646,6 +744,13 @@ export default function NewBidPackagePage() {
               return;
             }
 
+            const syncedAssignedSubs = await persistAssignedSubsForTrades(editingProjectId);
+            if (!syncedAssignedSubs) {
+              setError("Project details were saved, but assigned subs could not be synced to trade rows.");
+              setSubmitting(false);
+              return;
+            }
+
             router.push(`/bidding?project=${editingProjectId}`);
             router.refresh();
             return;
@@ -668,6 +773,13 @@ export default function NewBidPackagePage() {
           const tradesCreated = await createBidTrades(created.id, tradePayload);
           if (!tradesCreated) {
             setError("Bid package was created, but selected trades could not be saved. Please add trades from Invites.");
+            setSubmitting(false);
+            return;
+          }
+
+          const syncedAssignedSubs = await persistAssignedSubsForTrades(created.id);
+          if (!syncedAssignedSubs) {
+            setError("Bid package was created, but assigned subs could not be synced to trade rows.");
             setSubmitting(false);
             return;
           }
