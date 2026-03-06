@@ -1,9 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createBidProject, createBidSubcontractor } from "@/lib/bidding/store";
+import {
+  createBidProject,
+  createBidSubcontractor,
+  createBidTrades,
+  getBidProjectDetail,
+  updateBidProject,
+  updateBidTrades,
+} from "@/lib/bidding/store";
 
 type BidPackageDraft = {
   project_name: string;
@@ -158,9 +165,13 @@ function createDefaultDraft(): BidPackageDraft {
 
 export default function NewBidPackagePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editingProjectId = searchParams.get("project");
+  const isEditMode = Boolean(editingProjectId);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadingExistingProject, setLoadingExistingProject] = useState(false);
   const [activePanel, setActivePanel] = useState<"general" | "files" | "trade-coverage" | "invite-subs" | "bid-email">("general");
   const [activeFileSection, setActiveFileSection] = useState<FileSectionKey>("drawings");
   const [costCodes, setCostCodes] = useState<CostCodeOption[]>([]);
@@ -308,6 +319,45 @@ export default function NewBidPackagePage() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!editingProjectId) return;
+    let active = true;
+    async function loadExistingProject() {
+      setLoadingExistingProject(true);
+      const detail = await getBidProjectDetail(editingProjectId);
+      if (!active) return;
+      if (!detail) {
+        setError("Unable to load bid package for editing.");
+        setLoadingExistingProject(false);
+        return;
+      }
+      setDraft((prev) => ({
+        ...prev,
+        project_name: detail.project.project_name ?? "",
+        owner: detail.project.owner ?? "",
+        location: detail.project.location ?? "",
+        budget:
+          detail.project.budget !== null && detail.project.budget !== undefined
+            ? String(detail.project.budget)
+            : "",
+        due_date: detail.project.due_date ?? "",
+        tbd_due_date: !detail.project.due_date,
+      }));
+      setSelectedTrades(
+        detail.trades.map((trade) => ({
+          id: trade.id,
+          code: trade.trade_name ?? "",
+          description: null,
+        }))
+      );
+      setLoadingExistingProject(false);
+    }
+    loadExistingProject();
+    return () => {
+      active = false;
+    };
+  }, [editingProjectId]);
 
   const filteredCostCodes = useMemo(() => {
     const assigned = new Set(selectedTrades.map((trade) => trade.id));
@@ -521,16 +571,25 @@ export default function NewBidPackagePage() {
               Bid Packages
             </Link>
             <span aria-hidden>/</span>
-            <span className="text-slate-500">New Bid Package</span>
+            <span className="text-slate-500">{isEditMode ? "Edit Bid Package" : "New Bid Package"}</span>
           </div>
-          <h1 className="text-[30px] font-semibold text-slate-900">Add Bid Package</h1>
+          <h1 className="text-[30px] font-semibold text-slate-900">
+            {isEditMode ? "Edit Bid Package" : "Add Bid Package"}
+          </h1>
         </div>
       </header>
+
+      {loadingExistingProject ? (
+        <div className="mx-4 mt-4 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500 sm:mx-6">
+          Loading bid package details...
+        </div>
+      ) : null}
 
       <form
         className=""
         onSubmit={async (event) => {
           event.preventDefault();
+          if (loadingExistingProject) return;
           if (!draft.project_name.trim()) {
             setError("Project name is required.");
             return;
@@ -540,6 +599,58 @@ export default function NewBidPackagePage() {
           setError(null);
 
           const budgetValue = draft.budget.trim() ? Number(draft.budget) : null;
+          const tradePayload = selectedTrades.map((trade, index) => ({
+            trade_name: `${trade.code}${trade.description ? ` ${trade.description}` : ""}`.trim(),
+            sort_order: index + 1,
+          }));
+
+          if (editingProjectId) {
+            const updated = await updateBidProject(editingProjectId, {
+              project_name: draft.project_name.trim(),
+              owner: draft.owner.trim() || null,
+              location: draft.location.trim() || null,
+              budget: Number.isFinite(budgetValue) ? budgetValue : null,
+              due_date: draft.tbd_due_date ? null : draft.due_date.trim() || null,
+            });
+            if (!updated) {
+              setError("Unable to save bid package changes. Please try again.");
+              setSubmitting(false);
+              return;
+            }
+
+            const currentDetail = await getBidProjectDetail(editingProjectId);
+            const currentTrades = currentDetail?.trades ?? [];
+            const byTradeName = new Map(
+              currentTrades.map((trade) => [trade.trade_name.trim().toLowerCase(), trade])
+            );
+            const existingTradePayload = tradePayload
+              .map((trade) => {
+                const existing = byTradeName.get(trade.trade_name.trim().toLowerCase());
+                if (!existing) return null;
+                return {
+                  id: existing.id,
+                  trade_name: trade.trade_name,
+                  sort_order: trade.sort_order,
+                };
+              })
+              .filter((trade): trade is { id: string; trade_name: string; sort_order: number } => Boolean(trade));
+            const newTradePayload = tradePayload.filter(
+              (trade) => !byTradeName.has(trade.trade_name.trim().toLowerCase())
+            );
+
+            const updatedTrades = await updateBidTrades(editingProjectId, existingTradePayload);
+            const createdTrades = await createBidTrades(editingProjectId, newTradePayload);
+            if (!updatedTrades || !createdTrades) {
+              setError("Project details were saved, but trades could not be fully updated.");
+              setSubmitting(false);
+              return;
+            }
+
+            router.push(`/bidding?project=${editingProjectId}`);
+            router.refresh();
+            return;
+          }
+
           const created = await createBidProject({
             project_name: draft.project_name.trim(),
             owner: draft.owner.trim() || null,
@@ -550,6 +661,13 @@ export default function NewBidPackagePage() {
 
           if (!created) {
             setError("Unable to create bid package. Please try again.");
+            setSubmitting(false);
+            return;
+          }
+
+          const tradesCreated = await createBidTrades(created.id, tradePayload);
+          if (!tradesCreated) {
+            setError("Bid package was created, but selected trades could not be saved. Please add trades from Invites.");
             setSubmitting(false);
             return;
           }

@@ -1316,17 +1316,6 @@ export default function BiddingPage() {
                 </button>
               </>
             ) : null}
-            <button
-              type="button"
-              onClick={() => {
-                setFormError(null);
-                setModalOpen(true);
-              }}
-              className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800"
-            >
-              <span aria-hidden>＋</span>
-              New Bid Package
-            </button>
           </div>
         </div>
         <div className="px-6">
