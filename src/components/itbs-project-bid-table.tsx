@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { BidProjectDetail, BidTradeStatus } from "@/lib/bidding/types";
 import {
@@ -198,9 +198,6 @@ function getQuoteLineItemsTotal(items: QuoteLineItemDraft[]): number | null {
 }
 
 export default function ItbsProjectBidTable() {
-  const DEFAULT_VISIBLE_SUB_COLUMNS = 3;
-  const TRADE_COLUMN_WIDTH_PX = 260;
-  const SUB_COLUMN_WIDTH_PX = 220;
   const searchParams = useSearchParams();
   const queryProjectId = searchParams.get("project");
   const projectTradeProjectId = queryProjectId ?? "";
@@ -209,7 +206,6 @@ export default function ItbsProjectBidTable() {
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [resolvedBidProjectId, setResolvedBidProjectId] = useState<string | null>(null);
   const [hasResolvedLookup, setHasResolvedLookup] = useState(false);
-  const [visibleSubColumns, setVisibleSubColumns] = useState(DEFAULT_VISIBLE_SUB_COLUMNS);
   const [drawerState, setDrawerState] = useState<DrawerBidState | null>(null);
   const [statusDraft, setStatusDraft] = useState<BidTradeStatus>("invited");
   const [quoteLineItemsDraft, setQuoteLineItemsDraft] = useState<QuoteLineItemDraft[]>([
@@ -281,10 +277,6 @@ export default function ItbsProjectBidTable() {
       active = false;
     };
   }, [mappedBidProjectId, queryProjectId]);
-
-  useEffect(() => {
-    setVisibleSubColumns(DEFAULT_VISIBLE_SUB_COLUMNS);
-  }, [resolvedBidProjectId]);
 
   useEffect(() => {
     let active = true;
@@ -402,8 +394,6 @@ export default function ItbsProjectBidTable() {
       email: sub.subcontractor?.email ?? "",
       phone: sub.subcontractor?.phone ?? "",
     }));
-  const totalSubColumns = Math.max(DEFAULT_VISIBLE_SUB_COLUMNS, visibleSubColumns);
-  const hiddenSubColumns = Math.max(0, subs.length - totalSubColumns);
   const sortedTrades = [...detail.trades].sort((a, b) =>
     compareTradeNamesByCode(a.trade_name ?? "", b.trade_name ?? "")
   );
@@ -629,128 +619,80 @@ export default function ItbsProjectBidTable() {
     setProjectTrades((prev) => prev.map((row) => (row.id === optimisticId ? created : row)));
   };
 
-  return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <div className="border-b border-slate-200 px-6 py-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-2xl font-semibold text-slate-900">{detail.project.project_name}</h2>
-            <p className="mt-1 text-sm text-slate-600">Invitation and bid status by trade.</p>
-          </div>
-          <button
-            type="button"
-            onClick={openEditTradesModal}
-            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
-          >
-            Edit Trades
-          </button>
-        </div>
-      </div>
+  const invitedStatusCount = detail.tradeBids.filter((bid) => bid.status === "invited").length;
+  const viewedStatusCount = detail.tradeBids.filter((bid) => bid.status === "ghosted").length;
+  const biddingStatusCount = detail.tradeBids.filter((bid) => bid.status === "bidding").length;
+  const notInvitedTradesCount = sortedTrades.filter(
+    (trade) => (bidsByTrade.get(trade.id)?.size ?? 0) === 0
+  ).length;
 
-      {hiddenSubColumns > 0 || visibleSubColumns > DEFAULT_VISIBLE_SUB_COLUMNS ? (
-        <div className="border-b border-slate-200 bg-white px-4 py-2">
-          <div className="flex justify-end gap-2">
-            {visibleSubColumns > DEFAULT_VISIBLE_SUB_COLUMNS ? (
-              <button
-                type="button"
-                onClick={() => setVisibleSubColumns((prev) => Math.max(DEFAULT_VISIBLE_SUB_COLUMNS, prev - 1))}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-              >
-                Remove Sub Column
-              </button>
-            ) : null}
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="border-r border-slate-200">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+            <div className="flex flex-wrap items-center gap-2">
+              {[
+                { label: "All", value: sortedTrades.length, active: true },
+                { label: "Invited", value: invitedStatusCount },
+                { label: "Viewed", value: viewedStatusCount },
+                { label: "Bidding", value: biddingStatusCount },
+                { label: "Not invited", value: notInvitedTradesCount },
+              ].map((chip) => (
+                <button
+                  key={chip.label}
+                  type="button"
+                  className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
+                    chip.active
+                      ? "border-blue-700 bg-blue-700 text-white"
+                      : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  {chip.label}: {chip.value}
+                </button>
+              ))}
+            </div>
             <button
               type="button"
-              onClick={() => setVisibleSubColumns((prev) => prev + 1)}
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+              onClick={openEditTradesModal}
+              className="rounded-lg bg-orange-500 px-5 py-2 text-base font-semibold text-white hover:bg-orange-600"
             >
-              Add Sub Column
+              + Invite New Trade
             </button>
           </div>
-        </div>
-      ) : null}
 
-      <div className="overflow-x-auto">
-        <table
-          className="w-full table-fixed border-separate border-spacing-0"
-          style={{ minWidth: `${TRADE_COLUMN_WIDTH_PX + totalSubColumns * SUB_COLUMN_WIDTH_PX}px` }}
-        >
-          <colgroup>
-            <col style={{ width: `${TRADE_COLUMN_WIDTH_PX}px` }} />
-            {Array.from({ length: totalSubColumns }, (_, index) => (
-              <col key={`sub-col-${index + 1}`} style={{ width: `${SUB_COLUMN_WIDTH_PX}px` }} />
-            ))}
-          </colgroup>
-          <thead>
-            <tr>
-              <th className="sticky left-0 top-0 z-[2] border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-700">
-                Trade
-              </th>
-              {Array.from({ length: totalSubColumns }, (_, index) => (
-                <th
-                  key={`sub-header-${index + 1}`}
-                  className="sticky top-0 z-[1] border-b border-r border-slate-200 bg-slate-100 px-4 py-3 text-left text-sm font-semibold text-slate-700"
-                >
-                  Sub {index + 1}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
+          <div className="space-y-3 p-3">
             {sortedTrades.map((trade) => {
               const tradeMap = bidsByTrade.get(trade.id) ?? new Map<string, (typeof detail.tradeBids)[number]>();
-              const availableSubsForTrade = subs.filter((sub) => !tradeMap.has(sub.id));
-              const tradeSlots = subs
-                .map((sub, sourceIndex) => ({ sub, bid: tradeMap.get(sub.id) ?? null, sourceIndex }))
+              const assignedEntries = subs
+                .map((sub) => ({ sub, bid: tradeMap.get(sub.id) ?? null }))
                 .filter(
                   (
                     entry
                   ): entry is {
                     sub: (typeof subs)[number];
                     bid: (typeof detail.tradeBids)[number];
-                    sourceIndex: number;
                   } => Boolean(entry.bid)
-                )
-                .sort((a, b) => {
-                  const aSubmittedWithAmount = a.bid.status === "submitted" && a.bid.bid_amount !== null && a.bid.bid_amount !== undefined;
-                  const bSubmittedWithAmount = b.bid.status === "submitted" && b.bid.bid_amount !== null && b.bid.bid_amount !== undefined;
-                  if (aSubmittedWithAmount && bSubmittedWithAmount) {
-                    const aBidAmount = a.bid.bid_amount as number;
-                    const bBidAmount = b.bid.bid_amount as number;
-                    if (aBidAmount !== bBidAmount) return aBidAmount - bBidAmount;
-                    return a.sourceIndex - b.sourceIndex;
-                  }
-                  if (aSubmittedWithAmount) return -1;
-                  if (bSubmittedWithAmount) return 1;
-                  return a.sourceIndex - b.sourceIndex;
-                });
+                );
+              const availableSubsForTrade = subs.filter((sub) => !tradeMap.has(sub.id));
               const isExpanded = Boolean(expandedTrades[trade.id]);
               const panelId = `trade-panel-${trade.id}`;
+              const coveragePercent = subs.length ? Math.round((assignedEntries.length / subs.length) * 100) : 0;
               return (
-                <Fragment key={trade.id}>
-                  <tr
-                    className={`cursor-pointer ${isExpanded ? "bg-slate-50" : ""}`}
-                    tabIndex={0}
-                    role="button"
-                    aria-expanded={isExpanded}
-                    aria-controls={panelId}
-                    aria-label={`${isExpanded ? "Collapse" : "Expand"} ${trade.trade_name}`}
-                    onClick={() => toggleTradeExpanded(trade.id)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        toggleTradeExpanded(trade.id);
-                      }
-                    }}
-                  >
-                    <th
-                      className={`sticky left-0 z-[1] border-r border-slate-200 px-4 py-4 text-left text-sm font-semibold text-slate-900 ${
-                        isExpanded ? "rounded-tl-lg border-b-0 bg-slate-50" : "border-b bg-white"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className={`inline-flex text-slate-500 transition-transform duration-200 ${isExpanded ? "rotate-180" : "rotate-0"}`}>
-                          <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4" aria-hidden="true">
+                <article key={trade.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+                  <div className="flex w-full items-center justify-between gap-3 bg-slate-50 px-4 py-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      <button
+                        type="button"
+                        className="flex min-w-0 items-center gap-3 text-left"
+                        aria-expanded={isExpanded}
+                        aria-controls={panelId}
+                        onClick={() => toggleTradeExpanded(trade.id)}
+                      >
+                        <span
+                          className={`inline-flex text-slate-500 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                        >
+                          <svg viewBox="0 0 20 20" fill="currentColor" className="size-4" aria-hidden="true">
                             <path
                               fillRule="evenodd"
                               d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.939a.75.75 0 111.08 1.04l-4.25 4.512a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z"
@@ -758,168 +700,159 @@ export default function ItbsProjectBidTable() {
                             />
                           </svg>
                         </span>
-                        <span>{trade.trade_name}</span>
-                      </div>
-                    </th>
-                    {Array.from({ length: totalSubColumns }, (_, columnIndex) => {
-                      const entry = tradeSlots[columnIndex] ?? null;
-                      if (!entry) {
+                        <div className="min-w-0">
+                          <div className="truncate text-xl font-semibold text-slate-900">{trade.trade_name}</div>
+                          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                            <span className="rounded-md bg-slate-100 px-2 py-0.5">{assignedEntries.length} invite subs</span>
+                            <span>Coverage: {coveragePercent}%</span>
+                          </div>
+                        </div>
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
                         const fallbackSub = availableSubsForTrade[0] ?? null;
-                        return (
-                          <td
-                            key={`${trade.id}-sub-slot-${columnIndex + 1}`}
-                            className={`border-r border-slate-200 px-4 py-4 align-top ${
-                              isExpanded ? "border-b-0 bg-slate-50" : "border-b"
-                            } ${columnIndex === totalSubColumns - 1 && isExpanded ? "rounded-tr-lg" : ""}`}
-                          >
-                            {fallbackSub ? (
+                        openDrawer({
+                          tradeId: trade.id,
+                          tradeName: trade.trade_name ?? "Trade",
+                          projectSubId: "",
+                          subCompany: "",
+                          subContact: "",
+                          bid: null,
+                          initializeEmpty: Boolean(fallbackSub),
+                        });
+                      }}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      {assignedEntries.length ? "Invite More" : "Invite Subcontractors"}
+                    </button>
+                  </div>
+
+                  <div
+                    id={panelId}
+                    className={`transition-all duration-300 ${isExpanded ? "max-h-[1200px] opacity-100" : "max-h-0 opacity-0"}`}
+                    aria-hidden={!isExpanded}
+                  >
+                    <div className="border-t border-slate-200">
+                      {assignedEntries.length ? (
+                        assignedEntries.map(({ sub, bid }) => (
+                          <div key={`${trade.id}-${sub.id}`} className="grid gap-3 border-t border-slate-100 px-4 py-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto]">
+                            <div className="min-w-0">
+                              <div className="truncate text-lg font-semibold text-slate-900">{sub.company}</div>
+                              <div className="mt-1 flex items-center gap-2 text-sm text-slate-500">
+                                <StatusPill status={bid.status} />
+                                <span>{sub.invitedAt ? formatDateTime(sub.invitedAt) : "Not invited yet"}</span>
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Contact</div>
+                              <div className="mt-1 text-sm text-slate-700">{bid.contact_name ?? sub.contact}</div>
+                              <div className="mt-2 text-sm text-slate-600">
+                                {bid.bid_amount !== null && bid.bid_amount !== undefined
+                                  ? `Bid amount: ${formatCurrency(bid.bid_amount)}`
+                                  : "Bid amount: Not submitted"}
+                              </div>
+                              <div className="mt-1 text-sm text-slate-500">{bid.notes || "No notes"}</div>
+                            </div>
+                            <div className="flex items-start">
                               <button
                                 type="button"
-                                onClick={(event) => {
-                                  event.stopPropagation();
+                                onClick={() =>
                                   openDrawer({
                                     tradeId: trade.id,
-                                    tradeName: trade.trade_name ?? "Trade",
-                                    projectSubId: "",
-                                    subCompany: "",
-                                    subContact: "",
-                                    bid: null,
-                                    initializeEmpty: true,
-                                  });
-                                }}
-                                className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
+                                    tradeName: trade.trade_name,
+                                    projectSubId: sub.id,
+                                    subCompany: sub.company,
+                                    subContact: sub.contact,
+                                    bid,
+                                  })
+                                }
+                                className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                               >
-                                Add sub
+                                Follow-up
                               </button>
-                            ) : (
-                              <span className="text-sm text-slate-400">No sub assigned</span>
-                            )}
-                          </td>
-                        );
-                      }
-                      const { sub, bid } = entry;
-                      return (
-                        <td
-                          key={`${trade.id}-${sub.id}`}
-                          className={`border-r border-slate-200 px-4 py-4 align-top ${
-                            isExpanded ? "border-b-0 bg-slate-50" : "border-b"
-                          } ${columnIndex === totalSubColumns - 1 && isExpanded ? "rounded-tr-lg" : ""}`}
-                        >
-                          <div className="space-y-2">
-                            <p className="text-sm font-semibold text-slate-900">{sub.company}</p>
-                            <div className="flex items-center gap-2">
-                              <StatusPill status={bid.status} />
-                              {bid.status === "submitted" && bid.bid_amount !== null && bid.bid_amount !== undefined ? (
-                                <span className="text-xs font-semibold text-slate-700">{formatCurrency(bid.bid_amount)}</span>
-                              ) : null}
                             </div>
                           </div>
-                        </td>
-                      );
-                    })}
-                  </tr>
-                  <tr>
-                    <td colSpan={totalSubColumns + 1} className={`border-b border-slate-200 ${isExpanded ? "pb-3 pt-0" : "py-0"}`}>
-                      <div
-                        id={panelId}
-                        aria-hidden={!isExpanded}
-                        className={`overflow-hidden transition-all duration-300 ease-out ${isExpanded ? "visible max-h-[760px] opacity-100" : "invisible max-h-0 opacity-0"}`}
-                      >
-                        <div className="rounded-b-lg border border-t-0 border-slate-200 bg-white">
-                          <table className="w-full table-fixed border-separate border-spacing-0">
-                            <colgroup>
-                              <col style={{ width: `${TRADE_COLUMN_WIDTH_PX}px` }} />
-                              {Array.from({ length: totalSubColumns }, (_, index) => (
-                                <col key={`detail-sub-col-${trade.id}-${index + 1}`} style={{ width: `${SUB_COLUMN_WIDTH_PX}px` }} />
-                              ))}
-                            </colgroup>
-                            <tbody>
-                              <tr>
-                                <td className="border-r border-slate-200 p-4 align-top">
-                                  <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Trade</p>
-                                  <p className="mt-1 text-sm font-semibold text-slate-900">{trade.trade_name}</p>
-                                  <p className="mt-2 text-xs text-slate-500">Expanded details per subcontractor.</p>
-                                </td>
-                                {Array.from({ length: totalSubColumns }, (_, columnIndex) => {
-                                  const entry = tradeSlots[columnIndex] ?? null;
-                                  if (!entry) {
-                                    const fallbackSub = availableSubsForTrade[0] ?? null;
-                                    return (
-                                      <td
-                                        key={`${trade.id}-detail-empty-${columnIndex + 1}`}
-                                        className={`p-4 align-top ${columnIndex < totalSubColumns - 1 ? "border-r border-slate-200" : ""}`}
-                                      >
-                                        {fallbackSub ? (
-                                          <button
-                                            type="button"
-                                            onClick={() =>
-                                              openDrawer({
-                                                tradeId: trade.id,
-                                                tradeName: trade.trade_name ?? "Trade",
-                                                projectSubId: "",
-                                                subCompany: "",
-                                                subContact: "",
-                                                bid: null,
-                                                initializeEmpty: true,
-                                              })
-                                            }
-                                            className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                                          >
-                                            Add sub
-                                          </button>
-                                        ) : (
-                                          <p className="text-sm text-slate-400">No sub assigned</p>
-                                        )}
-                                      </td>
-                                    );
-                                  }
-                                  const { sub, bid } = entry;
-                                  return (
-                                    <td
-                                      key={`${trade.id}-detail-${sub.id}`}
-                                      className={`p-4 align-top ${columnIndex < totalSubColumns - 1 ? "border-r border-slate-200" : ""}`}
-                                    >
-                                      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Contact</p>
-                                      <p className="mt-1 text-xs text-slate-500">{bid.contact_name ?? sub.contact}</p>
-                                      {bid.bid_amount !== null && bid.bid_amount !== undefined ? (
-                                        <p className="mt-2 text-sm font-semibold text-slate-900">{formatCurrency(bid.bid_amount)}</p>
-                                      ) : (
-                                        <p className="mt-2 text-xs text-slate-500">Bid amount: Not submitted</p>
-                                      )}
-                                      {bid.notes ? <p className="mt-2 text-xs text-slate-500">{bid.notes}</p> : <p className="mt-2 text-xs text-slate-500">No notes</p>}
-                                      <div className="mt-3">
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            openDrawer({
-                                              tradeId: trade.id,
-                                              tradeName: trade.trade_name,
-                                              projectSubId: sub.id,
-                                              subCompany: sub.company,
-                                              subContact: sub.contact,
-                                              bid,
-                                            })
-                                          }
-                                          className="inline-flex items-center rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50"
-                                        >
-                                          Follow-up / Actions
-                                        </button>
-                                      </div>
-                                    </td>
-                                  );
-                                })}
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
+                        ))
+                      ) : (
+                        <div className="px-4 py-4 text-sm text-slate-500">No subcontractors invited for this trade yet.</div>
+                      )}
+                      <div className="border-t border-slate-200 px-4 py-3">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            openDrawer({
+                              tradeId: trade.id,
+                              tradeName: trade.trade_name ?? "Trade",
+                              projectSubId: "",
+                              subCompany: "",
+                              subContact: "",
+                              bid: null,
+                              initializeEmpty: true,
+                            })
+                          }
+                          className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          + Invite Subcontractor
+                        </button>
                       </div>
-                    </td>
-                  </tr>
-                </Fragment>
+                    </div>
+                  </div>
+                </article>
               );
             })}
-          </tbody>
-        </table>
+          </div>
+        </div>
+
+        <aside className="bg-white">
+          <div className="border-b border-slate-200 px-4 py-3">
+            <div className="text-2xl font-semibold text-slate-900">Activity</div>
+          </div>
+          <div className="space-y-4 px-4 py-3">
+            {detail.tradeBids.slice(0, 6).map((bid) => {
+              const tradeName = detail.trades.find((trade) => trade.id === bid.trade_id)?.trade_name ?? "Trade";
+              const subName =
+                detail.projectSubs.find((sub) => sub.id === bid.project_sub_id)?.subcontractor?.company_name ??
+                "Subcontractor";
+              return (
+                <div key={`activity-${bid.id}`} className="border-b border-slate-100 pb-3 last:border-b-0">
+                  <div className="text-sm font-semibold text-slate-800">{subName}</div>
+                  <div className="mt-0.5 text-xs text-slate-500">
+                    {tradeName} · {bid.status}
+                  </div>
+                </div>
+              );
+            })}
+            {!detail.tradeBids.length ? <div className="text-sm text-slate-500">No activity yet.</div> : null}
+          </div>
+          <div className="border-t border-slate-200 px-4 py-4">
+            <div className="text-2xl font-semibold text-slate-900">Addenda</div>
+            <p className="mt-2 text-sm text-slate-500">No addenda have been posted yet.</p>
+            <button
+              type="button"
+              className="mt-3 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Upload Addendum
+            </button>
+          </div>
+        </aside>
+      </div>
+
+      <div className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
+        <button
+          type="button"
+          className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          Selected: {selectedProjectSubId ? 1 : 0} subs
+        </button>
+        <button
+          type="button"
+          className="rounded-lg bg-orange-500 px-8 py-2 text-base font-semibold text-white hover:bg-orange-600"
+        >
+          Send Invitations
+        </button>
       </div>
       <EditTradesModal
         open={editTradesModalOpen}
