@@ -9,6 +9,7 @@ const VIEWS = [
   { label: "Bidding", href: "/bidding/all" },
   { label: "Invites", href: "/bidding/itbs" },
   { label: "Leveling", href: "/bidding/bid-leveling" },
+  { label: "Estimate", href: "/bidding/estimate" },
   { label: "Tasks", href: "/bidding/tasks" },
 ];
 

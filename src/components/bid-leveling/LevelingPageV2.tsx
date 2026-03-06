@@ -45,21 +45,40 @@ type BidColumn = {
   subName: string;
 };
 
-const LEVELING_ROWS = [
-  { key: "base", label: "Base Bid" },
-  { key: "status", label: "Status" },
-  { key: "received", label: "Received" },
-  { key: "notes", label: "Comments" },
+const SCOPE_ROWS = [
+  { code: "03-100", label: "Concrete Reinforcement", weight: 0.14 },
+  { code: "03-210", label: "Cast-In-Place Concrete", weight: 0.35 },
+  { code: "03-300", label: "Footings", weight: 0.1 },
+  { code: "03-320", label: "Slab Foundations", weight: 0.18 },
+  { code: "03-330", label: "Poured Concrete Basement Walls", weight: 0.08 },
+  { code: "03-220", label: "Precast Concrete", weight: 0.15 },
+] as const;
+
+const ADDITIONAL_INFO_ROWS = [
   { key: "inclusions", label: "Inclusions" },
   { key: "exclusions", label: "Exclusions" },
-];
+  { key: "comments", label: "Comments" },
+  { key: "attachments", label: "Attachments" },
+] as const;
 
-export default function LevelingPageV2() {
+function weightedLineAmount(base: number | null, weight: number): string {
+  if (base === null || !Number.isFinite(base)) return "--";
+  return formatCurrency(Math.round(base * weight));
+}
+
+export default function LevelingPageV2({
+  hideCreateBidForm = false,
+  leftNavItems,
+}: {
+  hideCreateBidForm?: boolean;
+  leftNavItems?: string[];
+}) {
   const searchParams = useSearchParams();
   const queryProjectId = searchParams.get("project");
   const [data, setData] = useState<BidLevelingProjectData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
+  const [selectedLeftNavItem, setSelectedLeftNavItem] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -92,6 +111,14 @@ export default function LevelingPageV2() {
       active = false;
     };
   }, [queryProjectId]);
+
+  useEffect(() => {
+    if (!leftNavItems?.length) {
+      setSelectedLeftNavItem(null);
+      return;
+    }
+    setSelectedLeftNavItem((prev) => (prev && leftNavItems.includes(prev) ? prev : leftNavItems[0]));
+  }, [leftNavItems]);
 
   const selectedTrade = useMemo(
     () => data?.trades.find((trade) => trade.id === selectedTradeId) ?? null,
@@ -147,29 +174,46 @@ export default function LevelingPageV2() {
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="grid min-h-[720px] grid-cols-[240px_minmax(0,1fr)]">
         <aside className="border-r border-slate-200 bg-slate-50">
-          <div className="border-b border-slate-200 px-4 py-3">
-            <button
-              type="button"
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100"
-            >
-              + Create Bid Form
-            </button>
-          </div>
-          <nav className="space-y-1 p-2">
-            {data.trades.map((trade) => (
+          {!hideCreateBidForm ? (
+            <div className="border-b border-slate-200 px-4 py-3">
               <button
-                key={trade.id}
                 type="button"
-                onClick={() => setSelectedTradeId(trade.id)}
-                className={`w-full rounded-md px-3 py-2 text-left text-sm ${
-                  trade.id === selectedTradeId
-                    ? "border-l-4 border-blue-600 bg-white font-semibold text-blue-700"
-                    : "text-slate-700 hover:bg-white"
-                }`}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100"
               >
-                {trade.trade_name}
+                + Create Bid Form
               </button>
-            ))}
+            </div>
+          ) : null}
+          <nav className="space-y-1 p-2">
+            {leftNavItems?.length
+              ? leftNavItems.map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => setSelectedLeftNavItem(item)}
+                    className={`w-full rounded-md px-3 py-2 text-left text-sm ${
+                      selectedLeftNavItem === item
+                        ? "border-l-4 border-blue-600 bg-white font-semibold text-blue-700"
+                        : "text-slate-700 hover:bg-white"
+                    }`}
+                  >
+                    {item}
+                  </button>
+                ))
+              : data.trades.map((trade) => (
+                  <button
+                    key={trade.id}
+                    type="button"
+                    onClick={() => setSelectedTradeId(trade.id)}
+                    className={`w-full rounded-md px-3 py-2 text-left text-sm ${
+                      trade.id === selectedTradeId
+                        ? "border-l-4 border-blue-600 bg-white font-semibold text-blue-700"
+                        : "text-slate-700 hover:bg-white"
+                    }`}
+                  >
+                    {trade.trade_name}
+                  </button>
+                ))}
           </nav>
         </aside>
 
@@ -200,19 +244,40 @@ export default function LevelingPageV2() {
                 </tr>
               </thead>
               <tbody>
-                {LEVELING_ROWS.map((row) => (
+                {SCOPE_ROWS.map((row) => (
+                  <tr key={row.code}>
+                    <td className="border-b border-r border-slate-200 px-4 py-2.5 text-base font-medium text-slate-700">
+                      <div>{row.label}</div>
+                      <div className="text-sm text-slate-500">{row.code}</div>
+                    </td>
+                    {bidColumns.map((col) => (
+                      <td key={`${row.code}-${col.bid.id}`} className="border-b border-r border-slate-200 px-4 py-2.5 text-right text-base text-slate-700 last:border-r-0">
+                        {weightedLineAmount(col.bid.base_bid_amount, row.weight)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+
+                <tr>
+                  <td className="border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-lg font-semibold text-slate-900">
+                    Additional Bid Information
+                  </td>
+                  {bidColumns.map((col) => (
+                    <td key={`additional-head-${col.bid.id}`} className="border-b border-r border-slate-200 bg-slate-50 px-4 py-3 last:border-r-0" />
+                  ))}
+                </tr>
+
+                {ADDITIONAL_INFO_ROWS.map((row) => (
                   <tr key={row.key}>
                     <td className="border-b border-r border-slate-200 px-4 py-3 text-base font-medium text-slate-700">
                       {row.label}
                     </td>
                     {bidColumns.map((col) => (
                       <td key={`${row.key}-${col.bid.id}`} className="border-b border-r border-slate-200 px-4 py-3 text-base text-slate-700 last:border-r-0">
-                        {row.key === "base" ? formatCurrency(col.bid.base_bid_amount) : null}
-                        {row.key === "status" ? col.bid.status : null}
-                        {row.key === "received" ? formatDateTime(col.bid.received_at) : null}
-                        {row.key === "notes" ? col.bid.notes || "--" : null}
-                        {row.key === "inclusions" ? "--" : null}
-                        {row.key === "exclusions" ? "--" : null}
+                        {row.key === "comments" ? col.bid.notes || "--" : null}
+                        {row.key === "inclusions" ? "Labor, material, and equipment per plans/specs." : null}
+                        {row.key === "exclusions" ? "Overtime and out-of-sequence work excluded." : null}
+                        {row.key === "attachments" ? "Download" : null}
                       </td>
                     ))}
                   </tr>
