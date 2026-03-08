@@ -1,6 +1,14 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent as ReactFormEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 
 const NAV_ITEMS = [
   "Data, Factors & Rates",
@@ -56,6 +64,7 @@ type WorksheetLineItem = {
   unit: string;
   quantity: string;
   unitPrice: string;
+  comments: string;
 };
 type WorksheetCostCodeGroup = {
   id: string;
@@ -761,8 +770,8 @@ const WORKSHEET_UNIT_OPTIONS = [
   "mo",
 ] as const;
 
-const PRELIM_COLUMN_MIN_WIDTHS = [90, 240, 64, 72, 80, 90, 90] as const;
-const PRELIM_DEFAULT_COLUMN_WIDTHS = [120, 560, 72, 84, 96, 132, 140] as const;
+const PRELIM_COLUMN_MIN_WIDTHS = [90, 240, 64, 72, 80, 90, 140] as const;
+const PRELIM_DEFAULT_COLUMN_WIDTHS = [120, 560, 72, 84, 96, 132, 200] as const;
 
 const createWorksheetLineItem = (seed: string): WorksheetLineItem => ({
   id: `${seed}-${typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Date.now().toString(36)}`,
@@ -770,7 +779,13 @@ const createWorksheetLineItem = (seed: string): WorksheetLineItem => ({
   unit: "ls",
   quantity: "",
   unitPrice: "",
+  comments: "",
 });
+
+const parsePercentValue = (value: string) => {
+  const parsed = Number.parseFloat(value.replace("%", "").trim());
+  return Number.isFinite(parsed) ? parsed : null;
+};
 
 export default function EstimateWorkspaceV2() {
   const [selectedItem, setSelectedItem] = useState<string>(NAV_ITEMS[0]);
@@ -857,6 +872,7 @@ export default function EstimateWorkspaceV2() {
               unit: "ls",
               quantity: "",
               unitPrice: "",
+              comments: "",
             },
           ],
         }));
@@ -941,6 +957,11 @@ export default function EstimateWorkspaceV2() {
       startX: event.clientX,
       startWidth: prelimColumnWidths[columnIndex] ?? PRELIM_DEFAULT_COLUMN_WIDTHS[columnIndex],
     };
+  };
+  const autoResizeWorksheetTextarea = (event: ReactFormEvent<HTMLTextAreaElement>) => {
+    const element = event.currentTarget;
+    element.style.height = "0px";
+    element.style.height = `${Math.max(32, element.scrollHeight)}px`;
   };
   const toggleWorksheetCostCodeExpanded = (costCodeId: string) => {
     setExpandedWorksheetCostCodeIds((prev) => ({ ...prev, [costCodeId]: !prev[costCodeId] }));
@@ -1129,6 +1150,55 @@ export default function EstimateWorkspaceV2() {
         return a.divisionTitle.localeCompare(b.divisionTitle, undefined, { numeric: true });
       });
   }, [worksheetCostCodeGroups, generalConditionsTotal]);
+  const preliminarySubtotal = useMemo(
+    () => worksheetDivisionGroups.reduce((sum, group) => sum + group.subtotal, 0),
+    [worksheetDivisionGroups]
+  );
+  const preliminaryMarkupRows = useMemo(() => {
+    const lookup = feeRows.reduce<Record<string, string>>((acc, row) => {
+      acc[row.factorName.toLowerCase()] = row.value;
+      return acc;
+    }, {});
+    const getAmountFromPercent = (factorName: string) => {
+      const raw = lookup[factorName.toLowerCase()];
+      if (!raw) return null;
+      const percent = parsePercentValue(raw);
+      if (percent === null) return null;
+      const amount = (preliminarySubtotal * percent) / 100;
+      return Number.isFinite(amount) && amount > 0 ? amount : null;
+    };
+
+    return [
+      {
+        costCode: "90 01 00",
+        label: "GENERAL LIABILITY INSURANCE",
+        amount: getAmountFromPercent("General Liability Insurance"),
+      },
+      {
+        costCode: "90 02 00",
+        label: "BUILDERS RISK INSURANCE",
+        amount: getAmountFromPercent("Builder's Risk Insurance"),
+      },
+      { costCode: "90 03 00", label: "OVERHEAD", amount: getAmountFromPercent("Overhead") },
+      { costCode: "90 04 00", label: "PROFIT", amount: getAmountFromPercent("Profit") },
+      {
+        costCode: "90 05 00",
+        label: "PERFORMANCE BOND",
+        amount: getAmountFromPercent("Performance Bond"),
+      },
+      { costCode: "90 06 00", label: "CONTINGENCY", amount: getAmountFromPercent("Contingency") },
+      { costCode: "90 07 00", label: "TAX", amount: null },
+    ];
+  }, [feeRows, preliminarySubtotal]);
+  const preliminaryMarkupTotal = useMemo(
+    () =>
+      preliminaryMarkupRows.reduce(
+        (sum, row) => sum + (row.amount !== null && Number.isFinite(row.amount) ? row.amount : 0),
+        0
+      ),
+    [preliminaryMarkupRows]
+  );
+  const preliminaryGrandTotal = preliminarySubtotal + preliminaryMarkupTotal;
 
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -1854,7 +1924,7 @@ export default function EstimateWorkspaceV2() {
                         />
                       </th>
                       <th className="relative border-b border-slate-400 px-2 py-2 text-center font-semibold">
-                        TOTAL
+                        COMMENTS
                         <span
                           onMouseDown={(event) => beginPrelimColumnResize(6, event)}
                           className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
@@ -1955,9 +2025,7 @@ export default function EstimateWorkspaceV2() {
                                 <td className="border-b border-slate-300 px-2 py-2 text-right text-sm font-semibold text-slate-700">
                                   ${formatCurrency(costCodeGroup.total)}
                                 </td>
-                                <td className="border-b border-slate-300 px-2 py-2 text-right text-sm font-semibold text-slate-700">
-                                  ${formatCurrency(costCodeGroup.total)}
-                                </td>
+                                <td className="border-b border-slate-300 p-0"></td>
                               </tr>
                               {!costCodeGroup.readOnlyRollup &&
                               expandedWorksheetCostCodeIds[costCodeGroup.id]
@@ -1972,8 +2040,8 @@ export default function EstimateWorkspaceV2() {
                                             {costCodeGroup.code}
                                           </div>
                                         </td>
-                                        <td className="border-b border-r border-slate-300 p-0">
-                                          <input
+                                        <td className="border-b border-r border-slate-300 p-0 align-top">
+                                          <textarea
                                             value={lineItem.description}
                                             onChange={(event) =>
                                               updateWorksheetLineItemCell(
@@ -1983,10 +2051,12 @@ export default function EstimateWorkspaceV2() {
                                                 event.target.value
                                               )
                                             }
-                                            className="h-8 w-full border-0 bg-transparent px-6 text-sm font-semibold text-slate-700 focus:bg-white focus:outline-none"
+                                            onInput={autoResizeWorksheetTextarea}
+                                            rows={1}
+                                            className="min-h-8 w-full resize-none border-0 bg-transparent px-6 py-1 text-sm font-semibold leading-5 text-slate-700 focus:bg-white focus:outline-none"
                                           />
                                         </td>
-                                        <td className="border-b border-r border-slate-300 bg-[#efdfd4] p-0">
+                                        <td className="border-b border-r border-slate-300 bg-[#efdfd4] p-0 align-top">
                                           <select
                                             value={lineItem.unit}
                                             onChange={(event) =>
@@ -2006,7 +2076,7 @@ export default function EstimateWorkspaceV2() {
                                             ))}
                                           </select>
                                         </td>
-                                        <td className="border-b border-r border-slate-300 bg-[#efdfd4] p-0">
+                                        <td className="border-b border-r border-slate-300 bg-[#efdfd4] p-0 align-top">
                                           <div className="flex h-8 items-center">
                                             <button
                                               type="button"
@@ -2048,7 +2118,7 @@ export default function EstimateWorkspaceV2() {
                                             </button>
                                           </div>
                                         </td>
-                                        <td className="border-b border-r border-slate-300 p-0">
+                                        <td className="border-b border-r border-slate-300 p-0 align-top">
                                           <div className="flex h-8 items-center gap-1 px-1 text-sm">
                                             <span className="w-2 text-slate-700">$</span>
                                             <input
@@ -2138,11 +2208,24 @@ export default function EstimateWorkspaceV2() {
                                             />
                                           </div>
                                         </td>
-                                        <td className="border-b border-r border-slate-300 px-1 py-0 text-right text-sm text-slate-700">
+                                        <td className="border-b border-r border-slate-300 px-1 py-0 align-top text-right text-sm text-slate-700">
                                           ${formatCurrency(lineTotal)}
                                         </td>
-                                        <td className="border-b border-slate-300 px-1 py-0 text-right text-sm text-slate-700">
-                                          ${formatCurrency(lineTotal)}
+                                        <td className="border-b border-slate-300 p-0 align-top">
+                                          <textarea
+                                            value={lineItem.comments ?? ""}
+                                            onChange={(event) =>
+                                              updateWorksheetLineItemCell(
+                                                costCodeGroup.id,
+                                                lineItem.id,
+                                                "comments",
+                                                event.target.value
+                                              )
+                                            }
+                                            onInput={autoResizeWorksheetTextarea}
+                                            rows={1}
+                                            className="min-h-8 w-full resize-none border-0 bg-transparent px-2 py-1 text-sm leading-5 text-slate-700 focus:bg-white focus:outline-none"
+                                          />
                                         </td>
                                       </tr>
                                     );
@@ -2164,7 +2247,7 @@ export default function EstimateWorkspaceV2() {
                                   <td className="border-b border-r border-t border-dashed border-slate-300 bg-[#f4ebe5] p-0"></td>
                                   <td className="border-b border-r border-t border-dashed border-slate-300 bg-[#f4ebe5] p-0"></td>
                                   <td className="border-b border-r border-t border-dashed border-slate-300 p-0"></td>
-                                  <td className="border-b border-r border-t border-dashed border-slate-300 p-0"></td>
+                                  <td className="border-b border-t border-dashed border-slate-300 p-0"></td>
                                   <td className="border-b border-t border-dashed border-slate-300 p-0"></td>
                                 </tr>
                               ) : null}
@@ -2179,13 +2262,50 @@ export default function EstimateWorkspaceV2() {
                               <td className="border-b border-r border-slate-400 px-2 py-2 text-right text-sm font-semibold text-slate-700">
                                 ${formatCurrency(group.subtotal)}
                               </td>
-                              <td className="border-b border-slate-400 px-2 py-2 text-right text-sm font-semibold text-slate-700">
-                                ${formatCurrency(group.subtotal)}
-                              </td>
+                              <td className="border-b border-slate-400 p-0"></td>
                             </tr>
                           ) : null}
                         </Fragment>
                       ))}
+                    {!worksheetLoading && !worksheetError && worksheetDivisionGroups.length > 0 ? (
+                      <>
+                        <tr className="bg-[#e8792e]">
+                          <td colSpan={5} className="border-b border-[#c96420] px-2 py-2 text-right text-sm font-semibold text-white">
+                            SUBTOTAL
+                          </td>
+                          <td className="border-b border-r border-[#c96420] px-2 py-2 text-right text-sm font-semibold text-white">
+                            ${formatCurrency(preliminarySubtotal)}
+                          </td>
+                          <td className="border-b border-[#c96420] p-0"></td>
+                        </tr>
+                        <tr className="bg-[#c8c8c8]">
+                          <td colSpan={7} className="h-5 border-b border-slate-300"></td>
+                        </tr>
+                        {preliminaryMarkupRows.map((markupRow) => (
+                          <tr key={markupRow.label} className="bg-[#c8c8c8]">
+                            <td className="px-2 py-1 text-left text-xs font-medium text-slate-700">
+                              {markupRow.costCode}
+                            </td>
+                            <td colSpan={4} className="px-2 py-1 text-right text-sm font-medium text-slate-900">
+                              {markupRow.label}
+                            </td>
+                            <td className="px-2 py-1 text-right text-sm font-medium text-slate-900">
+                              {markupRow.amount === null ? "-" : `$${formatCurrency(markupRow.amount)}`}
+                            </td>
+                            <td className="p-0"></td>
+                          </tr>
+                        ))}
+                        <tr className="bg-[#e8792e]">
+                          <td colSpan={5} className="border-t border-[#c96420] px-2 py-2 text-right text-sm font-semibold text-white">
+                            TOTAL
+                          </td>
+                          <td className="border-r border-t border-[#c96420] px-2 py-2 text-right text-sm font-semibold text-white">
+                            ${formatCurrency(preliminaryGrandTotal)}
+                          </td>
+                          <td className="border-t border-[#c96420] p-0"></td>
+                        </tr>
+                      </>
+                    ) : null}
                   </tbody>
                 </table>
               </div>
