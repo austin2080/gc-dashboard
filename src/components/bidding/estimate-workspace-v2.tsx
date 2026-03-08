@@ -734,6 +734,9 @@ export default function EstimateWorkspaceV2() {
   const [worksheetCostCodeGroups, setWorksheetCostCodeGroups] = useState<WorksheetCostCodeGroup[]>(
     []
   );
+  const [expandedWorksheetDivisionKeys, setExpandedWorksheetDivisionKeys] = useState<
+    Record<string, boolean>
+  >({});
   const [expandedWorksheetCostCodeIds, setExpandedWorksheetCostCodeIds] = useState<
     Record<string, boolean>
   >({});
@@ -783,6 +786,15 @@ export default function EstimateWorkspaceV2() {
 
         if (isMounted) {
           setWorksheetCostCodeGroups(groupsFromCodes);
+          setExpandedWorksheetDivisionKeys(
+            groupsFromCodes.reduce<Record<string, boolean>>((acc, group) => {
+              const divisionKey = group.division?.trim() || "Other";
+              if (acc[divisionKey] === undefined) {
+                acc[divisionKey] = true;
+              }
+              return acc;
+            }, {})
+          );
           setExpandedWorksheetCostCodeIds(
             groupsFromCodes.reduce<Record<string, boolean>>((acc, group) => {
               acc[group.id] = true;
@@ -822,6 +834,12 @@ export default function EstimateWorkspaceV2() {
   };
   const toggleWorksheetCostCodeExpanded = (costCodeId: string) => {
     setExpandedWorksheetCostCodeIds((prev) => ({ ...prev, [costCodeId]: !prev[costCodeId] }));
+  };
+  const toggleWorksheetDivisionExpanded = (divisionKey: string) => {
+    setExpandedWorksheetDivisionKeys((prev) => ({
+      ...prev,
+      [divisionKey]: !(prev[divisionKey] ?? true),
+    }));
   };
   const updateWorksheetCostCodeTitle = (costCodeId: string, value: string) => {
     setWorksheetCostCodeGroups((prev) =>
@@ -922,6 +940,14 @@ export default function EstimateWorkspaceV2() {
         const sortedGroups = [...costCodeGroups].sort((a, b) =>
           a.code.localeCompare(b.code, undefined, { numeric: true })
         );
+        const firstCostCode = sortedGroups[0]?.code ?? "";
+        const codeMatch = firstCostCode.match(/^(\d{2})/);
+        const divisionCode = codeMatch?.[1] ?? "";
+        const trimmedDivision = division.trim();
+        const divisionTitle =
+          divisionCode && trimmedDivision.startsWith(divisionCode)
+            ? trimmedDivision.slice(divisionCode.length).trim() || trimmedDivision
+            : trimmedDivision;
         const groupsWithTotals = sortedGroups.map((group) => {
           const total = group.lineItems.reduce((sum, line) => {
             const quantity = parseNumericInput(line.quantity);
@@ -931,7 +957,13 @@ export default function EstimateWorkspaceV2() {
           return { ...group, total };
         });
         const subtotal = groupsWithTotals.reduce((sum, group) => sum + group.total, 0);
-        return { division, costCodeGroups: groupsWithTotals, subtotal };
+        return {
+          division,
+          divisionCode,
+          divisionTitle,
+          costCodeGroups: groupsWithTotals,
+          subtotal,
+        };
       });
   }, [worksheetCostCodeGroups]);
 
@@ -1602,8 +1634,8 @@ export default function EstimateWorkspaceV2() {
             </div>
           ) : preliminaryWorksheetView ? (
             <div className="p-3">
-              <div className="overflow-x-auto rounded-lg border border-slate-400 bg-[#d8d8d8]">
-                <table className="w-full min-w-[1280px] border-separate border-spacing-0 text-slate-900">
+              <div className="overflow-x-auto rounded-lg border border-slate-300 bg-white">
+                <table className="w-full min-w-[1280px] border-separate border-spacing-0 text-sm text-slate-800">
                   <colgroup>
                     <col className="w-[9%]" />
                     <col className="w-[38%]" />
@@ -1613,34 +1645,34 @@ export default function EstimateWorkspaceV2() {
                     <col className="w-[12%]" />
                     <col className="w-[13%]" />
                   </colgroup>
-                  <thead className="bg-[#cfcfcf]">
+                  <thead className="bg-slate-100 text-slate-800">
                     <tr>
-                      <th className="border-b-2 border-r border-slate-500 px-3 py-3 text-left text-3xl font-black uppercase tracking-tight">
+                      <th className="border-b border-r border-slate-400 px-2 py-2 text-left font-semibold">
                         COST CODE
                       </th>
-                      <th className="border-b-2 border-r border-slate-500 px-3 py-3 text-left text-3xl font-black uppercase tracking-tight">
+                      <th className="border-b border-r border-slate-400 px-2 py-2 text-left font-semibold">
                         DESCRIPTION
                       </th>
-                      <th className="border-b-2 border-r border-slate-500 px-3 py-3 text-center text-3xl font-black uppercase tracking-tight">
+                      <th className="border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
                         UNIT
                       </th>
-                      <th className="border-b-2 border-r border-slate-500 px-3 py-3 text-center text-3xl font-black uppercase tracking-tight">
+                      <th className="border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
                         QUAN
                       </th>
-                      <th className="border-b-2 border-r border-slate-500 px-3 py-3 text-center text-3xl font-black uppercase tracking-tight">
+                      <th className="border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
                         $/UNIT
                       </th>
-                      <th className="border-b-2 border-r border-slate-500 px-3 py-3 text-center text-3xl font-black uppercase tracking-tight">
+                      <th className="border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
                         TOTAL
                       </th>
-                      <th className="border-b-2 border-slate-500 px-3 py-3 text-center text-3xl font-black uppercase tracking-tight">
+                      <th className="border-b border-slate-400 px-2 py-2 text-center font-semibold">
                         TOTAL
                       </th>
                     </tr>
                   </thead>
                   <tbody>
                     {worksheetLoading ? (
-                      <tr className="bg-[#dedede]">
+                      <tr className="bg-white">
                         <td colSpan={7} className="px-4 py-4 text-base font-medium text-slate-700">
                           Loading cost codes...
                         </td>
@@ -1656,7 +1688,7 @@ export default function EstimateWorkspaceV2() {
                     {!worksheetLoading &&
                     !worksheetError &&
                     worksheetDivisionGroups.length === 0 ? (
-                      <tr className="bg-[#dedede]">
+                      <tr className="bg-white">
                         <td colSpan={7} className="px-4 py-4 text-base font-medium text-slate-700">
                           No cost codes found.
                         </td>
@@ -1669,26 +1701,43 @@ export default function EstimateWorkspaceV2() {
                           <tr key={`division-${group.division}`} className="bg-[#bcbcbc]">
                             <td
                               colSpan={7}
-                              className="border-b-2 border-t-4 border-slate-500 px-3 py-2 text-base font-black uppercase tracking-wide text-slate-900"
+                              className="border-b border-slate-400 px-2 py-2 text-sm font-semibold uppercase tracking-wide text-slate-900"
                             >
-                              Division {group.division}
+                              <button
+                                type="button"
+                                onClick={() => toggleWorksheetDivisionExpanded(group.division)}
+                                className="flex w-full items-center gap-2 text-left"
+                              >
+                                <span className="inline-block w-4 text-center text-xs leading-none">
+                                  {(expandedWorksheetDivisionKeys[group.division] ?? true)
+                                    ? "▾"
+                                    : "▸"}
+                                </span>
+                                {group.divisionCode ? (
+                                  <span className="inline-block min-w-6 text-left">
+                                    {group.divisionCode}
+                                  </span>
+                                ) : null}
+                                <span>{group.divisionTitle}</span>
+                              </button>
                             </td>
                           </tr>
-                          {group.costCodeGroups.map((costCodeGroup) => (
+                          {(expandedWorksheetDivisionKeys[group.division] ?? true)
+                            ? group.costCodeGroups.map((costCodeGroup) => (
                             <Fragment key={costCodeGroup.id}>
-                              <tr className="bg-[#cecece]">
-                                <td className="border-b border-r border-slate-500 p-0 align-top">
-                                  <div className="px-3 py-2 text-2xl font-bold">{costCodeGroup.code}</div>
+                              <tr className="bg-slate-50">
+                                <td className="border-b border-r border-slate-300 p-0 align-top">
+                                  <div className="px-2 py-2 text-xs text-slate-600">{costCodeGroup.code}</div>
                                 </td>
-                                <td className="border-b border-r border-slate-500 p-0">
+                                <td className="border-b border-r border-slate-300 p-0">
                                   <button
                                     type="button"
                                     onClick={() =>
                                       toggleWorksheetCostCodeExpanded(costCodeGroup.id)
                                     }
-                                    className="flex h-12 w-full items-center gap-3 px-3 text-left text-[1.8rem] font-bold leading-none text-slate-900 hover:bg-[#d8d8d8]"
+                                    className="flex h-8 w-full items-center gap-2 px-2 text-left text-sm font-semibold text-slate-700 hover:bg-white"
                                   >
-                                    <span className="inline-block w-6 text-center text-xl leading-none">
+                                    <span className="inline-block w-4 text-center text-xs leading-none">
                                       {expandedWorksheetCostCodeIds[costCodeGroup.id] ? "▾" : "▸"}
                                     </span>
                                     <input
@@ -1700,17 +1749,17 @@ export default function EstimateWorkspaceV2() {
                                         )
                                       }
                                       onClick={(event) => event.stopPropagation()}
-                                      className="h-full w-full border-0 bg-transparent text-[1.8rem] font-bold leading-none text-slate-900 focus:bg-[#ececec] focus:outline-none"
+                                      className="h-full w-full border-0 bg-transparent text-sm font-semibold text-slate-700 focus:bg-white focus:outline-none"
                                     />
                                   </button>
                                 </td>
-                                <td className="border-b border-r border-slate-500 bg-[#ead5c8] px-2 py-2 text-center text-2xl"></td>
-                                <td className="border-b border-r border-slate-500 bg-[#ead5c8] px-2 py-2 text-center text-2xl"></td>
-                                <td className="border-b border-r border-slate-500 px-3 py-2 text-right text-2xl"></td>
-                                <td className="border-b border-r border-slate-500 px-3 py-2 text-right text-[2rem] font-semibold leading-none">
+                                <td className="border-b border-r border-slate-300 bg-[#efdfd4] p-0"></td>
+                                <td className="border-b border-r border-slate-300 bg-[#efdfd4] p-0"></td>
+                                <td className="border-b border-r border-slate-300 p-0"></td>
+                                <td className="border-b border-r border-slate-300 px-2 py-2 text-right text-sm font-semibold text-slate-700">
                                   ${formatCurrency(costCodeGroup.total)}
                                 </td>
-                                <td className="border-b border-slate-500 px-3 py-2 text-right text-[2rem] font-semibold leading-none">
+                                <td className="border-b border-slate-300 px-2 py-2 text-right text-sm font-semibold text-slate-700">
                                   ${formatCurrency(costCodeGroup.total)}
                                 </td>
                               </tr>
@@ -1720,13 +1769,13 @@ export default function EstimateWorkspaceV2() {
                                     const unitPrice = parseNumericInput(lineItem.unitPrice);
                                     const lineTotal = quantity * unitPrice;
                                     return (
-                                      <tr key={lineItem.id} className="bg-[#d8d8d8]">
-                                        <td className="border-b border-r border-slate-500 p-0 align-top">
-                                          <div className="px-3 py-2 text-2xl font-medium text-transparent">
+                                      <tr key={lineItem.id} className="bg-white">
+                                        <td className="border-b border-r border-slate-300 p-0 align-top">
+                                          <div className="px-2 py-2 text-xs text-transparent">
                                             {costCodeGroup.code}
                                           </div>
                                         </td>
-                                        <td className="border-b border-r border-slate-500 p-0">
+                                        <td className="border-b border-r border-slate-300 p-0">
                                           <input
                                             value={lineItem.description}
                                             onChange={(event) =>
@@ -1737,10 +1786,10 @@ export default function EstimateWorkspaceV2() {
                                                 event.target.value
                                               )
                                             }
-                                            className="h-12 w-full border-0 bg-transparent px-12 text-[2rem] font-semibold leading-none text-slate-900 focus:bg-[#ececec] focus:outline-none"
+                                            className="h-8 w-full border-0 bg-transparent px-6 text-sm font-semibold text-slate-700 focus:bg-white focus:outline-none"
                                           />
                                         </td>
-                                        <td className="border-b border-r border-slate-500 bg-[#ead5c8] p-0">
+                                        <td className="border-b border-r border-slate-300 bg-[#efdfd4] p-0">
                                           <input
                                             value={lineItem.unit}
                                             onChange={(event) =>
@@ -1751,10 +1800,10 @@ export default function EstimateWorkspaceV2() {
                                                 event.target.value
                                               )
                                             }
-                                            className="h-12 w-full border-0 bg-transparent px-2 text-center text-[2rem] leading-none text-slate-900 focus:bg-[#f2dfd3] focus:outline-none"
+                                            className="h-8 w-full border-0 bg-transparent px-2 text-center text-sm text-slate-700 focus:bg-[#f6e7dd] focus:outline-none"
                                           />
                                         </td>
-                                        <td className="border-b border-r border-slate-500 bg-[#ead5c8] p-0">
+                                        <td className="border-b border-r border-slate-300 bg-[#efdfd4] p-0">
                                           <input
                                             value={lineItem.quantity}
                                             onChange={(event) =>
@@ -1765,12 +1814,12 @@ export default function EstimateWorkspaceV2() {
                                                 event.target.value
                                               )
                                             }
-                                            className="h-12 w-full border-0 bg-transparent px-2 text-center text-[2rem] leading-none text-slate-900 focus:bg-[#f2dfd3] focus:outline-none"
+                                            className="h-8 w-full border-0 bg-transparent px-2 text-center text-sm font-semibold text-slate-700 focus:bg-[#f6e7dd] focus:outline-none"
                                           />
                                         </td>
-                                        <td className="border-b border-r border-slate-500 p-0">
-                                          <div className="flex h-12 items-center px-3 text-[2rem] leading-none">
-                                            <span className="mr-2">$</span>
+                                        <td className="border-b border-r border-slate-300 p-0">
+                                          <div className="flex h-8 items-center gap-2 px-2 text-sm">
+                                            <span className="text-slate-700">$</span>
                                             <input
                                               value={lineItem.unitPrice}
                                               onChange={(event) =>
@@ -1781,14 +1830,14 @@ export default function EstimateWorkspaceV2() {
                                                   event.target.value
                                                 )
                                               }
-                                              className="h-full w-full border-0 bg-transparent text-right text-[2rem] leading-none text-slate-900 focus:bg-[#ececec] focus:outline-none"
+                                              className="h-full w-full border-0 bg-transparent text-right text-sm text-slate-700 focus:bg-white focus:outline-none"
                                             />
                                           </div>
                                         </td>
-                                        <td className="border-b border-r border-slate-500 px-3 py-2 text-right text-[2rem] leading-none">
+                                        <td className="border-b border-r border-slate-300 px-2 py-2 text-right text-sm text-slate-700">
                                           ${formatCurrency(lineTotal)}
                                         </td>
-                                        <td className="border-b border-slate-500 px-3 py-2 text-right text-[2rem] leading-none">
+                                        <td className="border-b border-slate-300 px-2 py-2 text-right text-sm text-slate-700">
                                           ${formatCurrency(lineTotal)}
                                         </td>
                                       </tr>
@@ -1796,18 +1845,21 @@ export default function EstimateWorkspaceV2() {
                                   })
                                 : null}
                             </Fragment>
-                          ))}
-                          <tr key={`subtotal-${group.division}`} className="bg-[#d0d0d0]">
-                            <td colSpan={5} className="border-b-2 border-slate-500 px-3 py-2 text-right text-4xl font-black">
-                              Subtotal
-                            </td>
-                            <td className="border-b-2 border-r border-slate-500 px-3 py-2 text-right text-4xl font-black">
-                              ${formatCurrency(group.subtotal)}
-                            </td>
-                            <td className="border-b-2 border-slate-500 px-3 py-2 text-right text-4xl font-black">
-                              ${formatCurrency(group.subtotal)}
-                            </td>
-                          </tr>
+                          ))
+                            : null}
+                          {(expandedWorksheetDivisionKeys[group.division] ?? true) ? (
+                            <tr key={`subtotal-${group.division}`} className="bg-slate-100">
+                              <td colSpan={5} className="border-b border-slate-400 px-2 py-2 text-right text-sm font-semibold text-slate-700">
+                                Subtotal
+                              </td>
+                              <td className="border-b border-r border-slate-400 px-2 py-2 text-right text-sm font-semibold text-slate-700">
+                                ${formatCurrency(group.subtotal)}
+                              </td>
+                              <td className="border-b border-slate-400 px-2 py-2 text-right text-sm font-semibold text-slate-700">
+                                ${formatCurrency(group.subtotal)}
+                              </td>
+                            </tr>
+                          ) : null}
                         </Fragment>
                       ))}
                   </tbody>
