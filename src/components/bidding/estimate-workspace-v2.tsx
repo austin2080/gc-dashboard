@@ -41,6 +41,11 @@ type CostSummaryRow = {
   label: string;
   amount: string;
 };
+type CoverPageField = {
+  id: string;
+  label: string;
+  value: string;
+};
 type GeneralConditionsRow = {
   id: string;
   costCode: string;
@@ -365,6 +370,22 @@ const INITIAL_COST_SUMMARY_ROWS: CostSummaryRow[] = [
   { id: "summary-supervision", label: "Supervision", amount: "52,928.57" },
   { id: "summary-insurance", label: "Insurance", amount: "5,035.49" },
   { id: "summary-ohp", label: "Overhead & Profit", amount: "37,900.59" },
+];
+
+const INITIAL_COVER_PAGE_FIELDS: CoverPageField[] = [
+  { id: "cover-attn-name", label: "Attn Name", value: "" },
+  { id: "cover-attn-address", label: "Attn Address", value: "" },
+  { id: "cover-attn-phone", label: "Attn Phone", value: "" },
+  { id: "cover-attn-email", label: "Attn Email", value: "" },
+  { id: "cover-project-name", label: "Project Name", value: "" },
+  { id: "cover-architect", label: "Architect", value: "" },
+  { id: "cover-contractor-company", label: "Contractor Company", value: "" },
+  { id: "cover-contractor-name", label: "Contractor Name", value: "" },
+  { id: "cover-contractor-address", label: "Contractor Address", value: "" },
+  { id: "cover-contractor-city-state-zip", label: "Contractor City State Zip", value: "" },
+  { id: "cover-contractor-phone", label: "Contractor Phone", value: "" },
+  { id: "cover-contractor-email", label: "Contractor Email", value: "" },
+  { id: "cover-bid-set-date", label: "Bid Set Date", value: new Date().toLocaleDateString() },
 ];
 
 const INITIAL_GENERAL_CONDITIONS_ROWS: GeneralConditionsRow[] = [
@@ -770,8 +791,8 @@ const WORKSHEET_UNIT_OPTIONS = [
   "mo",
 ] as const;
 
-const PRELIM_COLUMN_MIN_WIDTHS = [90, 240, 64, 72, 80, 90, 140] as const;
-const PRELIM_DEFAULT_COLUMN_WIDTHS = [120, 560, 72, 84, 96, 132, 200] as const;
+const PRELIM_COLUMN_MIN_WIDTHS = [72, 220, 56, 64, 72, 90, 120] as const;
+const PRELIM_DEFAULT_COLUMN_WIDTHS = [92, 340, 64, 78, 84, 118, 150] as const;
 
 const createWorksheetLineItem = (seed: string): WorksheetLineItem => ({
   id: `${seed}-${typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Date.now().toString(36)}`,
@@ -804,6 +825,9 @@ export default function EstimateWorkspaceV2() {
   );
   const [costSummaryRows, setCostSummaryRows] = useState<CostSummaryRow[]>(
     INITIAL_COST_SUMMARY_ROWS
+  );
+  const [coverPageFields, setCoverPageFields] = useState<CoverPageField[]>(
+    INITIAL_COVER_PAGE_FIELDS
   );
   const [costSummaryPercent, setCostSummaryPercent] = useState<string>("28");
   const [generalConditionsRows, setGeneralConditionsRows] = useState<GeneralConditionsRow[]>(
@@ -1032,6 +1056,7 @@ export default function EstimateWorkspaceV2() {
 
   const worksheetView = selectedItem === "Data, Factors & Rates";
   const generalConditionsView = selectedItem === "General Conditions";
+  const coverPageView = selectedItem === "Preliminary Estimate Cover Page";
   const preliminaryWorksheetView = selectedItem === "Preliminary Estimate Worksheet";
   const updateProjectPlanningValue = (rowId: string, value: string) => {
     setProjectPlanningRows((prev) =>
@@ -1056,6 +1081,11 @@ export default function EstimateWorkspaceV2() {
   const updateCostSummaryAmount = (rowId: string, amount: string) => {
     setCostSummaryRows((prev) =>
       prev.map((row) => (row.id === rowId ? { ...row, amount } : row))
+    );
+  };
+  const updateCoverPageField = (fieldId: string, value: string) => {
+    setCoverPageFields((prev) =>
+      prev.map((field) => (field.id === fieldId ? { ...field, value } : field))
     );
   };
   const updateGeneralConditionsCell = (
@@ -1199,6 +1229,37 @@ export default function EstimateWorkspaceV2() {
     [preliminaryMarkupRows]
   );
   const preliminaryGrandTotal = preliminarySubtotal + preliminaryMarkupTotal;
+  const getCoverPageFieldValue = (fieldId: string) =>
+    coverPageFields.find((field) => field.id === fieldId)?.value ?? "";
+  const coverProjectSquareFeet = useMemo(() => {
+    const projectSizeRaw =
+      projectPlanningRows.find((row) => row.id === "pp-project-size")?.value ?? "";
+    const parsed = Number.parseFloat(projectSizeRaw.replace(/,/g, ""));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }, [projectPlanningRows]);
+  const coverDivisionRows = useMemo(() => {
+    return worksheetDivisionGroups.map((group) => {
+      const summaryDescription = group.costCodeGroups
+        .flatMap((costCodeGroup) => costCodeGroup.lineItems.map((line) => line.description.trim()))
+        .filter((line) => line.length > 0)
+        .slice(0, 2)
+        .join(", ");
+      const dollarsPerSf =
+        coverProjectSquareFeet && coverProjectSquareFeet > 0
+          ? group.subtotal / coverProjectSquareFeet
+          : null;
+      const scopePercent =
+        preliminarySubtotal > 0 ? (group.subtotal / preliminarySubtotal) * 100 : null;
+      return {
+        divisionLabel: group.divisionCode ? `DIVISION ${group.divisionCode}` : group.division,
+        item: group.divisionTitle.toUpperCase(),
+        subtotal: group.subtotal,
+        dollarsPerSf,
+        scopePercent,
+        summaryDescription,
+      };
+    });
+  }, [worksheetDivisionGroups, coverProjectSquareFeet, preliminarySubtotal]);
 
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -1860,6 +1921,277 @@ export default function EstimateWorkspaceV2() {
                           </div>
                         </div>
                       </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : coverPageView ? (
+            <div className="p-3">
+              <div className="overflow-x-auto rounded-lg border border-slate-300 bg-white">
+                <table className="w-full border-separate border-spacing-0 text-sm text-slate-900">
+                  <colgroup>
+                    <col className="w-[16%]" />
+                    <col className="w-[34%]" />
+                    <col className="w-[16%]" />
+                    <col className="w-[34%]" />
+                  </colgroup>
+                  <tbody>
+                    <tr className="bg-white">
+                      <td colSpan={4} className="border-b border-slate-300 px-3 py-2 text-center text-2xl font-black tracking-wide">
+                        PRELIMINARY ESTIMATE
+                      </td>
+                    </tr>
+                    <tr className="bg-white">
+                      <td colSpan={2} className="border-b border-r border-slate-300 px-3 py-2 text-base font-bold">
+                        ATTN:
+                      </td>
+                      <td className="border-b border-r border-slate-300 px-3 py-2 text-base font-bold">
+                        Contractor Information
+                      </td>
+                      <td className="border-b border-slate-300"></td>
+                    </tr>
+                    <tr className="bg-white">
+                      <td className="border-b border-r border-slate-300 px-3 py-1 text-sm italic">Name</td>
+                      <td className="border-b border-r border-slate-300 p-0">
+                        <input
+                          value={getCoverPageFieldValue("cover-attn-name")}
+                          onChange={(event) =>
+                            updateCoverPageField("cover-attn-name", event.target.value)
+                          }
+                          className="h-9 w-full border-0 bg-transparent px-3 text-sm focus:bg-white focus:outline-none"
+                        />
+                      </td>
+                      <td className="border-b border-r border-slate-300 px-3 py-1 text-sm italic">Company</td>
+                      <td className="border-b border-slate-300 p-0">
+                        <input
+                          value={getCoverPageFieldValue("cover-contractor-company")}
+                          onChange={(event) =>
+                            updateCoverPageField("cover-contractor-company", event.target.value)
+                          }
+                          className="h-9 w-full border-0 bg-transparent px-3 text-sm focus:bg-white focus:outline-none"
+                        />
+                      </td>
+                    </tr>
+                    <tr className="bg-white">
+                      <td className="border-b border-r border-slate-300 px-3 py-1 text-sm italic">Address</td>
+                      <td className="border-b border-r border-slate-300 p-0">
+                        <input
+                          value={getCoverPageFieldValue("cover-attn-address")}
+                          onChange={(event) =>
+                            updateCoverPageField("cover-attn-address", event.target.value)
+                          }
+                          className="h-9 w-full border-0 bg-transparent px-3 text-sm focus:bg-white focus:outline-none"
+                        />
+                      </td>
+                      <td className="border-b border-r border-slate-300 px-3 py-1 text-sm italic">Name</td>
+                      <td className="border-b border-slate-300 p-0">
+                        <input
+                          value={getCoverPageFieldValue("cover-contractor-name")}
+                          onChange={(event) =>
+                            updateCoverPageField("cover-contractor-name", event.target.value)
+                          }
+                          className="h-9 w-full border-0 bg-transparent px-3 text-sm focus:bg-white focus:outline-none"
+                        />
+                      </td>
+                    </tr>
+                    <tr className="bg-white">
+                      <td className="border-b border-r border-slate-300 px-3 py-1 text-sm italic">Phone</td>
+                      <td className="border-b border-r border-slate-300 p-0">
+                        <input
+                          value={getCoverPageFieldValue("cover-attn-phone")}
+                          onChange={(event) =>
+                            updateCoverPageField("cover-attn-phone", event.target.value)
+                          }
+                          className="h-9 w-full border-0 bg-transparent px-3 text-sm focus:bg-white focus:outline-none"
+                        />
+                      </td>
+                      <td className="border-b border-r border-slate-300 px-3 py-1 text-sm italic">Address</td>
+                      <td className="border-b border-slate-300 p-0">
+                        <input
+                          value={getCoverPageFieldValue("cover-contractor-address")}
+                          onChange={(event) =>
+                            updateCoverPageField("cover-contractor-address", event.target.value)
+                          }
+                          className="h-9 w-full border-0 bg-transparent px-3 text-sm focus:bg-white focus:outline-none"
+                        />
+                      </td>
+                    </tr>
+                    <tr className="bg-white">
+                      <td className="border-b border-r border-slate-300 px-3 py-1 text-sm italic">Email</td>
+                      <td className="border-b border-r border-slate-300 p-0">
+                        <input
+                          value={getCoverPageFieldValue("cover-attn-email")}
+                          onChange={(event) =>
+                            updateCoverPageField("cover-attn-email", event.target.value)
+                          }
+                          className="h-9 w-full border-0 bg-transparent px-3 text-sm focus:bg-white focus:outline-none"
+                        />
+                      </td>
+                      <td className="border-b border-r border-slate-300 px-3 py-1 text-sm italic">City, State ZIP</td>
+                      <td className="border-b border-slate-300 p-0">
+                        <input
+                          value={getCoverPageFieldValue("cover-contractor-city-state-zip")}
+                          onChange={(event) =>
+                            updateCoverPageField(
+                              "cover-contractor-city-state-zip",
+                              event.target.value
+                            )
+                          }
+                          className="h-9 w-full border-0 bg-transparent px-3 text-sm focus:bg-white focus:outline-none"
+                        />
+                      </td>
+                    </tr>
+                    <tr className="bg-white">
+                      <td className="border-b border-r border-slate-300 px-3 py-1 text-base font-bold">Project Name</td>
+                      <td className="border-b border-r border-slate-300 p-0">
+                        <input
+                          value={getCoverPageFieldValue("cover-project-name")}
+                          onChange={(event) =>
+                            updateCoverPageField("cover-project-name", event.target.value)
+                          }
+                          className="h-9 w-full border-0 bg-transparent px-3 text-sm focus:bg-white focus:outline-none"
+                        />
+                      </td>
+                      <td className="border-b border-r border-slate-300 px-3 py-1 text-sm italic">Phone</td>
+                      <td className="border-b border-slate-300 p-0">
+                        <input
+                          value={getCoverPageFieldValue("cover-contractor-phone")}
+                          onChange={(event) =>
+                            updateCoverPageField("cover-contractor-phone", event.target.value)
+                          }
+                          className="h-9 w-full border-0 bg-transparent px-3 text-sm focus:bg-white focus:outline-none"
+                        />
+                      </td>
+                    </tr>
+                    <tr className="bg-white">
+                      <td className="border-b border-r border-slate-300 px-3 py-1 text-base font-bold">Architect</td>
+                      <td className="border-b border-r border-slate-300 p-0">
+                        <input
+                          value={getCoverPageFieldValue("cover-architect")}
+                          onChange={(event) =>
+                            updateCoverPageField("cover-architect", event.target.value)
+                          }
+                          className="h-9 w-full border-0 bg-transparent px-3 text-sm focus:bg-white focus:outline-none"
+                        />
+                      </td>
+                      <td className="border-b border-r border-slate-300 px-3 py-1 text-sm italic">Email</td>
+                      <td className="border-b border-slate-300 p-0">
+                        <input
+                          value={getCoverPageFieldValue("cover-contractor-email")}
+                          onChange={(event) =>
+                            updateCoverPageField("cover-contractor-email", event.target.value)
+                          }
+                          className="h-9 w-full border-0 bg-transparent px-3 text-sm focus:bg-white focus:outline-none"
+                        />
+                      </td>
+                    </tr>
+                    <tr className="bg-white">
+                      <td className="border-b border-r border-slate-300 px-3 py-1"></td>
+                      <td className="border-b border-r border-slate-300"></td>
+                      <td className="border-b border-r border-slate-300 px-3 py-1 text-base font-bold">Bid Set Date</td>
+                      <td className="border-b border-slate-300 p-0">
+                        <input
+                          value={getCoverPageFieldValue("cover-bid-set-date")}
+                          onChange={(event) =>
+                            updateCoverPageField("cover-bid-set-date", event.target.value)
+                          }
+                          className="h-9 w-full border-0 bg-transparent px-3 text-sm italic focus:bg-white focus:outline-none"
+                        />
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-3 overflow-x-auto rounded-lg border border-[#c96420] bg-[#d9d9d9]">
+                <table className="w-full border-separate border-spacing-0 text-slate-900">
+                  <colgroup>
+                    <col className="w-[10%]" />
+                    <col className="w-[48%]" />
+                    <col className="w-[17%]" />
+                    <col className="w-[12%]" />
+                    <col className="w-[13%]" />
+                  </colgroup>
+                  <thead>
+                    <tr className="bg-[#e8792e] text-white">
+                      <th className="px-2 py-2 text-left text-sm font-semibold">DIVISION</th>
+                      <th className="px-2 py-2 text-left text-sm font-semibold">ITEM</th>
+                      <th className="px-2 py-2 text-center text-sm font-semibold">TOTAL</th>
+                      <th className="px-2 py-2 text-center text-sm font-semibold">$/SF</th>
+                      <th className="px-2 py-2 text-center text-sm font-semibold">% of Scope</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {coverDivisionRows.map((row) => (
+                      <Fragment key={`cover-division-${row.divisionLabel}`}>
+                        <tr className="bg-[#d9d9d9]">
+                          <td className="border-b border-t-2 border-slate-500 px-2 py-2 text-sm">
+                            {row.divisionLabel}
+                          </td>
+                          <td className="border-b border-t-2 border-slate-500 bg-white px-2 py-2 text-base font-semibold">
+                            {row.item}
+                          </td>
+                          <td className="border-b border-t-2 border-slate-500 bg-white px-2 py-2 text-center text-base font-semibold">
+                            ${formatCurrency(row.subtotal)}
+                          </td>
+                          <td className="border-b border-t-2 border-slate-500 bg-white px-2 py-2 text-center text-base italic text-slate-600">
+                            {row.dollarsPerSf === null ? "-" : row.dollarsPerSf.toFixed(2)}
+                          </td>
+                          <td className="border-b border-t-2 border-slate-500 bg-white px-2 py-2 text-center text-base italic text-slate-600">
+                            {row.scopePercent === null ? "0%" : `${Math.round(row.scopePercent)}%`}
+                          </td>
+                        </tr>
+                        {row.summaryDescription ? (
+                          <tr className="bg-[#c8c8c8]">
+                            <td className="border-b border-slate-500 px-2 py-1"></td>
+                            <td className="border-b border-slate-500 px-2 py-1 text-sm italic">
+                              {row.summaryDescription}
+                            </td>
+                            <td className="border-b border-slate-500"></td>
+                            <td className="border-b border-slate-500"></td>
+                            <td className="border-b border-slate-500"></td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    ))}
+                    <tr className="bg-[#e8792e] text-white">
+                      <td colSpan={2} className="border-t border-[#c96420] px-2 py-2 text-right text-sm font-semibold">
+                        SUBTOTAL
+                      </td>
+                      <td className="border-t border-[#c96420] px-2 py-2 text-center text-sm font-semibold">
+                        ${formatCurrency(preliminarySubtotal)}
+                      </td>
+                      <td className="border-t border-[#c96420]"></td>
+                      <td className="border-t border-[#c96420]"></td>
+                    </tr>
+                    <tr className="bg-[#c8c8c8]">
+                      <td colSpan={5} className="h-4 border-b border-slate-500"></td>
+                    </tr>
+                    {preliminaryMarkupRows.map((markupRow) => (
+                      <tr key={`cover-footer-${markupRow.label}`} className="bg-[#c8c8c8]">
+                        <td className="px-2 py-1 text-left text-xs font-medium text-slate-700">
+                          {markupRow.costCode}
+                        </td>
+                        <td className="px-2 py-1 text-right text-sm font-medium text-slate-900">
+                          {markupRow.label}
+                        </td>
+                        <td className="px-2 py-1 text-center text-sm font-medium text-slate-900">
+                          {markupRow.amount === null ? "-" : `$${formatCurrency(markupRow.amount)}`}
+                        </td>
+                        <td></td>
+                        <td></td>
+                      </tr>
+                    ))}
+                    <tr className="bg-[#e8792e] text-white">
+                      <td colSpan={2} className="border-t border-[#c96420] px-2 py-2 text-right text-sm font-semibold">
+                        TOTAL
+                      </td>
+                      <td className="border-t border-[#c96420] px-2 py-2 text-center text-sm font-semibold">
+                        ${formatCurrency(preliminaryGrandTotal)}
+                      </td>
+                      <td className="border-t border-[#c96420]"></td>
+                      <td className="border-t border-[#c96420]"></td>
                     </tr>
                   </tbody>
                 </table>
