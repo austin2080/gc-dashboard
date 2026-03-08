@@ -249,12 +249,12 @@ const INITIAL_ROWS: FactorRow[] = [
 const INITIAL_PROJECT_PLANNING_ROWS: ProjectPlanningRow[] = [
   { id: "pp-project-size", label: "Project Size (SQ FT)", value: "3249" },
   { id: "pp-site-size", label: "Project Site Size (SQ FT)", value: "3249" },
-  { id: "pp-start-date", label: "Construction Start Date", value: "3/9/2026" },
-  { id: "pp-completion-date", label: "Construction Completion Date", value: "6/5/2026" },
+  { id: "pp-start-date", label: "Construction Start Date", value: "2026-03-09" },
+  { id: "pp-completion-date", label: "Construction Completion Date", value: "2026-06-05" },
   {
     id: "pp-closeout-date",
     label: "Closeout Completion Date (Plan 1 wks)",
-    value: "6/12/2026",
+    value: "2026-06-12",
   },
   { id: "pp-construction-duration", label: "Construction Duration (Weeks)", value: "13" },
   {
@@ -808,6 +808,41 @@ const parsePercentValue = (value: string) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const isProjectPlanningCalendarRow = (rowId: string) =>
+  rowId === "pp-start-date" || rowId === "pp-completion-date" || rowId === "pp-closeout-date";
+
+const addDaysToIsoDate = (isoDate: string, days: number) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return null;
+  const [year, month, day] = isoDate.split("-").map((part) => Number.parseInt(part, 10));
+  if (!year || !month || !day) return null;
+  const nextDate = new Date(Date.UTC(year, month - 1, day));
+  if (Number.isNaN(nextDate.getTime())) return null;
+  nextDate.setUTCDate(nextDate.getUTCDate() + days);
+  const nextYear = nextDate.getUTCFullYear();
+  const nextMonth = String(nextDate.getUTCMonth() + 1).padStart(2, "0");
+  const nextDay = String(nextDate.getUTCDate()).padStart(2, "0");
+  return `${nextYear}-${nextMonth}-${nextDay}`;
+};
+
+const calculateDurationWeeks = (startIsoDate: string, endIsoDate: string) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startIsoDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endIsoDate)) {
+    return null;
+  }
+  const [startYear, startMonth, startDay] = startIsoDate
+    .split("-")
+    .map((part) => Number.parseInt(part, 10));
+  const [endYear, endMonth, endDay] = endIsoDate
+    .split("-")
+    .map((part) => Number.parseInt(part, 10));
+  if (!startYear || !startMonth || !startDay || !endYear || !endMonth || !endDay) return null;
+  const startDate = new Date(Date.UTC(startYear, startMonth - 1, startDay));
+  const endDate = new Date(Date.UTC(endYear, endMonth - 1, endDay));
+  const diffMs = endDate.getTime() - startDate.getTime();
+  if (Number.isNaN(diffMs) || diffMs < 0) return null;
+  const days = diffMs / (1000 * 60 * 60 * 24);
+  return Math.ceil(days / 7);
+};
+
 export default function EstimateWorkspaceV2() {
   const [selectedItem, setSelectedItem] = useState<string>(NAV_ITEMS[0]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
@@ -866,6 +901,12 @@ export default function EstimateWorkspaceV2() {
     costSummary: true,
   });
   const feeRows = useMemo(() => rows.filter((row) => row.category === "Fees"), [rows]);
+  const startDateValue =
+    projectPlanningRows.find((row) => row.id === "pp-start-date")?.value ?? "";
+  const completionDateValue =
+    projectPlanningRows.find((row) => row.id === "pp-completion-date")?.value ?? "";
+  const closeoutDateValue =
+    projectPlanningRows.find((row) => row.id === "pp-closeout-date")?.value ?? "";
 
   useEffect(() => {
     let isMounted = true;
@@ -960,6 +1001,34 @@ export default function EstimateWorkspaceV2() {
       window.removeEventListener("mouseup", onMouseUp);
     };
   }, []);
+  useEffect(() => {
+    const nextCloseoutDate = addDaysToIsoDate(completionDateValue, 7);
+    if (!nextCloseoutDate) return;
+    setProjectPlanningRows((prev) => {
+      const currentCloseout = prev.find((row) => row.id === "pp-closeout-date")?.value ?? "";
+      if (currentCloseout === nextCloseoutDate) return prev;
+      return prev.map((row) =>
+        row.id === "pp-closeout-date" ? { ...row, value: nextCloseoutDate } : row
+      );
+    });
+  }, [completionDateValue]);
+  useEffect(() => {
+    const constructionWeeks = calculateDurationWeeks(startDateValue, completionDateValue);
+    const projectWeeks = calculateDurationWeeks(startDateValue, closeoutDateValue);
+    setProjectPlanningRows((prev) =>
+      prev.map((row) => {
+        if (row.id === "pp-construction-duration") {
+          const nextValue = constructionWeeks === null ? "" : String(constructionWeeks);
+          return row.value === nextValue ? row : { ...row, value: nextValue };
+        }
+        if (row.id === "pp-project-duration") {
+          const nextValue = projectWeeks === null ? "" : String(projectWeeks);
+          return row.value === nextValue ? row : { ...row, value: nextValue };
+        }
+        return row;
+      })
+    );
+  }, [startDateValue, completionDateValue, closeoutDateValue]);
 
   const updateCell = (rowId: string, key: keyof FactorRow, value: string) => {
     setRows((prev) =>
@@ -1324,6 +1393,82 @@ export default function EstimateWorkspaceV2() {
                 <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
                   <button
                     type="button"
+                    onClick={() => toggleSection("projectPlanning")}
+                    className="flex w-full items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm font-semibold text-slate-800"
+                  >
+                    <span className="flex items-center gap-2">
+                      <svg
+                        viewBox="0 0 20 20"
+                        aria-hidden="true"
+                        className={`h-4 w-4 transition-transform ${
+                          openSections.projectPlanning ? "rotate-180" : "rotate-0"
+                        }`}
+                      >
+                        <path d="M5 7l5 6 5-6H5z" fill="currentColor" />
+                      </svg>
+                      <span>Project Planning</span>
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      {openSections.projectPlanning ? "Hide" : "Show"}
+                    </span>
+                  </button>
+                  {openSections.projectPlanning ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[980px] border-separate border-spacing-0 text-sm">
+                    <thead className="bg-slate-100/80 text-slate-700">
+                      <tr>
+                        <th className="w-[50%] border-b border-r border-slate-200 px-3 py-2 text-left font-semibold">
+                          PROJECT PLANNING
+                        </th>
+                        <th className="w-[16%] border-b border-r border-slate-200 px-3 py-2 text-left font-semibold">
+                          Value
+                        </th>
+                        <th className="w-[34%] border-b border-slate-200 px-3 py-2 text-left font-semibold"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {projectPlanningRows.map((row) => (
+                        <tr key={row.id} className="odd:bg-white even:bg-slate-50/30">
+                          <td className="border-b border-r border-slate-200 p-0">
+                            <div className="min-h-11 px-3 py-2 text-base text-slate-900">{row.label}</div>
+                          </td>
+                          <td className="border-b border-r border-slate-200 p-0">
+                            {isProjectPlanningCalendarRow(row.id) ? (
+                              <input
+                                type="date"
+                                value={row.value}
+                                onChange={(event) =>
+                                  updateProjectPlanningValue(row.id, event.target.value)
+                                }
+                                readOnly={row.id === "pp-closeout-date"}
+                                className="h-11 w-full border-0 bg-transparent px-3 text-right text-base text-slate-900 focus:bg-white focus:outline-none"
+                              />
+                            ) : (
+                              <input
+                                value={row.value}
+                                onChange={(event) =>
+                                  updateProjectPlanningValue(row.id, event.target.value)
+                                }
+                                readOnly={
+                                  row.id === "pp-construction-duration" ||
+                                  row.id === "pp-project-duration"
+                                }
+                                className="h-11 w-full border-0 bg-transparent px-3 text-right text-base text-slate-900 focus:bg-white focus:outline-none"
+                              />
+                            )}
+                          </td>
+                          <td className="border-b border-slate-200 px-3 py-2"></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                </section>
+
+                <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                  <button
+                    type="button"
                     onClick={() => toggleSection("fees")}
                     className="flex w-full items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm font-semibold text-slate-800"
                   >
@@ -1446,66 +1591,6 @@ export default function EstimateWorkspaceV2() {
                                 <span className="text-slate-700">%</span>
                               ) : null}
                             </div>
-                          </td>
-                          <td className="border-b border-slate-200 px-3 py-2"></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                      </table>
-                    </div>
-                  ) : null}
-                </section>
-
-                <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-                  <button
-                    type="button"
-                    onClick={() => toggleSection("projectPlanning")}
-                    className="flex w-full items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm font-semibold text-slate-800"
-                  >
-                    <span className="flex items-center gap-2">
-                      <svg
-                        viewBox="0 0 20 20"
-                        aria-hidden="true"
-                        className={`h-4 w-4 transition-transform ${
-                          openSections.projectPlanning ? "rotate-180" : "rotate-0"
-                        }`}
-                      >
-                        <path d="M5 7l5 6 5-6H5z" fill="currentColor" />
-                      </svg>
-                      <span>Project Planning</span>
-                    </span>
-                    <span className="text-xs text-slate-500">
-                      {openSections.projectPlanning ? "Hide" : "Show"}
-                    </span>
-                  </button>
-                  {openSections.projectPlanning ? (
-                    <div className="overflow-x-auto">
-                      <table className="w-full min-w-[980px] border-separate border-spacing-0 text-sm">
-                    <thead className="bg-slate-100/80 text-slate-700">
-                      <tr>
-                        <th className="w-[50%] border-b border-r border-slate-200 px-3 py-2 text-left font-semibold">
-                          PROJECT PLANNING
-                        </th>
-                        <th className="w-[16%] border-b border-r border-slate-200 px-3 py-2 text-left font-semibold">
-                          Value
-                        </th>
-                        <th className="w-[34%] border-b border-slate-200 px-3 py-2 text-left font-semibold"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {projectPlanningRows.map((row) => (
-                        <tr key={row.id} className="odd:bg-white even:bg-slate-50/30">
-                          <td className="border-b border-r border-slate-200 p-0">
-                            <div className="min-h-11 px-3 py-2 text-base text-slate-900">{row.label}</div>
-                          </td>
-                          <td className="border-b border-r border-slate-200 p-0">
-                            <input
-                              value={row.value}
-                              onChange={(event) =>
-                                updateProjectPlanningValue(row.id, event.target.value)
-                              }
-                              className="h-11 w-full border-0 bg-transparent px-3 text-right text-base text-slate-900 focus:bg-white focus:outline-none"
-                            />
                           </td>
                           <td className="border-b border-slate-200 px-3 py-2"></td>
                         </tr>
