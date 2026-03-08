@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 
 const NAV_ITEMS = [
   "Data, Factors & Rates",
@@ -63,6 +63,10 @@ type WorksheetCostCodeGroup = {
   title: string;
   division: string;
   lineItems: WorksheetLineItem[];
+};
+type WorksheetRenderedCostCodeGroup = WorksheetCostCodeGroup & {
+  total: number;
+  readOnlyRollup?: boolean;
 };
 type SectionKey =
   | "fees"
@@ -709,6 +713,65 @@ const parseNumericInput = (value: string) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const formatToTwoDecimals = (value: string) => {
+  const parsed = Number.parseFloat(value.replace(/[$,]/g, "").trim());
+  if (!Number.isFinite(parsed)) return "";
+  return parsed.toFixed(2);
+};
+
+const evaluateUnitPriceFormula = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed.startsWith("=")) return null;
+  const expression = trimmed.slice(1).replace(/,/g, "");
+  if (!/^[0-9+\-*/().\s]+$/.test(expression)) return null;
+  try {
+    const result = Function(`"use strict"; return (${expression});`)();
+    return typeof result === "number" && Number.isFinite(result) ? result : null;
+  } catch {
+    return null;
+  }
+};
+
+const normalizeUnitPriceInput = (value: string) => {
+  const formulaResult = evaluateUnitPriceFormula(value);
+  if (formulaResult !== null) {
+    return {
+      normalizedValue: formulaResult.toFixed(2),
+      formula: value.trim(),
+    };
+  }
+  return {
+    normalizedValue: formatToTwoDecimals(value),
+    formula: null,
+  };
+};
+
+const WORKSHEET_UNIT_OPTIONS = [
+  "",
+  "ls",
+  "ea",
+  "sf",
+  "lf",
+  "cy",
+  "sy",
+  "ton",
+  "hr",
+  "day",
+  "wk",
+  "mo",
+] as const;
+
+const PRELIM_COLUMN_MIN_WIDTHS = [90, 240, 64, 72, 80, 90, 90] as const;
+const PRELIM_DEFAULT_COLUMN_WIDTHS = [120, 560, 72, 84, 96, 132, 140] as const;
+
+const createWorksheetLineItem = (seed: string): WorksheetLineItem => ({
+  id: `${seed}-${typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Date.now().toString(36)}`,
+  description: "",
+  unit: "ls",
+  quantity: "",
+  unitPrice: "",
+});
+
 export default function EstimateWorkspaceV2() {
   const [selectedItem, setSelectedItem] = useState<string>(NAV_ITEMS[0]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
@@ -734,6 +797,15 @@ export default function EstimateWorkspaceV2() {
   const [worksheetCostCodeGroups, setWorksheetCostCodeGroups] = useState<WorksheetCostCodeGroup[]>(
     []
   );
+  const [worksheetUnitPriceFormulas, setWorksheetUnitPriceFormulas] = useState<
+    Record<string, string>
+  >({});
+  const [activeWorksheetUnitPriceCell, setActiveWorksheetUnitPriceCell] = useState<string | null>(
+    null
+  );
+  const [prelimColumnWidths, setPrelimColumnWidths] = useState<number[]>([
+    ...PRELIM_DEFAULT_COLUMN_WIDTHS,
+  ]);
   const [expandedWorksheetDivisionKeys, setExpandedWorksheetDivisionKeys] = useState<
     Record<string, boolean>
   >({});
@@ -742,6 +814,11 @@ export default function EstimateWorkspaceV2() {
   >({});
   const [worksheetLoading, setWorksheetLoading] = useState<boolean>(false);
   const [worksheetError, setWorksheetError] = useState<string | null>(null);
+  const prelimResizeRef = useRef<{
+    columnIndex: number;
+    startX: number;
+    startWidth: number;
+  } | null>(null);
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
     fees: true,
     projectData: true,
@@ -777,7 +854,7 @@ export default function EstimateWorkspaceV2() {
             {
               id: `${costCode.id}-line-1`,
               description: costCode.description ?? "",
-              unit: "",
+              unit: "ls",
               quantity: "",
               unitPrice: "",
             },
@@ -820,6 +897,29 @@ export default function EstimateWorkspaceV2() {
       isMounted = false;
     };
   }, []);
+  useEffect(() => {
+    const onMouseMove = (event: MouseEvent) => {
+      const active = prelimResizeRef.current;
+      if (!active) return;
+      const delta = event.clientX - active.startX;
+      const nextWidth = Math.max(
+        PRELIM_COLUMN_MIN_WIDTHS[active.columnIndex] ?? 64,
+        active.startWidth + delta
+      );
+      setPrelimColumnWidths((prev) =>
+        prev.map((width, idx) => (idx === active.columnIndex ? nextWidth : width))
+      );
+    };
+    const onMouseUp = () => {
+      prelimResizeRef.current = null;
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
 
   const updateCell = (rowId: string, key: keyof FactorRow, value: string) => {
     setRows((prev) =>
@@ -831,6 +931,16 @@ export default function EstimateWorkspaceV2() {
         return { ...row, [key]: value };
       })
     );
+  };
+  const beginPrelimColumnResize = (
+    columnIndex: number,
+    event: ReactMouseEvent<HTMLSpanElement>
+  ) => {
+    prelimResizeRef.current = {
+      columnIndex,
+      startX: event.clientX,
+      startWidth: prelimColumnWidths[columnIndex] ?? PRELIM_DEFAULT_COLUMN_WIDTHS[columnIndex],
+    };
   };
   const toggleWorksheetCostCodeExpanded = (costCodeId: string) => {
     setExpandedWorksheetCostCodeIds((prev) => ({ ...prev, [costCodeId]: !prev[costCodeId] }));
@@ -846,6 +956,18 @@ export default function EstimateWorkspaceV2() {
       prev.map((group) => (group.id === costCodeId ? { ...group, title: value } : group))
     );
   };
+  const addWorksheetLineItem = (costCodeId: string) => {
+    setWorksheetCostCodeGroups((prev) =>
+      prev.map((group) => {
+        if (group.id !== costCodeId) return group;
+        return {
+          ...group,
+          lineItems: [...group.lineItems, createWorksheetLineItem(costCodeId)],
+        };
+      })
+    );
+    setExpandedWorksheetCostCodeIds((prev) => ({ ...prev, [costCodeId]: true }));
+  };
   const updateWorksheetLineItemCell = (
     costCodeId: string,
     lineItemId: string,
@@ -860,6 +982,28 @@ export default function EstimateWorkspaceV2() {
           lineItems: group.lineItems.map((line) =>
             line.id === lineItemId ? { ...line, [key]: value } : line
           ),
+        };
+      })
+    );
+  };
+  const worksheetUnitPriceCellKey = (costCodeId: string, lineItemId: string) =>
+    `${costCodeId}:${lineItemId}`;
+  const stepWorksheetLineItemQuantity = (
+    costCodeId: string,
+    lineItemId: string,
+    delta: number
+  ) => {
+    setWorksheetCostCodeGroups((prev) =>
+      prev.map((group) => {
+        if (group.id !== costCodeId) return group;
+        return {
+          ...group,
+          lineItems: group.lineItems.map((line) => {
+            if (line.id !== lineItemId) return line;
+            const current = parseNumericInput(line.quantity);
+            const next = Math.max(0, current + delta);
+            return { ...line, quantity: String(next) };
+          }),
         };
       })
     );
@@ -935,20 +1079,19 @@ export default function EstimateWorkspaceV2() {
     );
 
     return Object.entries(grouped)
-      .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
       .map(([division, costCodeGroups]) => {
         const sortedGroups = [...costCodeGroups].sort((a, b) =>
           a.code.localeCompare(b.code, undefined, { numeric: true })
         );
         const firstCostCode = sortedGroups[0]?.code ?? "";
-        const codeMatch = firstCostCode.match(/^(\d{2})/);
+        const codeMatch = firstCostCode.match(/^(\d{2})/) ?? division.match(/^(\d{2})/);
         const divisionCode = codeMatch?.[1] ?? "";
         const trimmedDivision = division.trim();
         const divisionTitle =
           divisionCode && trimmedDivision.startsWith(divisionCode)
             ? trimmedDivision.slice(divisionCode.length).trim() || trimmedDivision
             : trimmedDivision;
-        const groupsWithTotals = sortedGroups.map((group) => {
+        const groupsWithTotals: WorksheetRenderedCostCodeGroup[] = sortedGroups.map((group) => {
           const total = group.lineItems.reduce((sum, line) => {
             const quantity = parseNumericInput(line.quantity);
             const unitPrice = parseNumericInput(line.unitPrice);
@@ -956,16 +1099,36 @@ export default function EstimateWorkspaceV2() {
           }, 0);
           return { ...group, total };
         });
-        const subtotal = groupsWithTotals.reduce((sum, group) => sum + group.total, 0);
+        const renderedCostCodeGroups =
+          divisionCode === "01"
+            ? [
+                {
+                  id: "__division-01-rollup__",
+                  code: "01",
+                  title: "General Conditions",
+                  division,
+                  lineItems: [],
+                  total: generalConditionsTotal,
+                  readOnlyRollup: true,
+                } satisfies WorksheetRenderedCostCodeGroup,
+              ]
+            : groupsWithTotals;
+        const subtotal = renderedCostCodeGroups.reduce((sum, group) => sum + group.total, 0);
         return {
           division,
           divisionCode,
           divisionTitle,
-          costCodeGroups: groupsWithTotals,
+          costCodeGroups: renderedCostCodeGroups,
           subtotal,
         };
+      })
+      .sort((a, b) => {
+        const aRank = a.divisionCode ? Number.parseInt(a.divisionCode, 10) : Number.MAX_SAFE_INTEGER;
+        const bRank = b.divisionCode ? Number.parseInt(b.divisionCode, 10) : Number.MAX_SAFE_INTEGER;
+        if (aRank !== bRank) return aRank - bRank;
+        return a.divisionTitle.localeCompare(b.divisionTitle, undefined, { numeric: true });
       });
-  }, [worksheetCostCodeGroups]);
+  }, [worksheetCostCodeGroups, generalConditionsTotal]);
 
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -1635,38 +1798,67 @@ export default function EstimateWorkspaceV2() {
           ) : preliminaryWorksheetView ? (
             <div className="p-3">
               <div className="overflow-x-auto rounded-lg border border-slate-300 bg-white">
-                <table className="w-full min-w-[1280px] border-separate border-spacing-0 text-sm text-slate-800">
+                <table
+                  className="w-full border-separate border-spacing-0 text-sm text-slate-800"
+                  style={{
+                    minWidth: `${prelimColumnWidths.reduce((sum, width) => sum + width, 0)}px`,
+                  }}
+                >
                   <colgroup>
-                    <col className="w-[9%]" />
-                    <col className="w-[38%]" />
-                    <col className="w-[7%]" />
-                    <col className="w-[8%]" />
-                    <col className="w-[13%]" />
-                    <col className="w-[12%]" />
-                    <col className="w-[13%]" />
+                    {prelimColumnWidths.map((width, index) => (
+                      <col key={`prelim-col-${index}`} style={{ width: `${width}px` }} />
+                    ))}
                   </colgroup>
                   <thead className="bg-slate-100 text-slate-800">
                     <tr>
-                      <th className="border-b border-r border-slate-400 px-2 py-2 text-left font-semibold">
+                      <th className="relative border-b border-r border-slate-400 px-2 py-2 text-left font-semibold">
                         COST CODE
+                        <span
+                          onMouseDown={(event) => beginPrelimColumnResize(0, event)}
+                          className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
+                        />
                       </th>
-                      <th className="border-b border-r border-slate-400 px-2 py-2 text-left font-semibold">
+                      <th className="relative border-b border-r border-slate-400 px-2 py-2 text-left font-semibold">
                         DESCRIPTION
+                        <span
+                          onMouseDown={(event) => beginPrelimColumnResize(1, event)}
+                          className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
+                        />
                       </th>
-                      <th className="border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
+                      <th className="relative border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
                         UNIT
+                        <span
+                          onMouseDown={(event) => beginPrelimColumnResize(2, event)}
+                          className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
+                        />
                       </th>
-                      <th className="border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
+                      <th className="relative border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
                         QUAN
+                        <span
+                          onMouseDown={(event) => beginPrelimColumnResize(3, event)}
+                          className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
+                        />
                       </th>
-                      <th className="border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
+                      <th className="relative border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
                         $/UNIT
+                        <span
+                          onMouseDown={(event) => beginPrelimColumnResize(4, event)}
+                          className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
+                        />
                       </th>
-                      <th className="border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
+                      <th className="relative border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
                         TOTAL
+                        <span
+                          onMouseDown={(event) => beginPrelimColumnResize(5, event)}
+                          className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
+                        />
                       </th>
-                      <th className="border-b border-slate-400 px-2 py-2 text-center font-semibold">
+                      <th className="relative border-b border-slate-400 px-2 py-2 text-center font-semibold">
                         TOTAL
+                        <span
+                          onMouseDown={(event) => beginPrelimColumnResize(6, event)}
+                          className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
+                        />
                       </th>
                     </tr>
                   </thead>
@@ -1726,44 +1918,49 @@ export default function EstimateWorkspaceV2() {
                             ? group.costCodeGroups.map((costCodeGroup) => (
                             <Fragment key={costCodeGroup.id}>
                               <tr className="bg-slate-50">
-                                <td className="border-b border-r border-slate-300 p-0 align-top">
+                                <td className="border-b border-slate-300 p-0 align-top">
                                   <div className="px-2 py-2 text-xs text-slate-600">{costCodeGroup.code}</div>
                                 </td>
-                                <td className="border-b border-r border-slate-300 p-0">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      toggleWorksheetCostCodeExpanded(costCodeGroup.id)
-                                    }
-                                    className="flex h-8 w-full items-center gap-2 px-2 text-left text-sm font-semibold text-slate-700 hover:bg-white"
-                                  >
-                                    <span className="inline-block w-4 text-center text-xs leading-none">
-                                      {expandedWorksheetCostCodeIds[costCodeGroup.id] ? "▾" : "▸"}
-                                    </span>
-                                    <input
-                                      value={costCodeGroup.title}
-                                      onChange={(event) =>
-                                        updateWorksheetCostCodeTitle(
-                                          costCodeGroup.id,
-                                          event.target.value
-                                        )
+                                <td className="border-b border-slate-300 p-0">
+                                  {costCodeGroup.readOnlyRollup ? (
+                                    <div className="flex h-8 w-full items-center gap-2 px-2 text-left text-sm font-semibold text-slate-700">
+                                      {costCodeGroup.title}
+                                    </div>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        toggleWorksheetCostCodeExpanded(costCodeGroup.id)
                                       }
-                                      onClick={(event) => event.stopPropagation()}
-                                      className="h-full w-full border-0 bg-transparent text-sm font-semibold text-slate-700 focus:bg-white focus:outline-none"
-                                    />
-                                  </button>
+                                      className="flex h-8 w-full items-center gap-2 px-2 text-left text-sm font-semibold text-slate-700 hover:bg-white"
+                                    >
+                                      <span className="inline-block w-4 text-center text-xs leading-none">
+                                        {expandedWorksheetCostCodeIds[costCodeGroup.id] ? "▾" : "▸"}
+                                      </span>
+                                      <input
+                                        value={costCodeGroup.title}
+                                        onChange={(event) =>
+                                          updateWorksheetCostCodeTitle(
+                                            costCodeGroup.id,
+                                            event.target.value
+                                          )
+                                        }
+                                        onClick={(event) => event.stopPropagation()}
+                                        className="h-full w-full border-0 bg-transparent text-sm font-semibold text-slate-700 focus:bg-white focus:outline-none"
+                                      />
+                                    </button>
+                                  )}
                                 </td>
-                                <td className="border-b border-r border-slate-300 bg-[#efdfd4] p-0"></td>
-                                <td className="border-b border-r border-slate-300 bg-[#efdfd4] p-0"></td>
-                                <td className="border-b border-r border-slate-300 p-0"></td>
-                                <td className="border-b border-r border-slate-300 px-2 py-2 text-right text-sm font-semibold text-slate-700">
+                                <td colSpan={3} className="border-b border-slate-300 p-0"></td>
+                                <td className="border-b border-slate-300 px-2 py-2 text-right text-sm font-semibold text-slate-700">
                                   ${formatCurrency(costCodeGroup.total)}
                                 </td>
                                 <td className="border-b border-slate-300 px-2 py-2 text-right text-sm font-semibold text-slate-700">
                                   ${formatCurrency(costCodeGroup.total)}
                                 </td>
                               </tr>
-                              {expandedWorksheetCostCodeIds[costCodeGroup.id]
+                              {!costCodeGroup.readOnlyRollup &&
+                              expandedWorksheetCostCodeIds[costCodeGroup.id]
                                 ? costCodeGroup.lineItems.map((lineItem) => {
                                     const quantity = parseNumericInput(lineItem.quantity);
                                     const unitPrice = parseNumericInput(lineItem.unitPrice);
@@ -1771,7 +1968,7 @@ export default function EstimateWorkspaceV2() {
                                     return (
                                       <tr key={lineItem.id} className="bg-white">
                                         <td className="border-b border-r border-slate-300 p-0 align-top">
-                                          <div className="px-2 py-2 text-xs text-transparent">
+                                          <div className="px-2 py-0 text-xs text-transparent">
                                             {costCodeGroup.code}
                                           </div>
                                         </td>
@@ -1790,7 +1987,7 @@ export default function EstimateWorkspaceV2() {
                                           />
                                         </td>
                                         <td className="border-b border-r border-slate-300 bg-[#efdfd4] p-0">
-                                          <input
+                                          <select
                                             value={lineItem.unit}
                                             onChange={(event) =>
                                               updateWorksheetLineItemCell(
@@ -1800,50 +1997,177 @@ export default function EstimateWorkspaceV2() {
                                                 event.target.value
                                               )
                                             }
-                                            className="h-8 w-full border-0 bg-transparent px-2 text-center text-sm text-slate-700 focus:bg-[#f6e7dd] focus:outline-none"
-                                          />
+                                            className="h-8 w-full border-0 bg-transparent px-1 text-center text-xs text-slate-700 focus:bg-[#f6e7dd] focus:outline-none"
+                                          >
+                                            {WORKSHEET_UNIT_OPTIONS.map((unitOption) => (
+                                              <option key={unitOption || "blank"} value={unitOption}>
+                                                {unitOption || "Select"}
+                                              </option>
+                                            ))}
+                                          </select>
                                         </td>
                                         <td className="border-b border-r border-slate-300 bg-[#efdfd4] p-0">
-                                          <input
-                                            value={lineItem.quantity}
-                                            onChange={(event) =>
-                                              updateWorksheetLineItemCell(
-                                                costCodeGroup.id,
-                                                lineItem.id,
-                                                "quantity",
-                                                event.target.value
-                                              )
-                                            }
-                                            className="h-8 w-full border-0 bg-transparent px-2 text-center text-sm font-semibold text-slate-700 focus:bg-[#f6e7dd] focus:outline-none"
-                                          />
-                                        </td>
-                                        <td className="border-b border-r border-slate-300 p-0">
-                                          <div className="flex h-8 items-center gap-2 px-2 text-sm">
-                                            <span className="text-slate-700">$</span>
+                                          <div className="flex h-8 items-center">
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                stepWorksheetLineItemQuantity(
+                                                  costCodeGroup.id,
+                                                  lineItem.id,
+                                                  -1
+                                                )
+                                              }
+                                              className="h-full w-6 border-r border-slate-300 text-xs font-semibold text-slate-700 hover:bg-[#ead9cf]"
+                                            >
+                                              -
+                                            </button>
                                             <input
-                                              value={lineItem.unitPrice}
+                                              value={lineItem.quantity}
                                               onChange={(event) =>
                                                 updateWorksheetLineItemCell(
                                                   costCodeGroup.id,
                                                   lineItem.id,
-                                                  "unitPrice",
+                                                  "quantity",
                                                   event.target.value
                                                 )
                                               }
+                                              className="h-8 w-full border-0 bg-transparent px-1 text-center text-sm font-semibold text-slate-700 focus:bg-[#f6e7dd] focus:outline-none"
+                                            />
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                stepWorksheetLineItemQuantity(
+                                                  costCodeGroup.id,
+                                                  lineItem.id,
+                                                  1
+                                                )
+                                              }
+                                              className="h-full w-6 border-l border-slate-300 text-xs font-semibold text-slate-700 hover:bg-[#ead9cf]"
+                                            >
+                                              +
+                                            </button>
+                                          </div>
+                                        </td>
+                                        <td className="border-b border-r border-slate-300 p-0">
+                                          <div className="flex h-8 items-center gap-1 px-1 text-sm">
+                                            <span className="w-2 text-slate-700">$</span>
+                                            <input
+                                              value={
+                                                activeWorksheetUnitPriceCell ===
+                                                  worksheetUnitPriceCellKey(
+                                                    costCodeGroup.id,
+                                                    lineItem.id
+                                                  ) &&
+                                                worksheetUnitPriceFormulas[
+                                                  worksheetUnitPriceCellKey(
+                                                    costCodeGroup.id,
+                                                    lineItem.id
+                                                  )
+                                                ]
+                                                  ? worksheetUnitPriceFormulas[
+                                                      worksheetUnitPriceCellKey(
+                                                        costCodeGroup.id,
+                                                        lineItem.id
+                                                      )
+                                                    ]
+                                                  : lineItem.unitPrice
+                                              }
+                                              onChange={(event) =>
+                                                {
+                                                  const cellKey = worksheetUnitPriceCellKey(
+                                                    costCodeGroup.id,
+                                                    lineItem.id
+                                                  );
+                                                  const nextValue = event.target.value;
+                                                  updateWorksheetLineItemCell(
+                                                    costCodeGroup.id,
+                                                    lineItem.id,
+                                                    "unitPrice",
+                                                    nextValue
+                                                  );
+                                                  if (nextValue.trim().startsWith("=")) {
+                                                    setWorksheetUnitPriceFormulas((prev) => ({
+                                                      ...prev,
+                                                      [cellKey]: nextValue,
+                                                    }));
+                                                  } else {
+                                                    setWorksheetUnitPriceFormulas((prev) => {
+                                                      const next = { ...prev };
+                                                      delete next[cellKey];
+                                                      return next;
+                                                    });
+                                                  }
+                                                }
+                                              }
+                                              onFocus={() =>
+                                                setActiveWorksheetUnitPriceCell(
+                                                  worksheetUnitPriceCellKey(
+                                                    costCodeGroup.id,
+                                                    lineItem.id
+                                                  )
+                                                )
+                                              }
+                                              onBlur={(event) => {
+                                                const cellKey = worksheetUnitPriceCellKey(
+                                                  costCodeGroup.id,
+                                                  lineItem.id
+                                                );
+                                                const normalized = normalizeUnitPriceInput(
+                                                  event.target.value
+                                                );
+                                                updateWorksheetLineItemCell(
+                                                  costCodeGroup.id,
+                                                  lineItem.id,
+                                                  "unitPrice",
+                                                  normalized.normalizedValue
+                                                );
+                                                setWorksheetUnitPriceFormulas((prev) => {
+                                                  const next = { ...prev };
+                                                  if (normalized.formula) {
+                                                    next[cellKey] = normalized.formula;
+                                                  } else {
+                                                    delete next[cellKey];
+                                                  }
+                                                  return next;
+                                                });
+                                                setActiveWorksheetUnitPriceCell((prev) =>
+                                                  prev === cellKey ? null : prev
+                                                );
+                                              }}
                                               className="h-full w-full border-0 bg-transparent text-right text-sm text-slate-700 focus:bg-white focus:outline-none"
                                             />
                                           </div>
                                         </td>
-                                        <td className="border-b border-r border-slate-300 px-2 py-2 text-right text-sm text-slate-700">
+                                        <td className="border-b border-r border-slate-300 px-1 py-0 text-right text-sm text-slate-700">
                                           ${formatCurrency(lineTotal)}
                                         </td>
-                                        <td className="border-b border-slate-300 px-2 py-2 text-right text-sm text-slate-700">
+                                        <td className="border-b border-slate-300 px-1 py-0 text-right text-sm text-slate-700">
                                           ${formatCurrency(lineTotal)}
                                         </td>
                                       </tr>
                                     );
                                   })
                                 : null}
+                              {!costCodeGroup.readOnlyRollup &&
+                              expandedWorksheetCostCodeIds[costCodeGroup.id] ? (
+                                <tr className="bg-slate-50/70">
+                                  <td className="border-b border-r border-t border-dashed border-slate-300 p-0"></td>
+                                  <td className="border-b border-r border-t border-dashed border-slate-300 px-2 py-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => addWorksheetLineItem(costCodeGroup.id)}
+                                      className="ml-4 rounded border border-slate-300 bg-white px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-100"
+                                    >
+                                      + Add line item
+                                    </button>
+                                  </td>
+                                  <td className="border-b border-r border-t border-dashed border-slate-300 bg-[#f4ebe5] p-0"></td>
+                                  <td className="border-b border-r border-t border-dashed border-slate-300 bg-[#f4ebe5] p-0"></td>
+                                  <td className="border-b border-r border-t border-dashed border-slate-300 p-0"></td>
+                                  <td className="border-b border-r border-t border-dashed border-slate-300 p-0"></td>
+                                  <td className="border-b border-t border-dashed border-slate-300 p-0"></td>
+                                </tr>
+                              ) : null}
                             </Fragment>
                           ))
                             : null}
