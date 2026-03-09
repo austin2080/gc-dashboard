@@ -30,17 +30,6 @@ function formatCurrency(value: number): string {
   }).format(value);
 }
 
-function formatDueDate(value: string | null): string {
-  if (!value) return "No due date";
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return "No due date";
-  return date.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
 function formatDateTime(value: string | null): string {
   if (!value) return "Not available";
   const date = new Date(value);
@@ -214,6 +203,43 @@ function parseQuoteAmount(value: string): number | null {
   if (!normalized) return null;
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatQuoteAmount(value: string): string {
+  const parsed = parseQuoteAmount(value);
+  if (parsed === null) return "";
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(parsed);
+}
+
+function formatQuoteAmountWhileTyping(value: string): string {
+  const cleaned = value.replace(/[$,\s]/g, "");
+  if (!cleaned) return "";
+
+  const firstDotIndex = cleaned.indexOf(".");
+  let integerPart = cleaned;
+  let decimalPart = "";
+  if (firstDotIndex >= 0) {
+    integerPart = cleaned.slice(0, firstDotIndex);
+    decimalPart = cleaned
+      .slice(firstDotIndex + 1)
+      .replace(/\./g, "")
+      .slice(0, 2);
+  }
+
+  integerPart = integerPart.replace(/\D/g, "");
+  if (!integerPart && firstDotIndex >= 0) {
+    integerPart = "0";
+  }
+  if (!integerPart && !decimalPart) return "";
+
+  const withCommas = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  if (firstDotIndex >= 0) {
+    return `${withCommas}.${decimalPart}`;
+  }
+  return withCommas;
 }
 
 function getQuoteLineItemsTotal(items: QuoteLineItemDraft[]): number | null {
@@ -740,7 +766,7 @@ export default function ItbsProjectBidTable() {
               const availableSubsForTrade = subs.filter((sub) => !tradeMap.has(sub.id));
               const isExpanded = Boolean(expandedTrades[trade.id]);
               const panelId = `trade-panel-${trade.id}`;
-              const coveragePercent = subs.length ? Math.round((assignedEntries.length / subs.length) * 100) : 0;
+              const submittedCount = assignedEntries.filter((entry) => entry.bid.status === "submitted").length;
               return (
                 <article key={trade.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
                   <div className="flex w-full items-center justify-between gap-3 bg-slate-50 px-4 py-3">
@@ -767,7 +793,9 @@ export default function ItbsProjectBidTable() {
                           <div className="truncate text-xl font-semibold text-slate-900">{trade.trade_name}</div>
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600">
                             <span className="rounded-md bg-slate-100 px-2 py-0.5">{assignedEntries.length} invite subs</span>
-                            <span>Coverage: {coveragePercent}%</span>
+                            <span>
+                              Coverage: <span className="font-semibold">{submittedCount}/3</span> Received
+                            </span>
                           </div>
                         </div>
                       </button>
@@ -1069,19 +1097,15 @@ export default function ItbsProjectBidTable() {
         <div className="fixed inset-0 z-50">
           <button type="button" className="absolute inset-0 bg-slate-950/40" onClick={closeDrawer} aria-label="Close bid details drawer" />
           <aside className="absolute right-0 top-0 h-full w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white shadow-2xl">
+            {(() => {
+              const bidOnlyDrawer = Boolean(drawerState.bidId);
+              const drawerSubName = selectedSub?.company ?? drawerState.subCompany ?? "Subcontractor";
+              return (
+                <>
             <div className="border-b border-slate-200 px-6 py-4">
-              <h2 className="text-2xl font-semibold text-slate-900">Invite Subcontractor</h2>
-              <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                <div>
-                  <span className="font-semibold">Trade:</span> {drawerState.tradeName}
-                </div>
-                <div>
-                  <span className="font-semibold">Project:</span> {detail.project.project_name}
-                </div>
-                <div>
-                  <span className="font-semibold">Due:</span> {formatDueDate(detail.project.due_date)}
-                </div>
-              </div>
+              <h2 className="text-2xl font-semibold text-slate-900">
+                {bidOnlyDrawer ? `${drawerSubName} Bid` : "Invite Subcontractor"}
+              </h2>
             </div>
             <form
               className="space-y-4 px-6 py-5"
@@ -1094,17 +1118,17 @@ export default function ItbsProjectBidTable() {
                   setSavingDrawer(false);
                   return;
                 }
-                if (!emailDraft.trim()) {
+                if (!bidOnlyDrawer && !emailDraft.trim()) {
                   setDrawerError("Email is required.");
                   setSavingDrawer(false);
                   return;
                 }
                 if (drawerState.bidId && selectedProjectSubId !== drawerState.projectSubId) {
                   setDrawerError("To change subcontractor, open an empty cell for the desired sub.");
-                  setSavingDrawer(false);
-                  return;
+                    setSavingDrawer(false);
+                    return;
                 }
-                if (selectedSub?.subcontractorId) {
+                if (!bidOnlyDrawer && selectedSub?.subcontractorId) {
                   const synced = await updateBidSubcontractor({
                     id: selectedSub.subcontractorId,
                     company_name: selectedSub.company,
@@ -1161,14 +1185,7 @@ export default function ItbsProjectBidTable() {
                 closeDrawer();
               }}
             >
-              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                <div>
-                  <span className="font-semibold">Sub:</span> {selectedSub?.company ?? drawerState.subCompany}
-                </div>
-                <div>
-                  <span className="font-semibold">Trade:</span> {drawerState.tradeName}
-                </div>
-              </div>
+              {!bidOnlyDrawer ? (
               <div className="space-y-2">
                 <label className="text-sm font-medium text-slate-700">Subcontractor</label>
                 <input
@@ -1223,6 +1240,8 @@ export default function ItbsProjectBidTable() {
                   )}
                 </div>
               </div>
+              ) : null}
+              {!bidOnlyDrawer ? (
               <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-3">
                 <div className="text-sm font-semibold text-slate-800">Contact Info</div>
                 <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
@@ -1255,8 +1274,9 @@ export default function ItbsProjectBidTable() {
                   />
                 </label>
               </div>
+              ) : null}
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                Proposal Due Date
+                Proposal Submitted Date
                 <input
                   type="date"
                   value={proposalDueDateDraft}
@@ -1308,19 +1328,35 @@ export default function ItbsProjectBidTable() {
                         placeholder={`Line item ${index + 1}`}
                         className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
                       />
-                      <input
-                        value={item.amount}
-                        onChange={(event) =>
-                          setQuoteLineItemsDraft((prev) =>
-                            prev.map((entry) =>
-                              entry.id === item.id ? { ...entry, amount: event.target.value } : entry
+                      <div className="relative">
+                        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-500">
+                          $
+                        </span>
+                        <input
+                          value={item.amount}
+                          onChange={(event) =>
+                            setQuoteLineItemsDraft((prev) =>
+                              prev.map((entry) =>
+                                entry.id === item.id
+                                  ? { ...entry, amount: formatQuoteAmountWhileTyping(event.target.value) }
+                                  : entry
+                              )
                             )
-                          )
-                        }
-                        placeholder="0"
-                        inputMode="decimal"
-                        className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
-                      />
+                          }
+                          onBlur={(event) =>
+                            setQuoteLineItemsDraft((prev) =>
+                              prev.map((entry) =>
+                                entry.id === item.id
+                                  ? { ...entry, amount: formatQuoteAmount(event.target.value) }
+                                  : entry
+                              )
+                            )
+                          }
+                          placeholder="0.00"
+                          inputMode="decimal"
+                          className="w-full rounded-lg border border-slate-200 pl-7 pr-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                        />
+                      </div>
                       <button
                         type="button"
                         onClick={() =>
@@ -1351,6 +1387,7 @@ export default function ItbsProjectBidTable() {
                   className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
                 />
               </label>
+              {!bidOnlyDrawer ? (
               <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <div className="text-sm font-semibold text-slate-800">Future Actions</div>
                 <div className="text-sm text-slate-700">
@@ -1382,6 +1419,7 @@ export default function ItbsProjectBidTable() {
                   Auto-track opened email: planned for future integration.
                 </div>
               </div>
+              ) : null}
               {drawerError ? (
                 <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{drawerError}</p>
               ) : null}
@@ -1398,10 +1436,13 @@ export default function ItbsProjectBidTable() {
                   disabled={savingDrawer}
                   className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  {savingDrawer ? "Saving..." : "Save"}
+                  {savingDrawer ? "Saving..." : bidOnlyDrawer ? "Save Bid" : "Save"}
                 </button>
               </div>
             </form>
+                </>
+              );
+            })()}
           </aside>
         </div>
       ) : null}
