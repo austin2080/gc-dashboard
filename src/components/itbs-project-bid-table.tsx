@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { BidProjectDetail, BidTradeStatus } from "@/lib/bidding/types";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   createProjectCustomTrade,
   createProjectTradeFromCostCode,
@@ -103,6 +104,7 @@ function hasTradeMatch(tradeName: string, companyTrade: string): boolean {
 
 const PROPOSAL_DUE_STORAGE_KEY = "bidProposalDueDatesByCell";
 const QUOTE_LINE_ITEMS_STORAGE_KEY = "bidQuoteLineItemsByCell";
+const BID_STATUS_UPDATED_STORAGE_KEY = "bidStatusUpdatedAtByBidId";
 
 function readProposalDueMap(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -152,6 +154,35 @@ function readQuoteLineItemsMap(): Record<string, Array<{ label: string; amount: 
 function writeQuoteLineItemsMap(map: Record<string, Array<{ label: string; amount: string }>>) {
   if (typeof window === "undefined") return;
   localStorage.setItem(QUOTE_LINE_ITEMS_STORAGE_KEY, JSON.stringify(map));
+}
+
+function readBidStatusUpdatedMap(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(BID_STATUS_UPDATED_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    return Object.entries(parsed).reduce<Record<string, string>>((acc, [key, value]) => {
+      if (typeof key === "string" && typeof value === "string") acc[key] = value;
+      return acc;
+    }, {});
+  } catch {
+    return {};
+  }
+}
+
+function writeBidStatusUpdatedMap(map: Record<string, string>) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(BID_STATUS_UPDATED_STORAGE_KEY, JSON.stringify(map));
+}
+
+function countNotesItems(notes: string | null): number {
+  if (!notes) return 0;
+  return notes
+    .split(/\n|,|;|\|/)
+    .map((item) => item.trim())
+    .filter(Boolean).length;
 }
 
 function compareTradeNamesByCode(a: string, b: string): number {
@@ -221,6 +252,9 @@ export default function ItbsProjectBidTable() {
   const [directoryByCompany, setDirectoryByCompany] = useState<Record<string, DirectoryCompanyMeta>>({});
   const [savingDrawer, setSavingDrawer] = useState(false);
   const [drawerError, setDrawerError] = useState<string | null>(null);
+  const [statusUpdatedAtByBidId, setStatusUpdatedAtByBidId] = useState<Record<string, string>>(
+    () => readBidStatusUpdatedMap()
+  );
   const [expandedTrades, setExpandedTrades] = useState<Record<string, boolean>>({});
   const [editTradesModalOpen, setEditTradesModalOpen] = useState(false);
   const [tradeDrafts, setTradeDrafts] = useState<TradeEditDraft[]>([]);
@@ -471,6 +505,35 @@ export default function ItbsProjectBidTable() {
     setCompanyCostCodeError(null);
     setTradeEditError(null);
     setEditTradesModalOpen(true);
+  };
+
+  const handleInlineStatusChange = async (bidId: string, nextStatus: BidTradeStatus) => {
+    const success = await updateTradeBid({
+      id: bidId,
+      status: nextStatus,
+    });
+    if (!success) return;
+
+    const now = new Date().toISOString();
+    setDetail((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        tradeBids: prev.tradeBids.map((bid) =>
+          bid.id === bidId
+            ? {
+                ...bid,
+                status: nextStatus,
+              }
+            : bid
+        ),
+      };
+    });
+    setStatusUpdatedAtByBidId((prev) => {
+      const next = { ...prev, [bidId]: now };
+      writeBidStatusUpdatedMap(next);
+      return next;
+    });
   };
 
   const addTradeDraftIfMissing = (tradeLabel: string): boolean => {
@@ -737,45 +800,106 @@ export default function ItbsProjectBidTable() {
                   >
                     <div className="border-t border-slate-200">
                       {assignedEntries.length ? (
-                        assignedEntries.map(({ sub, bid }) => (
-                          <div key={`${trade.id}-${sub.id}`} className="grid gap-3 border-t border-slate-100 px-4 py-4 md:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto]">
-                            <div className="min-w-0">
-                              <div className="truncate text-lg font-semibold text-slate-900">{sub.company}</div>
-                              <div className="mt-1 flex items-center gap-2 text-sm text-slate-500">
-                                <StatusPill status={bid.status} />
-                                <span>{sub.invitedAt ? formatDateTime(sub.invitedAt) : "Not invited yet"}</span>
+                        assignedEntries.map(({ sub, bid }) => {
+                          const lastUpdated = statusUpdatedAtByBidId[bid.id] ?? sub.invitedAt ?? null;
+                          const proposalReceived = bid.status === "bidding" || bid.status === "submitted";
+                          const notesCount = countNotesItems(bid.notes);
+                          return (
+                            <div
+                              key={`${trade.id}-${sub.id}`}
+                              className="grid gap-3 border-t border-slate-100 px-4 py-4 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1.2fr)_minmax(0,1.1fr)_minmax(0,1.1fr)_auto]"
+                            >
+                              <div className="min-w-0">
+                                <div className="truncate text-lg font-semibold text-slate-900">{sub.company}</div>
+                                <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-500">
+                                  <StatusPill status={bid.status} />
+                                  <span>{sub.invitedAt ? `Invited ${formatDateTime(sub.invitedAt)}` : "Not invited yet"}</span>
+                                </div>
+                              </div>
+
+                              <div>
+                                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Contact</div>
+                                <div className="mt-1 text-sm text-slate-700">Name: {bid.contact_name ?? sub.contact ?? "-"}</div>
+                                <div className="text-sm text-slate-700">Email: {sub.email || "-"}</div>
+                                <div className="text-sm text-slate-700">Phone: {sub.phone || "-"}</div>
+                              </div>
+
+                              <div>
+                                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Bid Summary</div>
+                                <div className="mt-1 text-sm text-slate-700">
+                                  Bid amount: {bid.bid_amount !== null && bid.bid_amount !== undefined ? formatCurrency(bid.bid_amount) : "-"}
+                                </div>
+                                <div className="text-sm text-slate-700">Proposal received: {proposalReceived ? "Yes" : "No"}</div>
+                                <div className="text-sm text-slate-700">Notes/Exclusions: {notesCount}</div>
+                              </div>
+
+                              <div>
+                                <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Status Control</div>
+                                <Select
+                                  value={bid.status}
+                                  onValueChange={(value) =>
+                                    void handleInlineStatusChange(bid.id, value as BidTradeStatus)
+                                  }
+                                >
+                                  <SelectTrigger className="mt-1 w-full rounded-md border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-700">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="invited">Invited</SelectItem>
+                                    <SelectItem value="bidding">Bidding</SelectItem>
+                                    <SelectItem value="submitted">Submitted</SelectItem>
+                                    <SelectItem value="declined">Declined</SelectItem>
+                                    <SelectItem value="ghosted">Viewed</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                <div className="mt-2 text-xs text-slate-500">
+                                  Last update: {lastUpdated ? formatDateTime(lastUpdated) : "Not available"}
+                                </div>
+                              </div>
+
+                              <div className="flex flex-col gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openDrawer({
+                                      tradeId: trade.id,
+                                      tradeName: trade.trade_name,
+                                      projectSubId: sub.id,
+                                      subCompany: sub.company,
+                                      subContact: sub.contact,
+                                      bid,
+                                    })
+                                  }
+                                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                                >
+                                  Follow-up
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openDrawer({
+                                      tradeId: trade.id,
+                                      tradeName: trade.trade_name,
+                                      projectSubId: sub.id,
+                                      subCompany: sub.company,
+                                      subContact: sub.contact,
+                                      bid,
+                                    })
+                                  }
+                                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                                >
+                                  Open bid
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                                >
+                                  More actions
+                                </button>
                               </div>
                             </div>
-                            <div>
-                              <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Contact</div>
-                              <div className="mt-1 text-sm text-slate-700">{bid.contact_name ?? sub.contact}</div>
-                              <div className="mt-2 text-sm text-slate-600">
-                                {bid.bid_amount !== null && bid.bid_amount !== undefined
-                                  ? `Bid amount: ${formatCurrency(bid.bid_amount)}`
-                                  : "Bid amount: Not submitted"}
-                              </div>
-                              <div className="mt-1 text-sm text-slate-500">{bid.notes || "No notes"}</div>
-                            </div>
-                            <div className="flex items-start">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  openDrawer({
-                                    tradeId: trade.id,
-                                    tradeName: trade.trade_name,
-                                    projectSubId: sub.id,
-                                    subCompany: sub.company,
-                                    subContact: sub.contact,
-                                    bid,
-                                  })
-                                }
-                                className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                              >
-                                Follow-up
-                              </button>
-                            </div>
-                          </div>
-                        ))
+                          );
+                        })
                       ) : (
                         <div className="px-4 py-4 text-sm text-slate-500">No subcontractors invited for this trade yet.</div>
                       )}
@@ -1142,17 +1266,21 @@ export default function ItbsProjectBidTable() {
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Status
-                <select
+                <Select
                   value={statusDraft}
-                  onChange={(event) => setStatusDraft(event.target.value as BidTradeStatus)}
-                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                  onValueChange={(value) => setStatusDraft(value as BidTradeStatus)}
                 >
-                  <option value="invited">Invited</option>
-                  <option value="bidding">Bidding</option>
-                  <option value="submitted">Submitted</option>
-                  <option value="ghosted">Ghosted</option>
-                  <option value="declined">Declined</option>
-                </select>
+                  <SelectTrigger className="rounded-lg border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="invited">Invited</SelectItem>
+                    <SelectItem value="bidding">Bidding</SelectItem>
+                    <SelectItem value="submitted">Submitted</SelectItem>
+                    <SelectItem value="ghosted">Ghosted</SelectItem>
+                    <SelectItem value="declined">Declined</SelectItem>
+                  </SelectContent>
+                </Select>
               </label>
               <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-3">
                 <div className="flex items-center justify-between">
