@@ -19,6 +19,8 @@ type BidPackageDraft = {
   project_name: string;
   package_number: string;
   status: string;
+  architect: string;
+  bid_set_date: string;
   owner: string;
   location: string;
   budget: string;
@@ -134,7 +136,9 @@ function createDefaultDraft(): BidPackageDraft {
   return {
     project_name: "",
     package_number: "",
-    status: "open",
+    status: "bidding",
+    architect: "",
+    bid_set_date: "",
     owner: "",
     location: "",
     budget: "",
@@ -342,6 +346,14 @@ export default function NewBidPackagePage() {
       setDraft((prev) => ({
         ...prev,
         project_name: detail.project.project_name ?? "",
+        status:
+          detail.project.status === "open"
+            ? "bidding"
+            : detail.project.status === "closed"
+              ? "submitted"
+              : (detail.project.status ?? "bidding"),
+        architect: "",
+        bid_set_date: "",
         owner: detail.project.owner ?? "",
         location: detail.project.location ?? "",
         budget:
@@ -798,7 +810,7 @@ export default function NewBidPackagePage() {
           <div className="mt-5 grid gap-4 sm:grid-cols-6">
             <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-2">
               <span className="inline-flex items-center gap-1">
-                Title of Package <span className="text-rose-600">*</span>
+                Project Name <span className="text-rose-600">*</span>
               </span>
               <input
                 value={draft.project_name}
@@ -808,7 +820,7 @@ export default function NewBidPackagePage() {
               />
             </label>
             <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-2">
-              Number
+              Project Number
               <input
                 value={draft.package_number}
                 onChange={(event) => setDraft((prev) => ({ ...prev, package_number: event.target.value }))}
@@ -824,8 +836,10 @@ export default function NewBidPackagePage() {
                   onChange={(event) => setDraft((prev) => ({ ...prev, status: event.target.value }))}
                   className="w-full appearance-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
                 >
-                  <option value="open">Open</option>
-                  <option value="closed">Closed</option>
+                  <option value="bidding">Bidding</option>
+                  <option value="submitted">Submitted</option>
+                  <option value="awarded">Awarded</option>
+                  <option value="lost">Lost</option>
                 </select>
                 <svg
                   viewBox="0 0 20 20"
@@ -838,6 +852,48 @@ export default function NewBidPackagePage() {
                   <path d="M5 7l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
                 </svg>
               </div>
+            </label>
+            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-3">
+              Client Name
+              <input
+                value={draft.owner}
+                onChange={(event) => setDraft((prev) => ({ ...prev, owner: event.target.value }))}
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                placeholder="Client name"
+              />
+            </label>
+            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-3">
+              Project Address
+              <input
+                value={draft.location}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, location: event.target.value }))
+                }
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                placeholder="Project address"
+              />
+            </label>
+            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-3">
+              Architect
+              <input
+                value={draft.architect}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, architect: event.target.value }))
+                }
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                placeholder="Architect"
+              />
+            </label>
+            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-3">
+              Bid Set Date
+              <input
+                type="date"
+                value={draft.bid_set_date}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, bid_set_date: event.target.value }))
+                }
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+              />
             </label>
             <div className="sm:col-span-6">
               <div className="mb-2 text-sm font-semibold text-slate-700">

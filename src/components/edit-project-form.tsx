@@ -143,6 +143,38 @@ export default function EditProjectForm({
                 placeholder="P-1027"
               />
             </label>
+            <label className="space-y-1">
+              <div className="opacity-70">Client Name</div>
+              <input
+                name="client_name"
+                className="w-full rounded border border-black/20 px-3 py-2"
+                placeholder="Client name"
+              />
+            </label>
+            <label className="space-y-1 md:col-span-2">
+              <div className="opacity-70">Project Address</div>
+              <input
+                name="project_address"
+                className="w-full rounded border border-black/20 px-3 py-2"
+                placeholder="Project address"
+              />
+            </label>
+            <label className="space-y-1">
+              <div className="opacity-70">Architect</div>
+              <input
+                name="architect"
+                className="w-full rounded border border-black/20 px-3 py-2"
+                placeholder="Architect"
+              />
+            </label>
+            <label className="space-y-1">
+              <div className="opacity-70">Bid Set Date</div>
+              <input
+                type="date"
+                name="bid_set_date"
+                className="w-full rounded border border-black/20 px-3 py-2"
+              />
+            </label>
             <label className="space-y-1 md:col-span-2">
               <div className="opacity-70">Description</div>
               <textarea
