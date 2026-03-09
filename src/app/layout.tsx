@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Space_Grotesk } from "next/font/google";
+import { Inter, Space_Grotesk, Geist } from "next/font/google";
 import TopNav from "@/components/top-nav";
 import { createClient } from "@/lib/supabase/server";
 import ModeProvider from "@/components/mode-provider";
@@ -7,6 +7,9 @@ import { canAccessPm } from "@/lib/pm-access";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import "./globals.css";
+import { cn } from "@/lib/utils";
+
+const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 const inter = Inter({
   variable: "--font-inter",
@@ -57,7 +60,7 @@ export default async function RootLayout({
   }
 
   return (
-    <html lang="en">
+    <html lang="en" className={cn("font-sans", geist.variable)}>
       <body
         className={`${inter.variable} ${spaceGrotesk.variable} antialiased`}
       >
