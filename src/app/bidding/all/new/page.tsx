@@ -28,7 +28,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, Trash2Icon } from "lucide-react";
 
 type BidPackageDraft = {
   project_name: string;
@@ -112,7 +112,18 @@ type ToastState = {
   message: string;
 };
 
+type BidPackageAutosavePayload = {
+  draft: BidPackageDraft;
+  activePanel: "general" | "files" | "trade-coverage" | "invite-subs" | "bid-email";
+  activeFileSection: FileSectionKey;
+  costCodeQuery: string;
+  selectedTrades: SelectedTrade[];
+  assignedSubsByTradeId: Record<string, AssignedSub[]>;
+  inviteQueryByTradeId: Record<string, string>;
+};
+
 const INVITATION_EMAIL_DRAFT_STORAGE_KEY = "bidding-all-new-invitation-email-draft";
+const BID_PACKAGE_AUTOSAVE_STORAGE_KEY = "bidding-all-new-package-autosave-v1";
 const TOKEN_LIST = [
   "{project_name}",
   "{bid_package_name}",
@@ -279,7 +290,7 @@ export default function NewBidPackagePage() {
   const [error, setError] = useState<string | null>(null);
   const [loadingExistingProject, setLoadingExistingProject] = useState(false);
   const [activePanel, setActivePanel] = useState<"general" | "files" | "trade-coverage" | "invite-subs" | "bid-email">("general");
-  const [activeFileSection, setActiveFileSection] = useState<FileSectionKey>("drawings");
+  const [activeFileSection, setActiveFileSection] = useState<FileSectionKey>("documents");
   const [costCodes, setCostCodes] = useState<CostCodeOption[]>([]);
   const [loadingCostCodes, setLoadingCostCodes] = useState(false);
   const [costCodeLoadError, setCostCodeLoadError] = useState<string | null>(null);
@@ -307,6 +318,7 @@ export default function NewBidPackagePage() {
     message: DEFAULT_INVITATION_MESSAGE,
     requireAcknowledgement: false,
   });
+  const [bidPackageAutosaveHydrated, setBidPackageAutosaveHydrated] = useState(false);
   const [invitationDraftHydrated, setInvitationDraftHydrated] = useState(false);
   const [invitationSaving, setInvitationSaving] = useState(false);
   const [invitationSavedAt, setInvitationSavedAt] = useState<string | null>(null);
@@ -329,6 +341,7 @@ export default function NewBidPackagePage() {
 
   const handleUploadFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
+    setActiveFileSection("documents");
     const next = Array.from(files);
     if (next.length > 25) {
       setFileError("Upload up to 25 files at a time.");
@@ -341,7 +354,7 @@ export default function NewBidPackagePage() {
       name: file.name,
       size: file.size,
       uploadedAt: now,
-      section: activeFileSection,
+      section: "documents" as FileSectionKey,
       url: URL.createObjectURL(file),
     }));
     setUploadedFiles((prev) => [...mapped, ...prev]);
@@ -465,6 +478,27 @@ export default function NewBidPackagePage() {
           description: null,
         }))
       );
+      const projectSubById = new Map(
+        detail.projectSubs.map((projectSub) => [projectSub.id, projectSub])
+      );
+      const assignedByTrade: Record<string, AssignedSub[]> = {};
+      detail.tradeBids.forEach((bid) => {
+        const projectSub = projectSubById.get(bid.project_sub_id);
+        const subcontractor = projectSub?.subcontractor;
+        if (!projectSub || !subcontractor) return;
+        const current = assignedByTrade[bid.trade_id] ?? [];
+        if (current.some((item) => item.id === subcontractor.id)) return;
+        current.push({
+          id: subcontractor.id,
+          company: subcontractor.company_name,
+          email: subcontractor.email ?? null,
+          invited: bid.status !== "ghosted",
+          willBid: bid.status === "bidding" || bid.status === "submitted",
+          bidInviteEmail: subcontractor.email ?? "",
+        });
+        assignedByTrade[bid.trade_id] = current;
+      });
+      setAssignedSubsByTradeId(assignedByTrade);
       setLoadingExistingProject(false);
     }
     loadExistingProject();
@@ -472,6 +506,76 @@ export default function NewBidPackagePage() {
       active = false;
     };
   }, [editingProjectId]);
+
+  useEffect(() => {
+    if (editingProjectId) {
+      setBidPackageAutosaveHydrated(true);
+      return;
+    }
+
+    try {
+      const raw = localStorage.getItem(BID_PACKAGE_AUTOSAVE_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<BidPackageAutosavePayload>;
+        if (parsed.draft) {
+          setDraft((prev) => ({ ...prev, ...parsed.draft }));
+        }
+        if (parsed.activePanel) {
+          setActivePanel(parsed.activePanel);
+        }
+        if (parsed.activeFileSection) {
+          setActiveFileSection(parsed.activeFileSection);
+        }
+        if (typeof parsed.costCodeQuery === "string") {
+          setCostCodeQuery(parsed.costCodeQuery);
+        }
+        if (Array.isArray(parsed.selectedTrades)) {
+          setSelectedTrades(parsed.selectedTrades);
+        }
+        if (parsed.assignedSubsByTradeId && typeof parsed.assignedSubsByTradeId === "object") {
+          setAssignedSubsByTradeId(parsed.assignedSubsByTradeId);
+        }
+        if (parsed.inviteQueryByTradeId && typeof parsed.inviteQueryByTradeId === "object") {
+          setInviteQueryByTradeId(parsed.inviteQueryByTradeId);
+        }
+      }
+    } catch {
+      // Ignore malformed autosave payloads.
+    } finally {
+      setBidPackageAutosaveHydrated(true);
+    }
+  }, [editingProjectId]);
+
+  useEffect(() => {
+    if (!bidPackageAutosaveHydrated || editingProjectId) return;
+    const timer = window.setTimeout(() => {
+      const payload: BidPackageAutosavePayload = {
+        draft,
+        activePanel,
+        activeFileSection,
+        costCodeQuery,
+        selectedTrades,
+        assignedSubsByTradeId,
+        inviteQueryByTradeId,
+      };
+      try {
+        localStorage.setItem(BID_PACKAGE_AUTOSAVE_STORAGE_KEY, JSON.stringify(payload));
+      } catch {
+        // Ignore storage quota/private mode issues.
+      }
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [
+    activeFileSection,
+    activePanel,
+    assignedSubsByTradeId,
+    bidPackageAutosaveHydrated,
+    costCodeQuery,
+    draft,
+    editingProjectId,
+    inviteQueryByTradeId,
+    selectedTrades,
+  ]);
 
   const filteredCostCodes = useMemo(() => {
     const assigned = new Set(selectedTrades.map((trade) => trade.id));
@@ -795,6 +899,18 @@ export default function NewBidPackagePage() {
         onSubmit={async (event) => {
           event.preventDefault();
           if (loadingExistingProject) return;
+          if (activePanel !== "bid-email") {
+            if (activePanel === "general") {
+              setActivePanel("files");
+            } else if (activePanel === "files") {
+              setActivePanel("trade-coverage");
+            } else if (activePanel === "trade-coverage") {
+              setActivePanel("invite-subs");
+            } else if (activePanel === "invite-subs") {
+              setActivePanel("bid-email");
+            }
+            return;
+          }
           if (!draft.project_name.trim()) {
             setError("Project name is required.");
             return;
@@ -892,6 +1008,7 @@ export default function NewBidPackagePage() {
           }
 
           setDraft(createDefaultDraft());
+          localStorage.removeItem(BID_PACKAGE_AUTOSAVE_STORAGE_KEY);
           router.push(`/bidding?project=${created.id}`);
           router.refresh();
         }}
@@ -979,79 +1096,6 @@ export default function NewBidPackagePage() {
                 className="w-full"
               />
             </label>
-            <div className="sm:col-span-6">
-              <div className="mb-2 text-sm font-semibold text-slate-700">
-                Bid Due Date <span className="text-rose-600">*</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <DatePickerField
-                  value={draft.due_date}
-                  onChange={(next) => setDraft((prev) => ({ ...prev, due_date: next }))}
-                  disabled={draft.tbd_due_date}
-                />
-                <Select
-                  value={draft.due_hour}
-                  onValueChange={(value) => setDraft((prev) => ({ ...prev, due_hour: value }))}
-                  disabled={draft.tbd_due_date}
-                >
-                  <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
-                      <SelectItem key={hour} value={hour}>
-                        {hour}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={draft.due_minute}
-                  onValueChange={(value) => setDraft((prev) => ({ ...prev, due_minute: value }))}
-                  disabled={draft.tbd_due_date}
-                >
-                  <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {["00", "15", "30", "45"].map((minute) => (
-                      <SelectItem key={minute} value={minute}>
-                        {minute}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={draft.due_period}
-                  onValueChange={(value) => setDraft((prev) => ({ ...prev, due_period: value }))}
-                  disabled={draft.tbd_due_date}
-                >
-                  <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="am">am</SelectItem>
-                    <SelectItem value="pm">pm</SelectItem>
-                  </SelectContent>
-                </Select>
-                <span className="text-sm text-slate-600">America/Adak</span>
-              </div>
-              <label className="mt-3 inline-flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={draft.tbd_due_date}
-                  onChange={(event) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      tbd_due_date: event.target.checked,
-                      due_date: event.target.checked ? "" : prev.due_date,
-                    }))
-                  }
-                  className="size-4 rounded border-slate-300"
-                />
-                To be determined
-              </label>
-            </div>
           </div>
         </section>
 
@@ -1129,6 +1173,79 @@ export default function NewBidPackagePage() {
         <section className="rounded-xl border border-slate-200 bg-white p-5">
           <h3 className="text-[18px] font-semibold text-slate-900">Pre-Bid Information</h3>
           <div className="mt-5 space-y-4">
+            <div>
+              <div className="mb-2 text-sm font-semibold text-slate-700">
+                Bid Due Date <span className="text-rose-600">*</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <DatePickerField
+                  value={draft.due_date}
+                  onChange={(next) => setDraft((prev) => ({ ...prev, due_date: next }))}
+                  disabled={draft.tbd_due_date}
+                />
+                <Select
+                  value={draft.due_hour}
+                  onValueChange={(value) => setDraft((prev) => ({ ...prev, due_hour: value }))}
+                  disabled={draft.tbd_due_date}
+                >
+                  <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
+                      <SelectItem key={hour} value={hour}>
+                        {hour}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={draft.due_minute}
+                  onValueChange={(value) => setDraft((prev) => ({ ...prev, due_minute: value }))}
+                  disabled={draft.tbd_due_date}
+                >
+                  <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {["00", "15", "30", "45"].map((minute) => (
+                      <SelectItem key={minute} value={minute}>
+                        {minute}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
+                  value={draft.due_period}
+                  onValueChange={(value) => setDraft((prev) => ({ ...prev, due_period: value }))}
+                  disabled={draft.tbd_due_date}
+                >
+                  <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="am">am</SelectItem>
+                    <SelectItem value="pm">pm</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className="text-sm text-slate-600">America/Adak</span>
+              </div>
+              <label className="mt-3 inline-flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={draft.tbd_due_date}
+                  onChange={(event) =>
+                    setDraft((prev) => ({
+                      ...prev,
+                      tbd_due_date: event.target.checked,
+                      due_date: event.target.checked ? "" : prev.due_date,
+                    }))
+                  }
+                  className="size-4 rounded border-slate-300"
+                />
+                To be determined
+              </label>
+            </div>
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
@@ -1339,40 +1456,6 @@ export default function NewBidPackagePage() {
           </label>
         </section>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5">
-          <h3 className="text-[18px] font-semibold text-slate-900">Project Details</h3>
-          <div className="mt-4 grid gap-4 sm:grid-cols-3">
-            <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-              Owner / Client
-              <input
-                value={draft.owner}
-                onChange={(event) => setDraft((prev) => ({ ...prev, owner: event.target.value }))}
-                className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
-                placeholder="Owner name"
-              />
-            </label>
-            <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-              Location
-              <input
-                value={draft.location}
-                onChange={(event) => setDraft((prev) => ({ ...prev, location: event.target.value }))}
-                className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
-                placeholder="City, State"
-              />
-            </label>
-            <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-              Budget
-              <input
-                value={draft.budget}
-                onChange={(event) => setDraft((prev) => ({ ...prev, budget: event.target.value }))}
-                className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
-                placeholder="1000000"
-                inputMode="decimal"
-              />
-            </label>
-          </div>
-        </section>
-
         {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
         <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85 sm:px-6 lg:px-12">
@@ -1394,7 +1477,10 @@ export default function NewBidPackagePage() {
         ) : activePanel === "files" ? (
           <>
             <section className="rounded-xl border border-slate-200 bg-white p-5">
-              <h3 className="text-[18px] font-semibold text-slate-900">Drawings</h3>
+              <h3 className="text-[18px] font-semibold text-slate-900">Files</h3>
+              <p className="mt-1 text-sm text-slate-600">
+                Upload documents here for subcontractors to download during bidding.
+              </p>
               <div className="mt-6 grid gap-6 md:grid-cols-[340px_minmax(0,1fr)]">
                 <div>
                   <div className="space-y-1 border border-slate-200 bg-slate-50">
@@ -1450,6 +1536,7 @@ export default function NewBidPackagePage() {
                         ref={fileInputRef}
                         type="file"
                         multiple
+                        accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.rtf,.zip,.dwg,.dxf,image/*"
                         className="hidden"
                         onChange={(event) => {
                           handleUploadFiles(event.target.files);
@@ -1523,11 +1610,12 @@ export default function NewBidPackagePage() {
                 Cancel
               </Link>
               <button
-                type="submit"
+                type="button"
+                onClick={() => setActivePanel("trade-coverage")}
                 disabled={submitting}
                 className="rounded-md bg-orange-500 px-8 py-2 text-base font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {submitting ? "Creating..." : "Continue to Trades"}
+                Continue to Trades
               </button>
             </div>
           </>
@@ -1785,12 +1873,16 @@ export default function NewBidPackagePage() {
                         <article key={`invite-${trade.id}`} className="overflow-hidden rounded-lg border border-slate-200">
                           <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 px-4 py-3">
                             <div className="flex items-center gap-3">
-                              <span className="inline-flex size-7 items-center justify-center rounded-full bg-emerald-600 text-sm text-white">✓</span>
+                              {assigned.length >= 3 ? (
+                                <span className="inline-flex size-7 items-center justify-center rounded-full bg-emerald-600 text-sm text-white">✓</span>
+                              ) : null}
                               <div className="text-2xl font-semibold text-slate-900">
                                 {trade.code}
                                 {trade.description ? <span className="ml-2 text-lg font-medium text-slate-600">{trade.description}</span> : null}
                               </div>
-                              <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">Selected</span>
+                              <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                                {assigned.length} Selected
+                              </span>
                             </div>
                             <div className="flex items-center gap-3 text-sm text-slate-600">
                               <span>Due {dueLabel}</span>
@@ -1875,37 +1967,53 @@ export default function NewBidPackagePage() {
                                     </div>
                                   </div>
                                   <div className="overflow-hidden rounded-md border border-slate-200">
-                                    <div className="grid grid-cols-[minmax(0,1fr)_130px_110px] bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
-                                      <div>Company</div>
-                                      <div>Invite Status</div>
-                                      <div>Status</div>
-                                    </div>
-                                    {assigned.length ? (
-                                      assigned.map((sub) => (
-                                        <div key={`${trade.id}-assigned-${sub.id}`} className="grid grid-cols-[minmax(0,1fr)_130px_110px] border-t border-slate-200 px-3 py-2">
-                                          <div className="min-w-0">
-                                            <div className="truncate text-sm font-semibold text-slate-800">{sub.company}</div>
-                                            <div className="text-xs text-slate-500">{sub.bidInviteEmail || "No invite email set"}</div>
-                                          </div>
-                                          <div className="text-sm text-slate-600">{sub.invited ? "Invited" : "Not Sent"}</div>
-                                          <div>
-                                            <span
-                                              className={`inline-flex rounded px-2 py-0.5 text-xs font-semibold ${
-                                                sub.willBid
-                                                  ? "bg-emerald-100 text-emerald-700"
-                                                  : sub.invited
-                                                    ? "bg-slate-100 text-slate-700"
-                                                    : "bg-amber-100 text-amber-700"
-                                              }`}
-                                            >
-                                              {sub.willBid ? "Bidding" : sub.invited ? "Viewed" : "Draft"}
-                                            </span>
-                                          </div>
+                                    <div className="overflow-x-auto">
+                                      <div className="min-w-[620px]">
+                                        <div className="grid grid-cols-[minmax(0,1fr)_130px_110px_90px] bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                                          <div>Company</div>
+                                          <div>Invite Status</div>
+                                          <div>Status</div>
+                                          <div className="text-right">Action</div>
                                         </div>
-                                      ))
-                                    ) : (
-                                      <div className="border-t border-slate-200 px-3 py-4 text-sm text-slate-500">No subs added for this trade yet.</div>
-                                    )}
+                                        {assigned.length ? (
+                                          assigned.map((sub) => (
+                                            <div key={`${trade.id}-assigned-${sub.id}`} className="grid grid-cols-[minmax(0,1fr)_130px_110px_90px] border-t border-slate-200 px-3 py-2">
+                                              <div className="min-w-0">
+                                                <div className="truncate text-sm font-semibold text-slate-800">{sub.company}</div>
+                                                <div className="text-xs text-slate-500">{sub.bidInviteEmail || "No invite email set"}</div>
+                                              </div>
+                                              <div className="text-sm text-slate-600">{sub.invited ? "Invited" : "Not Sent"}</div>
+                                              <div>
+                                                <span
+                                                  className={`inline-flex rounded px-2 py-0.5 text-xs font-semibold ${
+                                                    sub.willBid
+                                                      ? "bg-emerald-100 text-emerald-700"
+                                                      : sub.invited
+                                                        ? "bg-slate-100 text-slate-700"
+                                                        : "bg-amber-100 text-amber-700"
+                                                  }`}
+                                                >
+                                                  {sub.willBid ? "Bidding" : sub.invited ? "Viewed" : "Draft"}
+                                                </span>
+                                              </div>
+                                              <div className="text-right">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => removeSubFromTrade(trade.id, sub.id)}
+                                                  className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white p-1.5 text-slate-700 hover:bg-slate-50"
+                                                  aria-label={`Remove ${sub.company}`}
+                                                  title={`Remove ${sub.company}`}
+                                                >
+                                                  <Trash2Icon className="size-4" />
+                                                </button>
+                                              </div>
+                                            </div>
+                                          ))
+                                        ) : (
+                                          <div className="border-t border-slate-200 px-3 py-4 text-sm text-slate-500">No subs added for this trade yet.</div>
+                                        )}
+                                      </div>
+                                    </div>
                                   </div>
                                 </div>
                               </div>
@@ -1940,11 +2048,12 @@ export default function NewBidPackagePage() {
                 Cancel
               </Link>
               <button
-                type="submit"
+                type="button"
+                onClick={() => setActivePanel("bid-email")}
                 disabled={submitting}
                 className="rounded-md bg-orange-500 px-8 py-2 text-base font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {submitting ? "Creating..." : "Review Email"}
+                Review Email
               </button>
             </div>
           </>

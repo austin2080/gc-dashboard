@@ -35,18 +35,44 @@ export async function GET() {
       companyId = member.company_id as string;
     }
 
-    const { data, error } = await supabase
+    const { data: companyData, error: companyError } = await supabase
+      .from("company_cost_codes")
+      .select("id,code,title,division,is_active")
+      .eq("company_id", companyId)
+      .order("code", { ascending: true });
+
+    if (!companyError && companyData) {
+      const mapped = (companyData as Array<{
+        id: string;
+        code: string;
+        title?: string | null;
+        division?: string | null;
+        is_active?: boolean | null;
+      }>).map((row) => ({
+        id: row.id,
+        code: row.code,
+        description: row.title ?? null,
+        division: row.division ?? null,
+        is_active: row.is_active ?? null,
+      }));
+
+      return NextResponse.json({
+        costCodes: mapped as CostCodeRow[],
+      });
+    }
+
+    const { data: legacyData, error: legacyError } = await supabase
       .from("cost_codes")
       .select("id,code,description,division,is_active")
       .eq("company_id", companyId)
       .order("code", { ascending: true });
 
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+    if (legacyError) {
+      return NextResponse.json({ error: legacyError.message }, { status: 500 });
     }
 
     return NextResponse.json({
-      costCodes: (data ?? []) as CostCodeRow[],
+      costCodes: (legacyData ?? []) as CostCodeRow[],
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Not authenticated";
