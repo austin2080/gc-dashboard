@@ -83,6 +83,7 @@ type WorksheetRenderedCostCodeGroup = WorksheetCostCodeGroup & {
   readOnlyRollup?: boolean;
 };
 type SectionKey =
+  | "projectInfo"
   | "fees"
   | "projectData"
   | "projectPlanning"
@@ -386,6 +387,56 @@ const INITIAL_COVER_PAGE_FIELDS: CoverPageField[] = [
   { id: "cover-contractor-phone", label: "Contractor Phone", value: "" },
   { id: "cover-contractor-email", label: "Contractor Email", value: "" },
   { id: "cover-bid-set-date", label: "Bid Set Date", value: new Date().toLocaleDateString() },
+];
+
+const PROJECT_INFO_GRID_ROWS: Array<{
+  leftLabel: string;
+  leftFieldId: string;
+  rightLabel: string;
+  rightFieldId: string;
+}> = [
+  {
+    leftLabel: "Name",
+    leftFieldId: "cover-attn-name",
+    rightLabel: "Company",
+    rightFieldId: "cover-contractor-company",
+  },
+  {
+    leftLabel: "Address",
+    leftFieldId: "cover-attn-address",
+    rightLabel: "Name",
+    rightFieldId: "cover-contractor-name",
+  },
+  {
+    leftLabel: "Phone",
+    leftFieldId: "cover-attn-phone",
+    rightLabel: "Address",
+    rightFieldId: "cover-contractor-address",
+  },
+  {
+    leftLabel: "Email",
+    leftFieldId: "cover-attn-email",
+    rightLabel: "City, State ZIP",
+    rightFieldId: "cover-contractor-city-state-zip",
+  },
+  {
+    leftLabel: "Project Name",
+    leftFieldId: "cover-project-name",
+    rightLabel: "Phone",
+    rightFieldId: "cover-contractor-phone",
+  },
+  {
+    leftLabel: "Architect",
+    leftFieldId: "cover-architect",
+    rightLabel: "Email",
+    rightFieldId: "cover-contractor-email",
+  },
+  {
+    leftLabel: "",
+    leftFieldId: "",
+    rightLabel: "Bid Set Date",
+    rightFieldId: "cover-bid-set-date",
+  },
 ];
 
 const INITIAL_GENERAL_CONDITIONS_ROWS: GeneralConditionsRow[] = [
@@ -824,6 +875,19 @@ const addDaysToIsoDate = (isoDate: string, days: number) => {
   return `${nextYear}-${nextMonth}-${nextDay}`;
 };
 
+const GC_WEEKS_SYNC_ROW_IDS = new Set([
+  "gc-010100",
+  "gc-010200-a",
+  "gc-010200-b",
+  "gc-010200-c",
+  "gc-010300-a",
+  "gc-010300-b",
+  "gc-010400",
+  "gc-010500",
+  "gc-010600",
+  "gc-010700",
+]);
+
 const calculateDurationWeeks = (startIsoDate: string, endIsoDate: string) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startIsoDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endIsoDate)) {
     return null;
@@ -894,6 +958,7 @@ export default function EstimateWorkspaceV2() {
     startWidth: number;
   } | null>(null);
   const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
+    projectInfo: true,
     fees: true,
     projectData: true,
     projectPlanning: true,
@@ -907,6 +972,8 @@ export default function EstimateWorkspaceV2() {
     projectPlanningRows.find((row) => row.id === "pp-completion-date")?.value ?? "";
   const closeoutDateValue =
     projectPlanningRows.find((row) => row.id === "pp-closeout-date")?.value ?? "";
+  const projectDurationWeeksValue =
+    projectPlanningRows.find((row) => row.id === "pp-project-duration")?.value ?? "";
 
   useEffect(() => {
     let isMounted = true;
@@ -1029,6 +1096,17 @@ export default function EstimateWorkspaceV2() {
       })
     );
   }, [startDateValue, completionDateValue, closeoutDateValue]);
+  useEffect(() => {
+    const weeksValue = projectDurationWeeksValue.trim();
+    if (!weeksValue) return;
+    setGeneralConditionsRows((prev) =>
+      prev.map((row) => {
+        if (!GC_WEEKS_SYNC_ROW_IDS.has(row.id)) return row;
+        if (row.unit !== "wks") return row;
+        return row.quantity === weeksValue ? row : { ...row, quantity: weeksValue };
+      })
+    );
+  }, [projectDurationWeeksValue]);
 
   const updateCell = (rowId: string, key: keyof FactorRow, value: string) => {
     setRows((prev) =>
@@ -1390,6 +1468,90 @@ export default function EstimateWorkspaceV2() {
           {worksheetView ? (
             <div className="p-3">
               <div className="space-y-3">
+                <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+                  <button
+                    type="button"
+                    onClick={() => toggleSection("projectInfo")}
+                    className="flex w-full items-center justify-between border-b border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm font-semibold text-slate-800"
+                  >
+                    <span className="flex items-center gap-2">
+                      <svg
+                        viewBox="0 0 20 20"
+                        aria-hidden="true"
+                        className={`h-4 w-4 transition-transform ${
+                          openSections.projectInfo ? "rotate-180" : "rotate-0"
+                        }`}
+                      >
+                        <path d="M5 7l5 6 5-6H5z" fill="currentColor" />
+                      </svg>
+                      <span>Project Information</span>
+                    </span>
+                    <span className="text-xs text-slate-500">
+                      {openSections.projectInfo ? "Hide" : "Show"}
+                    </span>
+                  </button>
+                  {openSections.projectInfo ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[980px] border-separate border-spacing-0 text-sm">
+                        <thead className="bg-slate-100/80 text-slate-700">
+                          <tr>
+                            <th className="w-[20%] border-b border-r border-slate-200 px-3 py-2 text-left font-semibold">
+                              ATTN
+                            </th>
+                            <th className="w-[30%] border-b border-r border-slate-200 px-3 py-2 text-left font-semibold">
+                              Details
+                            </th>
+                            <th className="w-[20%] border-b border-r border-slate-200 px-3 py-2 text-left font-semibold">
+                              Contractor Information
+                            </th>
+                            <th className="w-[30%] border-b border-slate-200 px-3 py-2 text-left font-semibold">
+                              Details
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {PROJECT_INFO_GRID_ROWS.map((row, index) => (
+                            <tr key={`${row.leftFieldId}-${row.rightFieldId}-${index}`} className="odd:bg-white even:bg-slate-50/30">
+                              <td className="border-b border-r border-slate-200 px-3 py-2 text-slate-700">
+                                {row.leftLabel}
+                              </td>
+                              <td className="border-b border-r border-slate-200 p-0">
+                                {row.leftFieldId ? (
+                                  <input
+                                    value={getCoverPageFieldValue(row.leftFieldId)}
+                                    onChange={(event) =>
+                                      updateCoverPageField(row.leftFieldId, event.target.value)
+                                    }
+                                    className="h-10 w-full border-0 bg-transparent px-3 text-base text-slate-900 focus:bg-white focus:outline-none"
+                                  />
+                                ) : (
+                                  <div className="h-10"></div>
+                                )}
+                              </td>
+                              <td className="border-b border-r border-slate-200 px-3 py-2 text-slate-700">
+                                {row.rightLabel}
+                              </td>
+                              <td className="border-b border-slate-200 p-0">
+                                {row.rightFieldId ? (
+                                  <input
+                                    value={getCoverPageFieldValue(row.rightFieldId)}
+                                    onChange={(event) =>
+                                      updateCoverPageField(row.rightFieldId, event.target.value)
+                                    }
+                                    className="h-10 w-full border-0 bg-transparent px-3 text-base text-slate-900 focus:bg-white focus:outline-none"
+                                  />
+                                ) : (
+                                  <div className="h-10"></div>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                </section>
+
                 <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
                   <button
                     type="button"
