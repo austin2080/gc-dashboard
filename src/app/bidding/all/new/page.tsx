@@ -14,6 +14,21 @@ import {
   updateBidProject,
   updateBidTrades,
 } from "@/lib/bidding/store";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { CalendarIcon } from "lucide-react";
 
 type BidPackageDraft = {
   project_name: string;
@@ -125,6 +140,86 @@ const DEFAULT_INVITATION_MESSAGE = [
   "Thank you,",
   "{contact_name}",
 ].join("\n");
+
+const DATE_DISPLAY_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  month: "2-digit",
+  day: "2-digit",
+  year: "numeric",
+});
+
+function parseIsoDate(value: string): Date | undefined {
+  if (!value) return undefined;
+  const [yearText, monthText, dayText] = value.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return undefined;
+  }
+  return new Date(year, month - 1, day);
+}
+
+function toIsoDate(value: Date): string {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function DatePickerField({
+  value,
+  onChange,
+  disabled,
+  className,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectedDate = parseIsoDate(value);
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          disabled={disabled}
+          className={`justify-start rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900 shadow-sm hover:bg-white ${className ?? "w-[170px]"}`}
+        >
+          <CalendarIcon className="mr-2 size-4 text-slate-500" />
+          {selectedDate ? DATE_DISPLAY_FORMATTER.format(selectedDate) : "Select date"}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-auto p-0" align="start">
+        <Calendar
+          mode="single"
+          selected={selectedDate}
+          captionLayout="dropdown"
+          fromYear={2000}
+          toYear={2100}
+          onSelect={(date) => {
+            onChange(date ? toIsoDate(date) : "");
+            setOpen(false);
+          }}
+        />
+        <div className="border-t p-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={() => setOpen(false)}
+          >
+            Done
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -830,28 +925,20 @@ export default function NewBidPackagePage() {
             </label>
             <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-2">
               Status
-              <div className="relative">
-                <select
-                  value={draft.status}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, status: event.target.value }))}
-                  className="w-full appearance-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
-                >
-                  <option value="bidding">Bidding</option>
-                  <option value="submitted">Submitted</option>
-                  <option value="awarded">Awarded</option>
-                  <option value="lost">Lost</option>
-                </select>
-                <svg
-                  viewBox="0 0 20 20"
-                  className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-500"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  aria-hidden
-                >
-                  <path d="M5 7l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </div>
+              <Select
+                value={draft.status}
+                onValueChange={(value) => setDraft((prev) => ({ ...prev, status: value }))}
+              >
+                <SelectTrigger className="w-full rounded-lg border-slate-300 text-sm text-slate-900 shadow-sm focus:ring-blue-500">
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="bidding">Bidding</SelectItem>
+                  <SelectItem value="submitted">Submitted</SelectItem>
+                  <SelectItem value="awarded">Awarded</SelectItem>
+                  <SelectItem value="lost">Lost</SelectItem>
+                </SelectContent>
+              </Select>
             </label>
             <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-3">
               Client Name
@@ -886,13 +973,10 @@ export default function NewBidPackagePage() {
             </label>
             <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-3">
               Bid Set Date
-              <input
-                type="date"
+              <DatePickerField
                 value={draft.bid_set_date}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, bid_set_date: event.target.value }))
-                }
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                onChange={(next) => setDraft((prev) => ({ ...prev, bid_set_date: next }))}
+                className="w-full"
               />
             </label>
             <div className="sm:col-span-6">
@@ -900,46 +984,56 @@ export default function NewBidPackagePage() {
                 Bid Due Date <span className="text-rose-600">*</span>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <input
-                  type="date"
+                <DatePickerField
                   value={draft.due_date}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, due_date: event.target.value }))}
+                  onChange={(next) => setDraft((prev) => ({ ...prev, due_date: next }))}
                   disabled={draft.tbd_due_date}
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                 />
-                <select
+                <Select
                   value={draft.due_hour}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, due_hour: event.target.value }))}
+                  onValueChange={(value) => setDraft((prev) => ({ ...prev, due_hour: value }))}
                   disabled={draft.tbd_due_date}
-                  className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
-                    <option key={hour} value={hour}>
-                      {hour}
-                    </option>
-                  ))}
-                </select>
-                <select
+                  <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
+                      <SelectItem key={hour} value={hour}>
+                        {hour}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
                   value={draft.due_minute}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, due_minute: event.target.value }))}
+                  onValueChange={(value) => setDraft((prev) => ({ ...prev, due_minute: value }))}
                   disabled={draft.tbd_due_date}
-                  className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {["00", "15", "30", "45"].map((minute) => (
-                    <option key={minute} value={minute}>
-                      {minute}
-                    </option>
-                  ))}
-                </select>
-                <select
+                  <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {["00", "15", "30", "45"].map((minute) => (
+                      <SelectItem key={minute} value={minute}>
+                        {minute}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select
                   value={draft.due_period}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, due_period: event.target.value }))}
+                  onValueChange={(value) => setDraft((prev) => ({ ...prev, due_period: value }))}
                   disabled={draft.tbd_due_date}
-                  className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <option value="am">am</option>
-                  <option value="pm">pm</option>
-                </select>
+                  <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="am">am</SelectItem>
+                    <SelectItem value="pm">pm</SelectItem>
+                  </SelectContent>
+                </Select>
                 <span className="text-sm text-slate-600">America/Adak</span>
               </div>
               <label className="mt-3 inline-flex items-center gap-2 text-sm text-slate-700">
@@ -969,20 +1063,19 @@ export default function NewBidPackagePage() {
                 Primary Bidding Contact <span className="text-rose-600">*</span>
                 <span className="inline-flex size-5 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">i</span>
               </span>
-              <div className="relative">
-                <select
-                  value={draft.primary_bidding_contact}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, primary_bidding_contact: event.target.value }))}
-                  className="w-full appearance-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
-                >
-                  <option value="Project Manager">Project Manager</option>
-                  <option value="Estimator">Estimator</option>
-                  <option value="Precon Manager">Precon Manager</option>
-                </select>
-                <svg viewBox="0 0 20 20" className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-                  <path d="M5 7l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </div>
+              <Select
+                value={draft.primary_bidding_contact}
+                onValueChange={(value) => setDraft((prev) => ({ ...prev, primary_bidding_contact: value }))}
+              >
+                <SelectTrigger className="w-full rounded-lg border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:ring-blue-500">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Project Manager">Project Manager</SelectItem>
+                  <SelectItem value="Estimator">Estimator</SelectItem>
+                  <SelectItem value="Precon Manager">Precon Manager</SelectItem>
+                </SelectContent>
+              </Select>
               <span className="text-sm font-normal text-slate-600">Emails will be sent from: test@builderos.com</span>
             </label>
 
@@ -991,21 +1084,22 @@ export default function NewBidPackagePage() {
                 Bidding CC Group
                 <span className="inline-flex size-5 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">i</span>
               </span>
-              <div className="relative">
-                <select
-                  value={draft.bidding_cc_group}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, bidding_cc_group: event.target.value }))}
-                  className="w-full appearance-none rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
-                >
-                  <option value="">Choose a distribution group</option>
-                  <option value="estimating-team">Estimating Team</option>
-                  <option value="operations-leadership">Operations Leadership</option>
-                  <option value="executive-updates">Executive Updates</option>
-                </select>
-                <svg viewBox="0 0 20 20" className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-500" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-                  <path d="M5 7l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </div>
+              <Select
+                value={draft.bidding_cc_group || "__none"}
+                onValueChange={(value) =>
+                  setDraft((prev) => ({ ...prev, bidding_cc_group: value === "__none" ? "" : value }))
+                }
+              >
+                <SelectTrigger className="w-full rounded-lg border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:ring-blue-500">
+                  <SelectValue placeholder="Choose a distribution group" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none">Choose a distribution group</SelectItem>
+                  <SelectItem value="estimating-team">Estimating Team</SelectItem>
+                  <SelectItem value="operations-leadership">Operations Leadership</SelectItem>
+                  <SelectItem value="executive-updates">Executive Updates</SelectItem>
+                </SelectContent>
+              </Select>
             </label>
           </div>
         </section>
@@ -1050,21 +1144,60 @@ export default function NewBidPackagePage() {
               <span className="text-sm font-medium text-slate-800">RFI Deadline</span>
               {draft.rfi_deadline_enabled ? (
                 <div className="ml-4 flex flex-wrap items-center gap-2">
-                  <input type="date" value={draft.rfi_deadline_date} onChange={(event) => setDraft((prev) => ({ ...prev, rfi_deadline_date: event.target.value }))} className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none" />
-                  <select value={draft.rfi_deadline_hour} onChange={(event) => setDraft((prev) => ({ ...prev, rfi_deadline_hour: event.target.value }))} className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700">
-                    {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
-                      <option key={`rfi-hour-${hour}`} value={hour}>{hour}</option>
-                    ))}
-                  </select>
-                  <select value={draft.rfi_deadline_minute} onChange={(event) => setDraft((prev) => ({ ...prev, rfi_deadline_minute: event.target.value }))} className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700">
-                    {["00", "15", "30", "45"].map((minute) => (
-                      <option key={`rfi-minute-${minute}`} value={minute}>{minute}</option>
-                    ))}
-                  </select>
-                  <select value={draft.rfi_deadline_period} onChange={(event) => setDraft((prev) => ({ ...prev, rfi_deadline_period: event.target.value }))} className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700">
-                    <option value="am">am</option>
-                    <option value="pm">pm</option>
-                  </select>
+                  <DatePickerField
+                    value={draft.rfi_deadline_date}
+                    onChange={(next) =>
+                      setDraft((prev) => ({ ...prev, rfi_deadline_date: next }))
+                    }
+                  />
+                  <Select
+                    value={draft.rfi_deadline_hour}
+                    onValueChange={(value) =>
+                      setDraft((prev) => ({ ...prev, rfi_deadline_hour: value }))
+                    }
+                  >
+                    <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
+                        <SelectItem key={`rfi-hour-${hour}`} value={hour}>
+                          {hour}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={draft.rfi_deadline_minute}
+                    onValueChange={(value) =>
+                      setDraft((prev) => ({ ...prev, rfi_deadline_minute: value }))
+                    }
+                  >
+                    <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {["00", "15", "30", "45"].map((minute) => (
+                        <SelectItem key={`rfi-minute-${minute}`} value={minute}>
+                          {minute}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={draft.rfi_deadline_period}
+                    onValueChange={(value) =>
+                      setDraft((prev) => ({ ...prev, rfi_deadline_period: value }))
+                    }
+                  >
+                    <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="am">am</SelectItem>
+                      <SelectItem value="pm">pm</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <span className="text-sm text-slate-600">America/Adak</span>
                 </div>
               ) : null}
@@ -1085,21 +1218,60 @@ export default function NewBidPackagePage() {
               <span className="text-sm font-medium text-slate-800">Site Walkthrough</span>
               {draft.site_walkthrough_enabled ? (
                 <div className="ml-4 flex flex-wrap items-center gap-2">
-                  <input type="date" value={draft.site_walkthrough_date} onChange={(event) => setDraft((prev) => ({ ...prev, site_walkthrough_date: event.target.value }))} className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none" />
-                  <select value={draft.site_walkthrough_hour} onChange={(event) => setDraft((prev) => ({ ...prev, site_walkthrough_hour: event.target.value }))} className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700">
-                    {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
-                      <option key={`walk-hour-${hour}`} value={hour}>{hour}</option>
-                    ))}
-                  </select>
-                  <select value={draft.site_walkthrough_minute} onChange={(event) => setDraft((prev) => ({ ...prev, site_walkthrough_minute: event.target.value }))} className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700">
-                    {["00", "15", "30", "45"].map((minute) => (
-                      <option key={`walk-minute-${minute}`} value={minute}>{minute}</option>
-                    ))}
-                  </select>
-                  <select value={draft.site_walkthrough_period} onChange={(event) => setDraft((prev) => ({ ...prev, site_walkthrough_period: event.target.value }))} className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700">
-                    <option value="am">am</option>
-                    <option value="pm">pm</option>
-                  </select>
+                  <DatePickerField
+                    value={draft.site_walkthrough_date}
+                    onChange={(next) =>
+                      setDraft((prev) => ({ ...prev, site_walkthrough_date: next }))
+                    }
+                  />
+                  <Select
+                    value={draft.site_walkthrough_hour}
+                    onValueChange={(value) =>
+                      setDraft((prev) => ({ ...prev, site_walkthrough_hour: value }))
+                    }
+                  >
+                    <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
+                        <SelectItem key={`walk-hour-${hour}`} value={hour}>
+                          {hour}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={draft.site_walkthrough_minute}
+                    onValueChange={(value) =>
+                      setDraft((prev) => ({ ...prev, site_walkthrough_minute: value }))
+                    }
+                  >
+                    <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {["00", "15", "30", "45"].map((minute) => (
+                        <SelectItem key={`walk-minute-${minute}`} value={minute}>
+                          {minute}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select
+                    value={draft.site_walkthrough_period}
+                    onValueChange={(value) =>
+                      setDraft((prev) => ({ ...prev, site_walkthrough_period: value }))
+                    }
+                  >
+                    <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="am">am</SelectItem>
+                      <SelectItem value="pm">pm</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <span className="text-sm text-slate-600">America/Adak</span>
                 </div>
               ) : null}
@@ -1112,11 +1284,12 @@ export default function NewBidPackagePage() {
           <div className="mt-4">
             <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
               Anticipated Award Date
-              <input
-                type="date"
+              <DatePickerField
                 value={draft.anticipated_award_date}
-                onChange={(event) => setDraft((prev) => ({ ...prev, anticipated_award_date: event.target.value }))}
-                className="w-full max-w-xs rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                onChange={(next) =>
+                  setDraft((prev) => ({ ...prev, anticipated_award_date: next }))
+                }
+                className="w-full max-w-xs"
               />
             </label>
           </div>
@@ -1263,9 +1436,14 @@ export default function NewBidPackagePage() {
                 <div className="min-h-[540px]">
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <div className="max-w-[220px]">
-                      <select className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-base text-slate-700">
-                        <option>Current</option>
-                      </select>
+                      <Select defaultValue="current">
+                        <SelectTrigger className="w-full rounded-lg border-slate-300 bg-white px-3 py-2 text-base text-slate-700 shadow-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="current">Current</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="flex items-center gap-2">
                       <input

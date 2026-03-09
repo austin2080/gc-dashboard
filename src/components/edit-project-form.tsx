@@ -3,6 +3,13 @@
 import Link from "next/link";
 import { useMemo, useState, useActionState } from "react";
 import { useFormStatus } from "react-dom";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type FormState = { error?: string };
 
@@ -57,6 +64,7 @@ export default function EditProjectForm({
   const [estimatedBuyoutDisplay, setEstimatedBuyoutDisplay] = useState(
     formatMoney.format(project.estimated_buyout ?? 0)
   );
+  const [status, setStatus] = useState<ProjectDefaults["health"]>(project.health);
 
   function normalizeMoneyInput(value: string) {
     return value.replace(/[^\d.]/g, "");
@@ -245,16 +253,18 @@ export default function EditProjectForm({
             </label>
             <label className="space-y-1">
               <div className="opacity-70">Status</div>
-              <select
-                name="health"
-                className="w-full rounded border border-black/20 px-3 py-2"
-                defaultValue={project.health}
-              >
-                <option value="on_track">Active</option>
-                <option value="at_risk">At Risk</option>
-                <option value="on_hold">Starting Soon</option>
-                <option value="complete">Inactive</option>
-              </select>
+              <input type="hidden" name="health" value={status} />
+              <Select value={status} onValueChange={(value) => setStatus(value as ProjectDefaults["health"])}>
+                <SelectTrigger className="w-full rounded border border-black/20 px-3 py-2">
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="on_track">Active</SelectItem>
+                  <SelectItem value="at_risk">At Risk</SelectItem>
+                  <SelectItem value="on_hold">Starting Soon</SelectItem>
+                  <SelectItem value="complete">Inactive</SelectItem>
+                </SelectContent>
+              </Select>
             </label>
           </div>
         </section>
