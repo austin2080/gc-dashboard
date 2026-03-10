@@ -222,7 +222,7 @@ export default function LevelingPageV2({
     const subNameById = new Map(
       data.projectSubs.map((sub) => [sub.id, sub.subcontractor?.company_name ?? "Subcontractor"])
     );
-    const realColumns = data.bids
+    const realColumns: BidColumn[] = data.bids
       .filter((bid) => bid.trade_id === selectedTrade.id)
       .sort((a, b) => {
         const aAmount = a.base_bid_amount ?? Number.POSITIVE_INFINITY;
@@ -348,13 +348,13 @@ export default function LevelingPageV2({
   const getInitialAdditionalInfoForCell = (rowKey: AdditionalInfoRowKey, col: BidColumn): string => {
     if (rowKey === "comments") return col.bid?.notes ?? "";
     if (rowKey === "inclusions") {
-      if (!col.subId) return "Labor, material, and equipment per plans/specs.";
-      const key = `${data.project.id}:${selectedTrade?.id}:${col.subId}`;
+      if (!col.subId || !data || !selectedTrade) return "Labor, material, and equipment per plans/specs.";
+      const key = `${data.project.id}:${selectedTrade.id}:${col.subId}`;
       return inclusionsByCellKey[key] ?? "Labor, material, and equipment per plans/specs.";
     }
     if (rowKey === "exclusions") {
-      if (!col.subId) return "Overtime and out-of-sequence work excluded.";
-      const key = `${data.project.id}:${selectedTrade?.id}:${col.subId}`;
+      if (!col.subId || !data || !selectedTrade) return "Overtime and out-of-sequence work excluded.";
+      const key = `${data.project.id}:${selectedTrade.id}:${col.subId}`;
       return exclusionsByCellKey[key] ?? "Overtime and out-of-sequence work excluded.";
     }
     return "";

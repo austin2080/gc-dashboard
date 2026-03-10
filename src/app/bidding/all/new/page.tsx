@@ -418,12 +418,12 @@ export default function NewBidPackagePage() {
           return;
         }
         const mapped = Array.isArray(payload?.companies)
-          ? payload.companies
-              .map((company) => {
-                if (!company?.id || !company?.name) return null;
-                return { id: company.id, company: company.name, email: company.email ?? null };
-              })
-              .filter((item): item is SubOption => Boolean(item))
+          ? payload.companies.flatMap((company): SubOption[] => {
+              if (!company?.id || !company?.name) return [];
+              return [
+                { id: company.id, company: company.name, email: company.email ?? null },
+              ];
+            })
           : [];
         setSubOptions(mapped);
       } catch {
@@ -441,10 +441,11 @@ export default function NewBidPackagePage() {
 
   useEffect(() => {
     if (!editingProjectId) return;
+    const projectId: string = editingProjectId;
     let active = true;
     async function loadExistingProject() {
       setLoadingExistingProject(true);
-      const detail = await getBidProjectDetail(editingProjectId);
+      const detail = await getBidProjectDetail(projectId);
       if (!active) return;
       if (!detail) {
         setError("Unable to load bid package for editing.");
@@ -454,12 +455,7 @@ export default function NewBidPackagePage() {
       setDraft((prev) => ({
         ...prev,
         project_name: detail.project.project_name ?? "",
-        status:
-          detail.project.status === "open"
-            ? "bidding"
-            : detail.project.status === "closed"
-              ? "submitted"
-              : (detail.project.status ?? "bidding"),
+        status: prev.status,
         architect: "",
         bid_set_date: "",
         owner: detail.project.owner ?? "",
