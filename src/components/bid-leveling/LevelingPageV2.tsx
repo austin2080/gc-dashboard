@@ -59,8 +59,11 @@ function getAdditionalInfoCellKey(rowKey: string, bidId: string): string {
 }
 
 type BidColumn = {
-  bid: LevelingBid;
+  id: string;
+  bid: LevelingBid | null;
+  subId: string | null;
   subName: string;
+  status: string;
 };
 
 type LineItemRow = {
@@ -85,6 +88,10 @@ type AdditionalInfoRowKey = (typeof ADDITIONAL_INFO_ROWS)[number]["key"];
 const QUOTE_LINE_ITEMS_STORAGE_KEY = "bidQuoteLineItemsByCell";
 const BID_INCLUSIONS_STORAGE_KEY = "bidInclusionsByCell";
 const BID_EXCLUSIONS_STORAGE_KEY = "bidExclusionsByCell";
+const MIN_SUBCONTRACTOR_COLUMNS = 3;
+const LINE_ITEM_COLUMN_WIDTH_PX = 420;
+const SUBCONTRACTOR_COLUMN_MIN_WIDTH_PX = 280;
+const ADD_COLUMN_CELL_WIDTH_PX = 168;
 
 function normalizeLineItemLabel(value: string): string {
   return value.trim().toLowerCase();
@@ -156,6 +163,12 @@ export default function LevelingPageV2({
   );
   const [amountDraftByCell, setAmountDraftByCell] = useState<Record<string, string>>({});
   const [additionalInfoDraftByCell, setAdditionalInfoDraftByCell] = useState<Record<string, string>>({});
+  const [subcontractorNameDraftByColumnId, setSubcontractorNameDraftByColumnId] = useState<Record<string, string>>(
+    {}
+  );
+  const [extraPlaceholderColumnIdsByTradeId, setExtraPlaceholderColumnIdsByTradeId] = useState<
+    Record<string, string[]>
+  >({});
 
   useEffect(() => {
     let active = true;
@@ -199,13 +212,17 @@ export default function LevelingPageV2({
     () => data?.trades.find((trade) => trade.id === selectedTradeId) ?? null,
     [data?.trades, selectedTradeId]
   );
+  const extraPlaceholderColumnIdsForTrade = useMemo(
+    () => (selectedTrade ? extraPlaceholderColumnIdsByTradeId[selectedTrade.id] ?? [] : []),
+    [extraPlaceholderColumnIdsByTradeId, selectedTrade]
+  );
 
   const bidColumns = useMemo(() => {
     if (!data || !selectedTrade) return [] as BidColumn[];
     const subNameById = new Map(
       data.projectSubs.map((sub) => [sub.id, sub.subcontractor?.company_name ?? "Subcontractor"])
     );
-    return data.bids
+    const realColumns = data.bids
       .filter((bid) => bid.trade_id === selectedTrade.id)
       .sort((a, b) => {
         const aAmount = a.base_bid_amount ?? Number.POSITIVE_INFINITY;
@@ -214,10 +231,34 @@ export default function LevelingPageV2({
         return (subNameById.get(a.sub_id) ?? "").localeCompare(subNameById.get(b.sub_id) ?? "");
       })
       .map((bid) => ({
+        id: bid.id,
         bid,
+        subId: bid.sub_id,
         subName: subNameById.get(bid.sub_id) ?? "Subcontractor",
+        status: bid.status,
       }));
-  }, [data, selectedTrade]);
+    const next = [...realColumns];
+    const minimumPlaceholderCount = Math.max(0, MIN_SUBCONTRACTOR_COLUMNS - realColumns.length);
+    for (let index = 0; index < minimumPlaceholderCount; index += 1) {
+      next.push({
+        id: `placeholder-sub-${selectedTrade.id}-${index + 1}`,
+        bid: null,
+        subId: null,
+        subName: `Subcontractor ${realColumns.length + index + 1}`,
+        status: "not invited",
+      });
+    }
+    extraPlaceholderColumnIdsForTrade.forEach((columnId, index) => {
+      next.push({
+        id: columnId,
+        bid: null,
+        subId: null,
+        subName: `Subcontractor ${realColumns.length + minimumPlaceholderCount + index + 1}`,
+        status: "not invited",
+      });
+    });
+    return next;
+  }, [data, extraPlaceholderColumnIdsForTrade, selectedTrade]);
 
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
@@ -237,14 +278,18 @@ export default function LevelingPageV2({
     return () => window.removeEventListener("storage", handleStorage);
   }, []);
 
-  const submittedCount = bidColumns.filter((col) => col.bid.status === "submitted").length;
+  const submittedCount = bidColumns.filter((col) => col.status === "submitted").length;
 
-  const inviteLineItemsByBidId = useMemo(() => {
+  const inviteLineItemsByColumnId = useMemo(() => {
     if (!data || !selectedTrade) return {} as Record<string, InviteQuoteLineItem[]>;
     const next: Record<string, InviteQuoteLineItem[]> = {};
     bidColumns.forEach((col) => {
-      const key = `${data.project.id}:${selectedTrade.id}:${col.bid.sub_id}`;
-      next[col.bid.id] = inviteQuoteLineItemsMap[key] ?? [];
+      if (!col.subId) {
+        next[col.id] = [];
+        return;
+      }
+      const key = `${data.project.id}:${selectedTrade.id}:${col.subId}`;
+      next[col.id] = inviteQuoteLineItemsMap[key] ?? [];
     });
     return next;
   }, [bidColumns, data, inviteQuoteLineItemsMap, selectedTrade]);
@@ -253,7 +298,7 @@ export default function LevelingPageV2({
     const labels: string[] = [];
     const seen = new Set<string>();
     bidColumns.forEach((col) => {
-      const items = inviteLineItemsByBidId[col.bid.id] ?? [];
+      const items = inviteLineItemsByColumnId[col.id] ?? [];
       items.forEach((item) => {
         const normalized = normalizeLineItemLabel(item.label);
         if (!normalized || seen.has(normalized)) return;
@@ -262,7 +307,7 @@ export default function LevelingPageV2({
       });
     });
     return labels;
-  }, [bidColumns, inviteLineItemsByBidId]);
+  }, [bidColumns, inviteLineItemsByColumnId]);
 
   const hasImportedBaseBid = useMemo(
     () => importedLineItemLabels.some((label) => normalizeLineItemLabel(label) === "base bid"),
@@ -281,54 +326,100 @@ export default function LevelingPageV2({
     return rows;
   }, [hasImportedBaseBid, importedLineItemLabels, manualLineItems]);
 
-  const getInitialAmountForCell = (row: LineItemRow, bid: LevelingBid): string => {
+  const getInitialAmountForCell = (row: LineItemRow, col: BidColumn): string => {
+    if (!col.bid) return "";
     if (row.id === "base-bid") {
-      return bid.base_bid_amount !== null && Number.isFinite(bid.base_bid_amount)
-        ? formatCurrencyInput(String(bid.base_bid_amount))
+      return col.bid.base_bid_amount !== null && Number.isFinite(col.bid.base_bid_amount)
+        ? formatCurrencyInput(String(col.bid.base_bid_amount))
         : "";
     }
-    const items = inviteLineItemsByBidId[bid.id] ?? [];
+    const items = inviteLineItemsByColumnId[col.id] ?? [];
     const match = items.find(
       (item) => normalizeLineItemLabel(item.label) === normalizeLineItemLabel(row.label)
     );
     return match ? formatCurrencyInput(match.amount) : "";
   };
 
-  const getDisplayAmountForCell = (row: LineItemRow, bid: LevelingBid): string => {
-    const key = getAmountCellKey(row.id, bid.id);
-    return amountDraftByCell[key] ?? getInitialAmountForCell(row, bid);
+  const getDisplayAmountForCell = (row: LineItemRow, col: BidColumn): string => {
+    const key = getAmountCellKey(row.id, col.id);
+    return amountDraftByCell[key] ?? getInitialAmountForCell(row, col);
   };
 
-  const getInitialAdditionalInfoForCell = (rowKey: AdditionalInfoRowKey, bid: LevelingBid): string => {
-    if (rowKey === "comments") return bid.notes ?? "";
+  const getInitialAdditionalInfoForCell = (rowKey: AdditionalInfoRowKey, col: BidColumn): string => {
+    if (rowKey === "comments") return col.bid?.notes ?? "";
     if (rowKey === "inclusions") {
-      const key = `${data.project.id}:${selectedTrade?.id}:${bid.sub_id}`;
+      if (!col.subId) return "Labor, material, and equipment per plans/specs.";
+      const key = `${data.project.id}:${selectedTrade?.id}:${col.subId}`;
       return inclusionsByCellKey[key] ?? "Labor, material, and equipment per plans/specs.";
     }
     if (rowKey === "exclusions") {
-      const key = `${data.project.id}:${selectedTrade?.id}:${bid.sub_id}`;
+      if (!col.subId) return "Overtime and out-of-sequence work excluded.";
+      const key = `${data.project.id}:${selectedTrade?.id}:${col.subId}`;
       return exclusionsByCellKey[key] ?? "Overtime and out-of-sequence work excluded.";
     }
     return "";
   };
 
-  const getDisplayAdditionalInfoForCell = (rowKey: AdditionalInfoRowKey, bid: LevelingBid): string => {
-    const key = getAdditionalInfoCellKey(rowKey, bid.id);
-    return additionalInfoDraftByCell[key] ?? getInitialAdditionalInfoForCell(rowKey, bid);
+  const getDisplayAdditionalInfoForCell = (rowKey: AdditionalInfoRowKey, col: BidColumn): string => {
+    const key = getAdditionalInfoCellKey(rowKey, col.id);
+    return additionalInfoDraftByCell[key] ?? getInitialAdditionalInfoForCell(rowKey, col);
   };
 
-  const totalByBidId: Record<string, number | null> = {};
+  const totalByColumnId: Record<string, number | null> = {};
   bidColumns.forEach((col) => {
     let sum = 0;
     let hasValue = false;
     displayLineItems.forEach((row) => {
-      const parsed = parseCurrencyInput(getDisplayAmountForCell(row, col.bid));
+      const parsed = parseCurrencyInput(getDisplayAmountForCell(row, col));
       if (parsed === null) return;
       sum += parsed;
       hasValue = true;
     });
-    totalByBidId[col.bid.id] = hasValue ? sum : null;
+    totalByColumnId[col.id] = hasValue ? sum : null;
   });
+  const tableWidthPx =
+    LINE_ITEM_COLUMN_WIDTH_PX +
+    bidColumns.length * SUBCONTRACTOR_COLUMN_MIN_WIDTH_PX +
+    ADD_COLUMN_CELL_WIDTH_PX;
+
+  const isUserAddedColumn = (columnId: string) => extraPlaceholderColumnIdsForTrade.includes(columnId);
+
+  const handleAddSubcontractorColumn = () => {
+    if (!selectedTrade) return;
+    const nextId = `manual-sub-${selectedTrade.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setExtraPlaceholderColumnIdsByTradeId((prev) => ({
+      ...prev,
+      [selectedTrade.id]: [...(prev[selectedTrade.id] ?? []), nextId],
+    }));
+  };
+
+  const handleRemoveSubcontractorColumn = (columnId: string) => {
+    if (!selectedTrade) return;
+    if (!isUserAddedColumn(columnId)) return;
+    setExtraPlaceholderColumnIdsByTradeId((prev) => ({
+      ...prev,
+      [selectedTrade.id]: (prev[selectedTrade.id] ?? []).filter((id) => id !== columnId),
+    }));
+    setSubcontractorNameDraftByColumnId((prev) => {
+      const next = { ...prev };
+      delete next[columnId];
+      return next;
+    });
+    setAmountDraftByCell((prev) => {
+      const next = { ...prev };
+      Object.keys(next).forEach((key) => {
+        if (key.endsWith(`:${columnId}`)) delete next[key];
+      });
+      return next;
+    });
+    setAdditionalInfoDraftByCell((prev) => {
+      const next = { ...prev };
+      Object.keys(next).forEach((key) => {
+        if (key.endsWith(`:${columnId}`)) delete next[key];
+      });
+      return next;
+    });
+  };
 
   if (!queryProjectId) {
     return (
@@ -403,12 +494,16 @@ export default function LevelingPageV2({
 
         <div className="overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] table-fixed border-separate border-spacing-0">
+            <table
+              className="min-w-full table-fixed border-separate border-spacing-0"
+              style={{ width: `${tableWidthPx}px` }}
+            >
               <colgroup>
-                <col style={{ width: "34%" }} />
+                <col style={{ width: `${LINE_ITEM_COLUMN_WIDTH_PX}px` }} />
                 {bidColumns.map((col) => (
-                  <col key={col.bid.id} style={{ width: `${66 / Math.max(1, bidColumns.length)}%` }} />
+                  <col key={col.id} style={{ width: `${SUBCONTRACTOR_COLUMN_MIN_WIDTH_PX}px` }} />
                 ))}
+                <col style={{ width: `${ADD_COLUMN_CELL_WIDTH_PX}px` }} />
               </colgroup>
               <thead>
                 <tr>
@@ -419,11 +514,49 @@ export default function LevelingPageV2({
                     <div className="mt-2 text-2xl font-semibold text-slate-900">{submittedCount} Bids Submitted</div>
                   </th>
                   {bidColumns.map((col) => (
-                    <th key={`head-${col.bid.id}`} className="border-b border-r border-slate-200 bg-slate-50 p-4 text-left align-top last:border-r-0">
-                      <div className="text-2xl font-semibold text-slate-900">{col.subName}</div>
-                      <div className="mt-1 text-sm text-slate-500">{col.bid.status}</div>
+                    <th key={`head-${col.id}`} className="border-b border-r border-slate-200 bg-slate-50 p-4 text-left align-top last:border-r-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          {col.bid ? (
+                            <div className="truncate text-2xl font-semibold text-slate-900">{col.subName}</div>
+                          ) : (
+                            <input
+                              value={subcontractorNameDraftByColumnId[col.id] ?? col.subName}
+                              onChange={(event) =>
+                                setSubcontractorNameDraftByColumnId((prev) => ({
+                                  ...prev,
+                                  [col.id]: event.target.value,
+                                }))
+                              }
+                              placeholder={col.subName}
+                              className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-2xl font-semibold text-slate-900 focus:border-slate-400 focus:outline-none"
+                            />
+                          )}
+                        </div>
+                        {isUserAddedColumn(col.id) ? (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveSubcontractorColumn(col.id)}
+                            className="rounded-md border border-rose-200 bg-white px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50"
+                            aria-label="Delete subcontractor column"
+                            title="Delete column"
+                          >
+                            Delete
+                          </button>
+                        ) : null}
+                      </div>
+                      <div className="mt-1 text-sm text-slate-500">{col.status}</div>
                     </th>
                   ))}
+                  <th className="border-b border-slate-200 bg-slate-50 p-3 align-top">
+                    <button
+                      type="button"
+                      onClick={handleAddSubcontractorColumn}
+                      className="flex h-full min-h-[88px] w-full items-center justify-center rounded-md border-2 border-dashed border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-600 hover:border-slate-400 hover:bg-slate-50"
+                    >
+                      + Add Subcontractor
+                    </button>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -451,21 +584,21 @@ export default function LevelingPageV2({
                       />
                     </td>
                     {bidColumns.map((col) => (
-                      <td key={`${row.id}-${col.bid.id}`} className="border-b border-r border-slate-200 px-4 py-2.5 text-right text-base text-slate-700 last:border-r-0">
+                      <td key={`${row.id}-${col.id}`} className="border-b border-r border-slate-200 px-4 py-2.5 text-right text-base text-slate-700 last:border-r-0">
                         <div className="relative ml-auto w-full max-w-[180px]">
                           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span>
                           <input
-                            value={getDisplayAmountForCell(row, col.bid)}
+                            value={getDisplayAmountForCell(row, col)}
                             onChange={(event) =>
                               setAmountDraftByCell((prev) => ({
                                 ...prev,
-                                [getAmountCellKey(row.id, col.bid.id)]: formatCurrencyWhileTyping(event.target.value),
+                                [getAmountCellKey(row.id, col.id)]: formatCurrencyWhileTyping(event.target.value),
                               }))
                             }
                             onBlur={(event) =>
                               setAmountDraftByCell((prev) => ({
                                 ...prev,
-                                [getAmountCellKey(row.id, col.bid.id)]: formatCurrencyInput(event.target.value),
+                                [getAmountCellKey(row.id, col.id)]: formatCurrencyInput(event.target.value),
                               }))
                             }
                             placeholder="0.00"
@@ -475,6 +608,9 @@ export default function LevelingPageV2({
                         </div>
                       </td>
                     ))}
+                    <td className="border-b border-slate-200 p-2">
+                      <div className="h-full min-h-[44px] rounded-md border-2 border-dashed border-slate-200 bg-slate-50/50" />
+                    </td>
                   </tr>
                 ))}
                 <tr>
@@ -496,8 +632,11 @@ export default function LevelingPageV2({
                     </button>
                   </td>
                   {bidColumns.map((col) => (
-                    <td key={`line-item-add-${col.bid.id}`} className="border-b border-r border-slate-200 px-4 py-2.5 last:border-r-0" />
+                    <td key={`line-item-add-${col.id}`} className="border-b border-r border-slate-200 px-4 py-2.5 last:border-r-0" />
                   ))}
+                  <td className="border-b border-slate-200 p-2">
+                    <div className="h-full min-h-[44px] rounded-md border-2 border-dashed border-slate-200 bg-slate-50/50" />
+                  </td>
                 </tr>
                 <tr>
                   <td className="border-b border-r border-slate-200 bg-slate-50 px-4 py-2.5 text-base font-semibold text-slate-900">
@@ -505,14 +644,17 @@ export default function LevelingPageV2({
                   </td>
                   {bidColumns.map((col) => (
                     <td
-                      key={`line-item-total-${col.bid.id}`}
+                      key={`line-item-total-${col.id}`}
                       className="border-b border-r border-slate-200 bg-slate-50 px-4 py-2.5 text-right text-base font-semibold text-slate-900 last:border-r-0"
                     >
-                      {totalByBidId[col.bid.id] !== null
-                        ? `$${formatCurrencyInput(String(totalByBidId[col.bid.id]))}`
+                      {totalByColumnId[col.id] !== null
+                        ? `$${formatCurrencyInput(String(totalByColumnId[col.id]))}`
                         : "--"}
                     </td>
                   ))}
+                  <td className="border-b border-slate-200 p-2">
+                    <div className="h-full min-h-[44px] rounded-md border-2 border-dashed border-slate-200 bg-slate-50/50" />
+                  </td>
                 </tr>
 
                 <tr>
@@ -520,8 +662,11 @@ export default function LevelingPageV2({
                     Additional Bid Information
                   </td>
                   {bidColumns.map((col) => (
-                    <td key={`additional-head-${col.bid.id}`} className="border-b border-r border-slate-200 bg-slate-50 px-4 py-3 last:border-r-0" />
+                    <td key={`additional-head-${col.id}`} className="border-b border-r border-slate-200 bg-slate-50 px-4 py-3 last:border-r-0" />
                   ))}
+                  <td className="border-b border-slate-200 p-2">
+                    <div className="h-full min-h-[44px] rounded-md border-2 border-dashed border-slate-200 bg-slate-50/50" />
+                  </td>
                 </tr>
 
                 {ADDITIONAL_INFO_ROWS.map((row) => (
@@ -530,16 +675,16 @@ export default function LevelingPageV2({
                       {row.label}
                     </td>
                     {bidColumns.map((col) => (
-                      <td key={`${row.key}-${col.bid.id}`} className="border-b border-r border-slate-200 px-4 py-3 text-base text-slate-700 last:border-r-0">
+                      <td key={`${row.key}-${col.id}`} className="border-b border-r border-slate-200 px-4 py-3 text-base text-slate-700 last:border-r-0">
                         {row.key === "attachments" ? (
                           "Download"
                         ) : (
                           <textarea
-                            value={getDisplayAdditionalInfoForCell(row.key, col.bid)}
+                            value={getDisplayAdditionalInfoForCell(row.key, col)}
                             onChange={(event) =>
                               setAdditionalInfoDraftByCell((prev) => ({
                                 ...prev,
-                                [getAdditionalInfoCellKey(row.key, col.bid.id)]: event.target.value,
+                                [getAdditionalInfoCellKey(row.key, col.id)]: event.target.value,
                               }))
                             }
                             rows={2}
@@ -548,6 +693,9 @@ export default function LevelingPageV2({
                         )}
                       </td>
                     ))}
+                    <td className="border-b border-slate-200 p-2">
+                      <div className="h-full min-h-[44px] rounded-md border-2 border-dashed border-slate-200 bg-slate-50/50" />
+                    </td>
                   </tr>
                 ))}
               </tbody>
