@@ -1335,6 +1335,19 @@ export default function EstimateWorkspaceV2() {
     () => worksheetDivisionGroups.reduce((sum, group) => sum + group.subtotal, 0),
     [worksheetDivisionGroups]
   );
+  const preliminaryGcMarkupTotal = useMemo(
+    () =>
+      worksheetCostCodeGroups.reduce(
+        (sum, group) =>
+          sum +
+          group.lineItems.reduce(
+            (lineSum, lineItem) => lineSum + parseNumericInput(lineItem.gcMarkup),
+            0
+          ),
+        0
+      ),
+    [worksheetCostCodeGroups]
+  );
   const preliminaryMarkupRows = useMemo(() => {
     const lookup = feeRows.reduce<Record<string, string>>((acc, row) => {
       acc[row.factorName.toLowerCase()] = row.value;
@@ -2450,7 +2463,7 @@ export default function EstimateWorkspaceV2() {
             </div>
           ) : preliminaryWorksheetView ? (
             <div className="p-3">
-              <div className="overflow-x-auto rounded-lg border border-slate-300 bg-white">
+              <div className="max-h-[75vh] overflow-auto rounded-lg border border-slate-300 bg-white">
                 <table
                   className="w-full border-separate border-spacing-0 text-sm text-slate-800"
                   style={{
@@ -2462,58 +2475,58 @@ export default function EstimateWorkspaceV2() {
                       <col key={`prelim-col-${index}`} style={{ width: `${width}px` }} />
                     ))}
                   </colgroup>
-                  <thead className="bg-slate-100 text-slate-800">
+                  <thead className="sticky top-0 z-30 bg-slate-100 text-slate-800">
                     <tr>
-                      <th className="relative border-b border-r border-slate-400 px-2 py-2 text-left font-semibold">
+                      <th className="sticky top-0 z-20 relative border-b border-r border-slate-400 px-2 py-2 text-left font-semibold">
                         COST CODE
                         <span
                           onMouseDown={(event) => beginPrelimColumnResize(0, event)}
                           className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
                         />
                       </th>
-                      <th className="relative border-b border-r border-slate-400 px-2 py-2 text-left font-semibold">
+                      <th className="sticky top-0 z-20 relative border-b border-r border-slate-400 px-2 py-2 text-left font-semibold">
                         DESCRIPTION
                         <span
                           onMouseDown={(event) => beginPrelimColumnResize(1, event)}
                           className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
                         />
                       </th>
-                      <th className="relative border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
+                      <th className="sticky top-0 z-20 relative border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
                         UNIT
                         <span
                           onMouseDown={(event) => beginPrelimColumnResize(2, event)}
                           className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
                         />
                       </th>
-                      <th className="relative border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
+                      <th className="sticky top-0 z-20 relative border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
                         QUAN
                         <span
                           onMouseDown={(event) => beginPrelimColumnResize(3, event)}
                           className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
                         />
                       </th>
-                      <th className="relative border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
+                      <th className="sticky top-0 z-20 relative border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
                         $/UNIT
                         <span
                           onMouseDown={(event) => beginPrelimColumnResize(4, event)}
                           className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
                         />
                       </th>
-                      <th className="relative border-b border-r border-slate-400 bg-[#f9e3ae] px-2 py-2 text-center font-semibold text-slate-900">
+                      <th className="sticky top-0 z-20 relative border-b border-r border-slate-400 bg-[#f9e3ae] px-2 py-2 text-center font-semibold text-slate-900">
                         GC MARKUP
                         <span
                           onMouseDown={(event) => beginPrelimColumnResize(5, event)}
                           className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
                         />
                       </th>
-                      <th className="relative border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
+                      <th className="sticky top-0 z-20 relative border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
                         TOTAL
                         <span
                           onMouseDown={(event) => beginPrelimColumnResize(6, event)}
                           className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
                         />
                       </th>
-                      <th className="relative border-b border-slate-400 px-2 py-2 text-center font-semibold">
+                      <th className="sticky top-0 z-20 relative border-b border-slate-400 px-2 py-2 text-center font-semibold">
                         COMMENTS
                         <span
                           onMouseDown={(event) => beginPrelimColumnResize(7, event)}
@@ -2827,8 +2840,10 @@ export default function EstimateWorkspaceV2() {
                                             />
                                           </div>
                                         </td>
-                                        <td className="border-b border-r border-slate-300 px-1 py-0 align-top text-right text-sm text-slate-700">
-                                          ${formatCurrency(lineTotal)}
+                                        <td className="border-b border-r border-slate-300 p-0 align-top">
+                                          <div className="flex h-8 items-center justify-end px-1 text-sm text-slate-700">
+                                            ${formatCurrency(lineTotal)}
+                                          </div>
                                         </td>
                                         <td className="border-b border-slate-300 p-0 align-top">
                                           <textarea
@@ -2899,6 +2914,19 @@ export default function EstimateWorkspaceV2() {
                             ${formatCurrency(preliminarySubtotal)}
                           </td>
                           <td className="border-b border-[#c96420] p-0"></td>
+                        </tr>
+                        <tr className="bg-[#f9e3ae]">
+                          <td
+                            colSpan={5}
+                            className="border-b border-[#e1c987] px-2 py-2 text-right text-sm font-semibold text-slate-800"
+                          >
+                            GC MARKUP TOTAL (Internal)
+                          </td>
+                          <td className="border-b border-r border-[#e1c987] px-2 py-2 text-right text-sm font-semibold text-slate-900">
+                            ${formatCurrency(preliminaryGcMarkupTotal)}
+                          </td>
+                          <td className="border-b border-r border-[#e1c987] p-0"></td>
+                          <td className="border-b border-[#e1c987] p-0"></td>
                         </tr>
                         <tr className="bg-[#c8c8c8]">
                           <td colSpan={8} className="h-5 border-b border-slate-300"></td>
