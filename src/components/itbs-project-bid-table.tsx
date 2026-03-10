@@ -94,6 +94,8 @@ function hasTradeMatch(tradeName: string, companyTrade: string): boolean {
 const PROPOSAL_DUE_STORAGE_KEY = "bidProposalDueDatesByCell";
 const QUOTE_LINE_ITEMS_STORAGE_KEY = "bidQuoteLineItemsByCell";
 const BID_STATUS_UPDATED_STORAGE_KEY = "bidStatusUpdatedAtByBidId";
+const BID_INCLUSIONS_STORAGE_KEY = "bidInclusionsByCell";
+const BID_EXCLUSIONS_STORAGE_KEY = "bidExclusionsByCell";
 
 function readProposalDueMap(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -164,6 +166,27 @@ function readBidStatusUpdatedMap(): Record<string, string> {
 function writeBidStatusUpdatedMap(map: Record<string, string>) {
   if (typeof window === "undefined") return;
   localStorage.setItem(BID_STATUS_UPDATED_STORAGE_KEY, JSON.stringify(map));
+}
+
+function readBidTextByCellMap(storageKey: string): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    return Object.entries(parsed).reduce<Record<string, string>>((acc, [key, value]) => {
+      if (typeof key === "string" && typeof value === "string") acc[key] = value;
+      return acc;
+    }, {});
+  } catch {
+    return {};
+  }
+}
+
+function writeBidTextByCellMap(storageKey: string, map: Record<string, string>) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(storageKey, JSON.stringify(map));
 }
 
 function countNotesItems(notes: string | null): number {
@@ -272,6 +295,8 @@ export default function ItbsProjectBidTable() {
   const [emailDraft, setEmailDraft] = useState("");
   const [phoneDraft, setPhoneDraft] = useState("");
   const [proposalDueDateDraft, setProposalDueDateDraft] = useState("");
+  const [inclusionsDraft, setInclusionsDraft] = useState("");
+  const [exclusionsDraft, setExclusionsDraft] = useState("");
   const [notesDraft, setNotesDraft] = useState("");
   const [subSearch, setSubSearch] = useState("");
   const [selectedProjectSubId, setSelectedProjectSubId] = useState("");
@@ -498,6 +523,10 @@ export default function ItbsProjectBidTable() {
     const proposalDueMap = readProposalDueMap();
     const proposalDueKey = `${detail.project.id}:${payload.tradeId}:${payload.projectSubId}`;
     setProposalDueDateDraft(proposalDueMap[proposalDueKey] ?? detail.project.due_date ?? "");
+    const inclusionsMap = readBidTextByCellMap(BID_INCLUSIONS_STORAGE_KEY);
+    const exclusionsMap = readBidTextByCellMap(BID_EXCLUSIONS_STORAGE_KEY);
+    setInclusionsDraft(inclusionsMap[proposalDueKey] ?? "");
+    setExclusionsDraft(exclusionsMap[proposalDueKey] ?? "");
     setNotesDraft(payload.bid?.notes ?? "");
     setSelectedProjectSubId(shouldInitializeEmpty ? "" : payload.projectSubId);
     setSubSearch(shouldInitializeEmpty ? "" : payload.subCompany);
@@ -1169,6 +1198,20 @@ export default function ItbsProjectBidTable() {
                   delete proposalDueMap[proposalDueKey];
                 }
                 writeProposalDueMap(proposalDueMap);
+                const inclusionsMap = readBidTextByCellMap(BID_INCLUSIONS_STORAGE_KEY);
+                if (inclusionsDraft.trim()) {
+                  inclusionsMap[proposalDueKey] = inclusionsDraft.trim();
+                } else {
+                  delete inclusionsMap[proposalDueKey];
+                }
+                writeBidTextByCellMap(BID_INCLUSIONS_STORAGE_KEY, inclusionsMap);
+                const exclusionsMap = readBidTextByCellMap(BID_EXCLUSIONS_STORAGE_KEY);
+                if (exclusionsDraft.trim()) {
+                  exclusionsMap[proposalDueKey] = exclusionsDraft.trim();
+                } else {
+                  delete exclusionsMap[proposalDueKey];
+                }
+                writeBidTextByCellMap(BID_EXCLUSIONS_STORAGE_KEY, exclusionsMap);
                 const quoteLineItemsKey = `${detail.project.id}:${drawerState.tradeId}:${selectedProjectSubId}`;
                 const quoteLineItemsMap = readQuoteLineItemsMap();
                 const sanitizedLineItems = quoteLineItemsDraft
@@ -1379,7 +1422,25 @@ export default function ItbsProjectBidTable() {
                 </div>
               </div>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                Notes
+                Inclusions
+                <textarea
+                  value={inclusionsDraft}
+                  onChange={(event) => setInclusionsDraft(event.target.value)}
+                  rows={3}
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                />
+              </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                Exclusions
+                <textarea
+                  value={exclusionsDraft}
+                  onChange={(event) => setExclusionsDraft(event.target.value)}
+                  rows={3}
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                />
+              </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                Comments
                 <textarea
                   value={notesDraft}
                   onChange={(event) => setNotesDraft(event.target.value)}

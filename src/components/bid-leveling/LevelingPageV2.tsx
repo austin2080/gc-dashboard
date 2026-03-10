@@ -6,16 +6,6 @@ import { getBidLevelingProjectData } from "@/lib/bidding/leveling-store";
 import type { BidLevelingProjectData, LevelingBid } from "@/lib/bidding/leveling-types";
 import { getBidProjectIdForProject } from "@/lib/bidding/project-links";
 
-function formatCurrency(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return "--";
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(value);
-}
-
 function formatDate(iso: string | null): string {
   if (!iso) return "No due date";
   const date = new Date(`${iso}T00:00:00`);
@@ -27,17 +17,45 @@ function formatDate(iso: string | null): string {
   });
 }
 
-function formatDateTime(value: string | null): string {
-  if (!value) return "--";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "--";
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+function parseCurrencyInput(value: string): number | null {
+  const normalized = value.replace(/[$,\s]/g, "").trim();
+  if (!normalized) return null;
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function formatCurrencyInput(value: string): string {
+  const parsed = parseCurrencyInput(value);
+  if (parsed === null) return "";
+  return new Intl.NumberFormat("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(parsed);
+}
+
+function formatCurrencyWhileTyping(value: string): string {
+  const cleaned = value.replace(/[$,\s]/g, "");
+  if (!cleaned) return "";
+  const firstDotIndex = cleaned.indexOf(".");
+  let integerPart = cleaned;
+  let decimalPart = "";
+  if (firstDotIndex >= 0) {
+    integerPart = cleaned.slice(0, firstDotIndex);
+    decimalPart = cleaned.slice(firstDotIndex + 1).replace(/\./g, "").slice(0, 2);
+  }
+  integerPart = integerPart.replace(/\D/g, "");
+  if (!integerPart && firstDotIndex >= 0) integerPart = "0";
+  if (!integerPart && !decimalPart) return "";
+  const withCommas = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return firstDotIndex >= 0 ? `${withCommas}.${decimalPart}` : withCommas;
+}
+
+function getAmountCellKey(rowId: string, bidId: string): string {
+  return `${rowId}:${bidId}`;
+}
+
+function getAdditionalInfoCellKey(rowKey: string, bidId: string): string {
+  return `${rowKey}:${bidId}`;
 }
 
 type BidColumn = {
@@ -45,14 +63,15 @@ type BidColumn = {
   subName: string;
 };
 
-const SCOPE_ROWS = [
-  { code: "03-100", label: "Concrete Reinforcement", weight: 0.14 },
-  { code: "03-210", label: "Cast-In-Place Concrete", weight: 0.35 },
-  { code: "03-300", label: "Footings", weight: 0.1 },
-  { code: "03-320", label: "Slab Foundations", weight: 0.18 },
-  { code: "03-330", label: "Poured Concrete Basement Walls", weight: 0.08 },
-  { code: "03-220", label: "Precast Concrete", weight: 0.15 },
-] as const;
+type LineItemRow = {
+  id: string;
+  label: string;
+};
+
+type InviteQuoteLineItem = {
+  label: string;
+  amount: string;
+};
 
 const ADDITIONAL_INFO_ROWS = [
   { key: "inclusions", label: "Inclusions" },
@@ -61,9 +80,55 @@ const ADDITIONAL_INFO_ROWS = [
   { key: "attachments", label: "Attachments" },
 ] as const;
 
-function weightedLineAmount(base: number | null, weight: number): string {
-  if (base === null || !Number.isFinite(base)) return "--";
-  return formatCurrency(Math.round(base * weight));
+type AdditionalInfoRowKey = (typeof ADDITIONAL_INFO_ROWS)[number]["key"];
+
+const QUOTE_LINE_ITEMS_STORAGE_KEY = "bidQuoteLineItemsByCell";
+const BID_INCLUSIONS_STORAGE_KEY = "bidInclusionsByCell";
+const BID_EXCLUSIONS_STORAGE_KEY = "bidExclusionsByCell";
+
+function normalizeLineItemLabel(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function readQuoteLineItemsMap(): Record<string, InviteQuoteLineItem[]> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(QUOTE_LINE_ITEMS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, InviteQuoteLineItem[]> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!Array.isArray(value)) continue;
+      const items = value
+        .filter((item) => Boolean(item) && typeof item === "object")
+        .map((item) => ({
+          label: typeof (item as { label?: unknown }).label === "string" ? (item as { label: string }).label : "",
+          amount: typeof (item as { amount?: unknown }).amount === "string" ? (item as { amount: string }).amount : "",
+        }))
+        .filter((item) => item.label.trim().length > 0);
+      if (items.length) next[key] = items;
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function readBidTextByCellMap(storageKey: string): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    return Object.entries(parsed).reduce<Record<string, string>>((acc, [key, value]) => {
+      if (typeof key === "string" && typeof value === "string") acc[key] = value;
+      return acc;
+    }, {});
+  } catch {
+    return {};
+  }
 }
 
 export default function LevelingPageV2({
@@ -78,7 +143,19 @@ export default function LevelingPageV2({
   const [data, setData] = useState<BidLevelingProjectData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
-  const [selectedLeftNavItem, setSelectedLeftNavItem] = useState<string | null>(null);
+  const [selectedLeftNavItem, setSelectedLeftNavItem] = useState<string | null>(leftNavItems?.[0] ?? null);
+  const [manualLineItems, setManualLineItems] = useState<LineItemRow[]>([]);
+  const [inviteQuoteLineItemsMap, setInviteQuoteLineItemsMap] = useState<Record<string, InviteQuoteLineItem[]>>(
+    () => readQuoteLineItemsMap()
+  );
+  const [inclusionsByCellKey, setInclusionsByCellKey] = useState<Record<string, string>>(() =>
+    readBidTextByCellMap(BID_INCLUSIONS_STORAGE_KEY)
+  );
+  const [exclusionsByCellKey, setExclusionsByCellKey] = useState<Record<string, string>>(() =>
+    readBidTextByCellMap(BID_EXCLUSIONS_STORAGE_KEY)
+  );
+  const [amountDraftByCell, setAmountDraftByCell] = useState<Record<string, string>>({});
+  const [additionalInfoDraftByCell, setAdditionalInfoDraftByCell] = useState<Record<string, string>>({});
 
   useEffect(() => {
     let active = true;
@@ -112,13 +189,11 @@ export default function LevelingPageV2({
     };
   }, [queryProjectId]);
 
-  useEffect(() => {
-    if (!leftNavItems?.length) {
-      setSelectedLeftNavItem(null);
-      return;
-    }
-    setSelectedLeftNavItem((prev) => (prev && leftNavItems.includes(prev) ? prev : leftNavItems[0]));
-  }, [leftNavItems]);
+  const effectiveSelectedLeftNavItem = leftNavItems?.length
+    ? selectedLeftNavItem && leftNavItems.includes(selectedLeftNavItem)
+      ? selectedLeftNavItem
+      : leftNavItems[0]
+    : null;
 
   const selectedTrade = useMemo(
     () => data?.trades.find((trade) => trade.id === selectedTradeId) ?? null,
@@ -144,7 +219,116 @@ export default function LevelingPageV2({
       }));
   }, [data, selectedTrade]);
 
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (
+        event.key &&
+        event.key !== QUOTE_LINE_ITEMS_STORAGE_KEY &&
+        event.key !== BID_INCLUSIONS_STORAGE_KEY &&
+        event.key !== BID_EXCLUSIONS_STORAGE_KEY
+      ) {
+        return;
+      }
+      setInviteQuoteLineItemsMap(readQuoteLineItemsMap());
+      setInclusionsByCellKey(readBidTextByCellMap(BID_INCLUSIONS_STORAGE_KEY));
+      setExclusionsByCellKey(readBidTextByCellMap(BID_EXCLUSIONS_STORAGE_KEY));
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
   const submittedCount = bidColumns.filter((col) => col.bid.status === "submitted").length;
+
+  const inviteLineItemsByBidId = useMemo(() => {
+    if (!data || !selectedTrade) return {} as Record<string, InviteQuoteLineItem[]>;
+    const next: Record<string, InviteQuoteLineItem[]> = {};
+    bidColumns.forEach((col) => {
+      const key = `${data.project.id}:${selectedTrade.id}:${col.bid.sub_id}`;
+      next[col.bid.id] = inviteQuoteLineItemsMap[key] ?? [];
+    });
+    return next;
+  }, [bidColumns, data, inviteQuoteLineItemsMap, selectedTrade]);
+
+  const importedLineItemLabels = useMemo(() => {
+    const labels: string[] = [];
+    const seen = new Set<string>();
+    bidColumns.forEach((col) => {
+      const items = inviteLineItemsByBidId[col.bid.id] ?? [];
+      items.forEach((item) => {
+        const normalized = normalizeLineItemLabel(item.label);
+        if (!normalized || seen.has(normalized)) return;
+        seen.add(normalized);
+        labels.push(item.label.trim());
+      });
+    });
+    return labels;
+  }, [bidColumns, inviteLineItemsByBidId]);
+
+  const hasImportedBaseBid = useMemo(
+    () => importedLineItemLabels.some((label) => normalizeLineItemLabel(label) === "base bid"),
+    [importedLineItemLabels]
+  );
+
+  const displayLineItems = useMemo(() => {
+    const rows: LineItemRow[] = [];
+    rows.push({ id: "base-bid", label: hasImportedBaseBid ? "Base Bid" : "" });
+    importedLineItemLabels
+      .filter((label) => normalizeLineItemLabel(label) !== "base bid")
+      .forEach((label) => {
+        rows.push({ id: `imported-${normalizeLineItemLabel(label)}`, label });
+      });
+    manualLineItems.forEach((item) => rows.push(item));
+    return rows;
+  }, [hasImportedBaseBid, importedLineItemLabels, manualLineItems]);
+
+  const getInitialAmountForCell = (row: LineItemRow, bid: LevelingBid): string => {
+    if (row.id === "base-bid") {
+      return bid.base_bid_amount !== null && Number.isFinite(bid.base_bid_amount)
+        ? formatCurrencyInput(String(bid.base_bid_amount))
+        : "";
+    }
+    const items = inviteLineItemsByBidId[bid.id] ?? [];
+    const match = items.find(
+      (item) => normalizeLineItemLabel(item.label) === normalizeLineItemLabel(row.label)
+    );
+    return match ? formatCurrencyInput(match.amount) : "";
+  };
+
+  const getDisplayAmountForCell = (row: LineItemRow, bid: LevelingBid): string => {
+    const key = getAmountCellKey(row.id, bid.id);
+    return amountDraftByCell[key] ?? getInitialAmountForCell(row, bid);
+  };
+
+  const getInitialAdditionalInfoForCell = (rowKey: AdditionalInfoRowKey, bid: LevelingBid): string => {
+    if (rowKey === "comments") return bid.notes ?? "";
+    if (rowKey === "inclusions") {
+      const key = `${data.project.id}:${selectedTrade?.id}:${bid.sub_id}`;
+      return inclusionsByCellKey[key] ?? "Labor, material, and equipment per plans/specs.";
+    }
+    if (rowKey === "exclusions") {
+      const key = `${data.project.id}:${selectedTrade?.id}:${bid.sub_id}`;
+      return exclusionsByCellKey[key] ?? "Overtime and out-of-sequence work excluded.";
+    }
+    return "";
+  };
+
+  const getDisplayAdditionalInfoForCell = (rowKey: AdditionalInfoRowKey, bid: LevelingBid): string => {
+    const key = getAdditionalInfoCellKey(rowKey, bid.id);
+    return additionalInfoDraftByCell[key] ?? getInitialAdditionalInfoForCell(rowKey, bid);
+  };
+
+  const totalByBidId: Record<string, number | null> = {};
+  bidColumns.forEach((col) => {
+    let sum = 0;
+    let hasValue = false;
+    displayLineItems.forEach((row) => {
+      const parsed = parseCurrencyInput(getDisplayAmountForCell(row, col.bid));
+      if (parsed === null) return;
+      sum += parsed;
+      hasValue = true;
+    });
+    totalByBidId[col.bid.id] = hasValue ? sum : null;
+  });
 
   if (!queryProjectId) {
     return (
@@ -192,7 +376,7 @@ export default function LevelingPageV2({
                     type="button"
                     onClick={() => setSelectedLeftNavItem(item)}
                     className={`w-full rounded-md px-3 py-2 text-left text-sm ${
-                      selectedLeftNavItem === item
+                      effectiveSelectedLeftNavItem === item
                         ? "border-l-4 border-blue-600 bg-white font-semibold text-blue-700"
                         : "text-slate-700 hover:bg-white"
                     }`}
@@ -237,26 +421,99 @@ export default function LevelingPageV2({
                   {bidColumns.map((col) => (
                     <th key={`head-${col.bid.id}`} className="border-b border-r border-slate-200 bg-slate-50 p-4 text-left align-top last:border-r-0">
                       <div className="text-2xl font-semibold text-slate-900">{col.subName}</div>
-                      <div className="mt-2 text-3xl font-semibold text-slate-900">{formatCurrency(col.bid.base_bid_amount)}</div>
                       <div className="mt-1 text-sm text-slate-500">{col.bid.status}</div>
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {SCOPE_ROWS.map((row) => (
-                  <tr key={row.code}>
+                {displayLineItems.map((row, rowIndex) => (
+                  <tr key={row.id}>
                     <td className="border-b border-r border-slate-200 px-4 py-2.5 text-base font-medium text-slate-700">
-                      <div>{row.label}</div>
-                      <div className="text-sm text-slate-500">{row.code}</div>
+                      <input
+                        value={row.label}
+                        onChange={(event) =>
+                          row.id.startsWith("imported-")
+                            ? undefined
+                            : row.id === "base-bid"
+                              ? undefined
+                              : setManualLineItems((prev) =>
+                                  prev.map((item) =>
+                                    item.id === row.id ? { ...item, label: event.target.value } : item
+                                  )
+                                )
+                        }
+                        placeholder={rowIndex === 0 ? "Base Bid" : "Add line item"}
+                        readOnly={row.id.startsWith("imported-")}
+                        className={`w-full rounded-md border border-slate-200 px-2 py-1.5 text-base text-slate-700 focus:border-slate-400 focus:outline-none ${
+                          row.id.startsWith("imported-") ? "bg-slate-50" : ""
+                        }`}
+                      />
                     </td>
                     {bidColumns.map((col) => (
-                      <td key={`${row.code}-${col.bid.id}`} className="border-b border-r border-slate-200 px-4 py-2.5 text-right text-base text-slate-700 last:border-r-0">
-                        {weightedLineAmount(col.bid.base_bid_amount, row.weight)}
+                      <td key={`${row.id}-${col.bid.id}`} className="border-b border-r border-slate-200 px-4 py-2.5 text-right text-base text-slate-700 last:border-r-0">
+                        <div className="relative ml-auto w-full max-w-[180px]">
+                          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span>
+                          <input
+                            value={getDisplayAmountForCell(row, col.bid)}
+                            onChange={(event) =>
+                              setAmountDraftByCell((prev) => ({
+                                ...prev,
+                                [getAmountCellKey(row.id, col.bid.id)]: formatCurrencyWhileTyping(event.target.value),
+                              }))
+                            }
+                            onBlur={(event) =>
+                              setAmountDraftByCell((prev) => ({
+                                ...prev,
+                                [getAmountCellKey(row.id, col.bid.id)]: formatCurrencyInput(event.target.value),
+                              }))
+                            }
+                            placeholder="0.00"
+                            inputMode="decimal"
+                            className="w-full rounded-md border border-slate-200 pl-7 pr-2 py-1.5 text-right text-base text-slate-700 focus:border-slate-400 focus:outline-none"
+                          />
+                        </div>
                       </td>
                     ))}
                   </tr>
                 ))}
+                <tr>
+                  <td className="border-b border-r border-slate-200 px-4 py-2.5">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setManualLineItems((prev) => [
+                          ...prev,
+                          {
+                            id: `line-item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+                            label: "",
+                          },
+                        ])
+                      }
+                      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      + Add line item
+                    </button>
+                  </td>
+                  {bidColumns.map((col) => (
+                    <td key={`line-item-add-${col.bid.id}`} className="border-b border-r border-slate-200 px-4 py-2.5 last:border-r-0" />
+                  ))}
+                </tr>
+                <tr>
+                  <td className="border-b border-r border-slate-200 bg-slate-50 px-4 py-2.5 text-base font-semibold text-slate-900">
+                    Total
+                  </td>
+                  {bidColumns.map((col) => (
+                    <td
+                      key={`line-item-total-${col.bid.id}`}
+                      className="border-b border-r border-slate-200 bg-slate-50 px-4 py-2.5 text-right text-base font-semibold text-slate-900 last:border-r-0"
+                    >
+                      {totalByBidId[col.bid.id] !== null
+                        ? `$${formatCurrencyInput(String(totalByBidId[col.bid.id]))}`
+                        : "--"}
+                    </td>
+                  ))}
+                </tr>
 
                 <tr>
                   <td className="border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-lg font-semibold text-slate-900">
@@ -274,10 +531,21 @@ export default function LevelingPageV2({
                     </td>
                     {bidColumns.map((col) => (
                       <td key={`${row.key}-${col.bid.id}`} className="border-b border-r border-slate-200 px-4 py-3 text-base text-slate-700 last:border-r-0">
-                        {row.key === "comments" ? col.bid.notes || "--" : null}
-                        {row.key === "inclusions" ? "Labor, material, and equipment per plans/specs." : null}
-                        {row.key === "exclusions" ? "Overtime and out-of-sequence work excluded." : null}
-                        {row.key === "attachments" ? "Download" : null}
+                        {row.key === "attachments" ? (
+                          "Download"
+                        ) : (
+                          <textarea
+                            value={getDisplayAdditionalInfoForCell(row.key, col.bid)}
+                            onChange={(event) =>
+                              setAdditionalInfoDraftByCell((prev) => ({
+                                ...prev,
+                                [getAdditionalInfoCellKey(row.key, col.bid.id)]: event.target.value,
+                              }))
+                            }
+                            rows={2}
+                            className="w-full resize-y rounded-md border border-slate-200 px-2 py-1.5 text-sm leading-5 text-slate-700 focus:border-slate-400 focus:outline-none"
+                          />
+                        )}
                       </td>
                     ))}
                   </tr>
