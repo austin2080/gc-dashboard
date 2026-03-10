@@ -69,6 +69,7 @@ type WorksheetLineItem = {
   unit: string;
   quantity: string;
   unitPrice: string;
+  gcMarkup: string;
   comments: string;
 };
 type WorksheetCostCodeGroup = {
@@ -842,8 +843,8 @@ const WORKSHEET_UNIT_OPTIONS = [
   "mo",
 ] as const;
 
-const PRELIM_COLUMN_MIN_WIDTHS = [72, 220, 56, 64, 72, 90, 120] as const;
-const PRELIM_DEFAULT_COLUMN_WIDTHS = [92, 340, 64, 78, 84, 118, 150] as const;
+const PRELIM_COLUMN_MIN_WIDTHS = [72, 220, 56, 64, 72, 90, 90, 120] as const;
+const PRELIM_DEFAULT_COLUMN_WIDTHS = [92, 340, 64, 78, 84, 118, 104, 150] as const;
 
 const createWorksheetLineItem = (seed: string): WorksheetLineItem => ({
   id: `${seed}-${typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Date.now().toString(36)}`,
@@ -851,6 +852,7 @@ const createWorksheetLineItem = (seed: string): WorksheetLineItem => ({
   unit: "ls",
   quantity: "",
   unitPrice: "",
+  gcMarkup: "",
   comments: "",
 });
 
@@ -1004,6 +1006,7 @@ export default function EstimateWorkspaceV2() {
               unit: "ls",
               quantity: "",
               unitPrice: "",
+              gcMarkup: "",
               comments: "",
             },
           ],
@@ -1293,7 +1296,8 @@ export default function EstimateWorkspaceV2() {
           const total = group.lineItems.reduce((sum, line) => {
             const quantity = parseNumericInput(line.quantity);
             const unitPrice = parseNumericInput(line.unitPrice);
-            return sum + quantity * unitPrice;
+            const gcMarkup = parseNumericInput(line.gcMarkup);
+            return sum + quantity * unitPrice + gcMarkup;
           }, 0);
           return { ...group, total };
         });
@@ -2495,17 +2499,24 @@ export default function EstimateWorkspaceV2() {
                           className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
                         />
                       </th>
+                      <th className="relative border-b border-r border-slate-400 bg-[#f9e3ae] px-2 py-2 text-center font-semibold text-slate-900">
+                        GC MARKUP
+                        <span
+                          onMouseDown={(event) => beginPrelimColumnResize(5, event)}
+                          className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
+                        />
+                      </th>
                       <th className="relative border-b border-r border-slate-400 px-2 py-2 text-center font-semibold">
                         TOTAL
                         <span
-                          onMouseDown={(event) => beginPrelimColumnResize(5, event)}
+                          onMouseDown={(event) => beginPrelimColumnResize(6, event)}
                           className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
                         />
                       </th>
                       <th className="relative border-b border-slate-400 px-2 py-2 text-center font-semibold">
                         COMMENTS
                         <span
-                          onMouseDown={(event) => beginPrelimColumnResize(6, event)}
+                          onMouseDown={(event) => beginPrelimColumnResize(7, event)}
                           className="absolute right-0 top-0 h-full w-2 cursor-col-resize"
                         />
                       </th>
@@ -2514,14 +2525,14 @@ export default function EstimateWorkspaceV2() {
                   <tbody>
                     {worksheetLoading ? (
                       <tr className="bg-white">
-                        <td colSpan={7} className="px-4 py-4 text-base font-medium text-slate-700">
+                        <td colSpan={8} className="px-4 py-4 text-base font-medium text-slate-700">
                           Loading cost codes...
                         </td>
                       </tr>
                     ) : null}
                     {worksheetError ? (
                       <tr className="bg-red-50">
-                        <td colSpan={7} className="px-4 py-3 text-sm font-medium text-red-700">
+                        <td colSpan={8} className="px-4 py-3 text-sm font-medium text-red-700">
                           {worksheetError}
                         </td>
                       </tr>
@@ -2530,7 +2541,7 @@ export default function EstimateWorkspaceV2() {
                     !worksheetError &&
                     worksheetDivisionGroups.length === 0 ? (
                       <tr className="bg-white">
-                        <td colSpan={7} className="px-4 py-4 text-base font-medium text-slate-700">
+                        <td colSpan={8} className="px-4 py-4 text-base font-medium text-slate-700">
                           No cost codes found.
                         </td>
                       </tr>
@@ -2541,7 +2552,7 @@ export default function EstimateWorkspaceV2() {
                         <Fragment key={group.division}>
                           <tr key={`division-${group.division}`} className="bg-[#bcbcbc]">
                             <td
-                              colSpan={7}
+                              colSpan={8}
                               className="border-b border-slate-400 px-2 py-2 text-sm font-semibold uppercase tracking-wide text-slate-900"
                             >
                               <button
@@ -2601,7 +2612,8 @@ export default function EstimateWorkspaceV2() {
                                   )}
                                 </td>
                                 <td colSpan={3} className="border-b border-slate-300 p-0"></td>
-                                <td className="border-b border-slate-300 px-2 py-2 text-right text-sm font-semibold text-slate-700">
+                                <td className="border-b border-r border-slate-300 p-0"></td>
+                                <td className="border-b border-slate-300 px-2 py-2 align-middle text-right text-sm font-semibold text-slate-700">
                                   ${formatCurrency(costCodeGroup.total)}
                                 </td>
                                 <td className="border-b border-slate-300 p-0"></td>
@@ -2611,7 +2623,8 @@ export default function EstimateWorkspaceV2() {
                                 ? costCodeGroup.lineItems.map((lineItem) => {
                                     const quantity = parseNumericInput(lineItem.quantity);
                                     const unitPrice = parseNumericInput(lineItem.unitPrice);
-                                    const lineTotal = quantity * unitPrice;
+                                    const gcMarkup = parseNumericInput(lineItem.gcMarkup);
+                                    const lineTotal = quantity * unitPrice + gcMarkup;
                                     return (
                                       <tr key={lineItem.id} className="bg-white">
                                         <td className="border-b border-r border-slate-300 p-0 align-top">
@@ -2783,7 +2796,34 @@ export default function EstimateWorkspaceV2() {
                                                   prev === cellKey ? null : prev
                                                 );
                                               }}
+                                              placeholder="0.00"
                                               className="h-full w-full border-0 bg-transparent text-right text-sm text-slate-700 focus:bg-white focus:outline-none"
+                                            />
+                                          </div>
+                                        </td>
+                                        <td className="border-b border-r border-slate-300 bg-[#f9e3ae] p-0 align-top">
+                                          <div className="flex h-8 items-center gap-1 px-1 text-sm">
+                                            <span className="w-2 text-slate-700">$</span>
+                                            <input
+                                              value={lineItem.gcMarkup}
+                                              onChange={(event) =>
+                                                updateWorksheetLineItemCell(
+                                                  costCodeGroup.id,
+                                                  lineItem.id,
+                                                  "gcMarkup",
+                                                  event.target.value
+                                                )
+                                              }
+                                              onBlur={(event) =>
+                                                updateWorksheetLineItemCell(
+                                                  costCodeGroup.id,
+                                                  lineItem.id,
+                                                  "gcMarkup",
+                                                  formatToTwoDecimals(event.target.value)
+                                                )
+                                              }
+                                              placeholder="0.00"
+                                              className="h-full w-full border-0 bg-transparent text-right text-sm text-slate-700 focus:bg-[#faedca] focus:outline-none"
                                             />
                                           </div>
                                         </td>
@@ -2826,6 +2866,7 @@ export default function EstimateWorkspaceV2() {
                                   <td className="border-b border-r border-t border-dashed border-slate-300 bg-[#f4ebe5] p-0"></td>
                                   <td className="border-b border-r border-t border-dashed border-slate-300 bg-[#f4ebe5] p-0"></td>
                                   <td className="border-b border-r border-t border-dashed border-slate-300 p-0"></td>
+                                  <td className="border-b border-r border-t border-dashed border-slate-300 p-0"></td>
                                   <td className="border-b border-t border-dashed border-slate-300 p-0"></td>
                                   <td className="border-b border-t border-dashed border-slate-300 p-0"></td>
                                 </tr>
@@ -2838,6 +2879,7 @@ export default function EstimateWorkspaceV2() {
                               <td colSpan={5} className="border-b border-slate-400 px-2 py-2 text-right text-sm font-semibold text-slate-700">
                                 Subtotal
                               </td>
+                              <td className="border-b border-r border-slate-400 p-0"></td>
                               <td className="border-b border-r border-slate-400 px-2 py-2 text-right text-sm font-semibold text-slate-700">
                                 ${formatCurrency(group.subtotal)}
                               </td>
@@ -2852,13 +2894,14 @@ export default function EstimateWorkspaceV2() {
                           <td colSpan={5} className="border-b border-[#c96420] px-2 py-2 text-right text-sm font-semibold text-white">
                             SUBTOTAL
                           </td>
+                          <td className="border-b border-r border-[#c96420] p-0"></td>
                           <td className="border-b border-r border-[#c96420] px-2 py-2 text-right text-sm font-semibold text-white">
                             ${formatCurrency(preliminarySubtotal)}
                           </td>
                           <td className="border-b border-[#c96420] p-0"></td>
                         </tr>
                         <tr className="bg-[#c8c8c8]">
-                          <td colSpan={7} className="h-5 border-b border-slate-300"></td>
+                          <td colSpan={8} className="h-5 border-b border-slate-300"></td>
                         </tr>
                         {preliminaryMarkupRows.map((markupRow) => (
                           <tr key={markupRow.label} className="bg-[#c8c8c8]">
@@ -2868,6 +2911,7 @@ export default function EstimateWorkspaceV2() {
                             <td colSpan={4} className="px-2 py-1 text-right text-sm font-medium text-slate-900">
                               {markupRow.label}
                             </td>
+                            <td className="p-0"></td>
                             <td className="px-2 py-1 text-right text-sm font-medium text-slate-900">
                               {markupRow.amount === null ? "-" : `$${formatCurrency(markupRow.amount)}`}
                             </td>
@@ -2878,6 +2922,7 @@ export default function EstimateWorkspaceV2() {
                           <td colSpan={5} className="border-t border-[#c96420] px-2 py-2 text-right text-sm font-semibold text-white">
                             TOTAL
                           </td>
+                          <td className="border-r border-t border-[#c96420] p-0"></td>
                           <td className="border-r border-t border-[#c96420] px-2 py-2 text-right text-sm font-semibold text-white">
                             ${formatCurrency(preliminaryGrandTotal)}
                           </td>
