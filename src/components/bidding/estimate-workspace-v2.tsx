@@ -9,6 +9,9 @@ import {
   type FormEvent as ReactFormEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
+import { useSearchParams } from "next/navigation";
+import { getBidProjectDetail } from "@/lib/bidding/store";
+import { getBidProjectIdForProject } from "@/lib/bidding/project-links";
 
 const NAV_ITEMS = [
   "Data, Factors & Rates",
@@ -845,6 +848,17 @@ const WORKSHEET_UNIT_OPTIONS = [
 
 const PRELIM_COLUMN_MIN_WIDTHS = [72, 220, 56, 64, 72, 90, 90, 120] as const;
 const PRELIM_DEFAULT_COLUMN_WIDTHS = [92, 340, 64, 78, 84, 118, 104, 150] as const;
+const BID_PROJECT_GENERAL_INFO_STORAGE_KEY = "bidding-project-general-info-v1";
+
+type BidProjectGeneralInfoCacheRow = {
+  projectName: string;
+  clientName: string;
+  projectAddress: string;
+  architect: string;
+  bidSetDate: string;
+  clientPhone: string;
+  clientEmail: string;
+};
 
 const createWorksheetLineItem = (seed: string): WorksheetLineItem => ({
   id: `${seed}-${typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Date.now().toString(36)}`,
@@ -876,6 +890,33 @@ const addDaysToIsoDate = (isoDate: string, days: number) => {
   const nextDay = String(nextDate.getUTCDate()).padStart(2, "0");
   return `${nextYear}-${nextMonth}-${nextDay}`;
 };
+
+function readBidProjectGeneralInfoMap(): Record<string, BidProjectGeneralInfoCacheRow> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(BID_PROJECT_GENERAL_INFO_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, BidProjectGeneralInfoCacheRow> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!value || typeof value !== "object") continue;
+      const row = value as Partial<BidProjectGeneralInfoCacheRow>;
+      next[key] = {
+        projectName: typeof row.projectName === "string" ? row.projectName : "",
+        clientName: typeof row.clientName === "string" ? row.clientName : "",
+        projectAddress: typeof row.projectAddress === "string" ? row.projectAddress : "",
+        architect: typeof row.architect === "string" ? row.architect : "",
+        bidSetDate: typeof row.bidSetDate === "string" ? row.bidSetDate : "",
+        clientPhone: typeof row.clientPhone === "string" ? row.clientPhone : "",
+        clientEmail: typeof row.clientEmail === "string" ? row.clientEmail : "",
+      };
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
 
 const GC_WEEKS_SYNC_ROW_IDS = new Set([
   "gc-010100",
@@ -910,6 +951,8 @@ const calculateDurationWeeks = (startIsoDate: string, endIsoDate: string) => {
 };
 
 export default function EstimateWorkspaceV2() {
+  const searchParams = useSearchParams();
+  const queryProjectId = searchParams.get("project");
   const [selectedItem, setSelectedItem] = useState<string>(NAV_ITEMS[0]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [rows, setRows] = useState<FactorRow[]>(INITIAL_ROWS);
@@ -1048,6 +1091,75 @@ export default function EstimateWorkspaceV2() {
       isMounted = false;
     };
   }, []);
+  useEffect(() => {
+    if (!queryProjectId) return;
+    const queryProjectIdValue: string = queryProjectId;
+    let active = true;
+    async function hydrateCoverPageFromBidProject() {
+      const mappedBidProjectId = getBidProjectIdForProject(queryProjectIdValue);
+      const candidates = [mappedBidProjectId, queryProjectIdValue].filter(
+        (id, index, list): id is string => Boolean(id) && list.indexOf(id) === index
+      );
+      let detail: Awaited<ReturnType<typeof getBidProjectDetail>> = null;
+      let resolvedProjectId: string = queryProjectIdValue;
+      for (const candidate of candidates) {
+        detail = await getBidProjectDetail(candidate);
+        if (detail) {
+          resolvedProjectId = candidate;
+          break;
+        }
+      }
+      if (!active) return;
+      const generalInfoMap = readBidProjectGeneralInfoMap();
+      const cachedInfo =
+        generalInfoMap[resolvedProjectId] ?? generalInfoMap[queryProjectIdValue];
+      setCoverPageFields((prev) =>
+        prev.map((field) => {
+          if (field.id === "cover-project-name") {
+            return {
+              ...field,
+              value:
+                detail?.project.project_name ??
+                cachedInfo?.projectName ??
+                field.value,
+            };
+          }
+          if (field.id === "cover-attn-name") {
+            return {
+              ...field,
+              value: detail?.project.owner ?? cachedInfo?.clientName ?? field.value,
+            };
+          }
+          if (field.id === "cover-attn-address") {
+            return {
+              ...field,
+              value:
+                detail?.project.location ??
+                cachedInfo?.projectAddress ??
+                field.value,
+            };
+          }
+          if (field.id === "cover-attn-phone") {
+            return { ...field, value: cachedInfo?.clientPhone ?? field.value };
+          }
+          if (field.id === "cover-attn-email") {
+            return { ...field, value: cachedInfo?.clientEmail ?? field.value };
+          }
+          if (field.id === "cover-architect") {
+            return { ...field, value: cachedInfo?.architect ?? field.value };
+          }
+          if (field.id === "cover-bid-set-date") {
+            return { ...field, value: cachedInfo?.bidSetDate ?? field.value };
+          }
+          return field;
+        })
+      );
+    }
+    void hydrateCoverPageFromBidProject();
+    return () => {
+      active = false;
+    };
+  }, [queryProjectId]);
   useEffect(() => {
     const onMouseMove = (event: MouseEvent) => {
       const active = prelimResizeRef.current;

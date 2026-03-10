@@ -37,6 +37,8 @@ type BidPackageDraft = {
   architect: string;
   bid_set_date: string;
   owner: string;
+  client_phone: string;
+  client_email: string;
   location: string;
   budget: string;
   due_date: string;
@@ -124,6 +126,7 @@ type BidPackageAutosavePayload = {
 
 const INVITATION_EMAIL_DRAFT_STORAGE_KEY = "bidding-all-new-invitation-email-draft";
 const BID_PACKAGE_AUTOSAVE_STORAGE_KEY = "bidding-all-new-package-autosave-v1";
+const BID_PROJECT_GENERAL_INFO_STORAGE_KEY = "bidding-project-general-info-v1";
 const TOKEN_LIST = [
   "{project_name}",
   "{bid_package_name}",
@@ -246,6 +249,8 @@ function createDefaultDraft(): BidPackageDraft {
     architect: "",
     bid_set_date: "",
     owner: "",
+    client_phone: "",
+    client_email: "",
     location: "",
     budget: "",
     due_date: "",
@@ -278,6 +283,65 @@ function createDefaultDraft(): BidPackageDraft {
 
 function buildTradeLabel(trade: { code: string; description: string | null }): string {
   return `${trade.code}${trade.description ? ` ${trade.description}` : ""}`.trim();
+}
+
+type BidProjectGeneralInfoCacheRow = {
+  projectName: string;
+  projectNumber: string;
+  clientName: string;
+  projectAddress: string;
+  architect: string;
+  bidSetDate: string;
+  clientPhone: string;
+  clientEmail: string;
+};
+
+function readBidProjectGeneralInfoMap(): Record<string, BidProjectGeneralInfoCacheRow> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(BID_PROJECT_GENERAL_INFO_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, BidProjectGeneralInfoCacheRow> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!value || typeof value !== "object") continue;
+      const row = value as Partial<BidProjectGeneralInfoCacheRow>;
+      next[key] = {
+        projectName: typeof row.projectName === "string" ? row.projectName : "",
+        projectNumber: typeof row.projectNumber === "string" ? row.projectNumber : "",
+        clientName: typeof row.clientName === "string" ? row.clientName : "",
+        projectAddress: typeof row.projectAddress === "string" ? row.projectAddress : "",
+        architect: typeof row.architect === "string" ? row.architect : "",
+        bidSetDate: typeof row.bidSetDate === "string" ? row.bidSetDate : "",
+        clientPhone: typeof row.clientPhone === "string" ? row.clientPhone : "",
+        clientEmail: typeof row.clientEmail === "string" ? row.clientEmail : "",
+      };
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function writeBidProjectGeneralInfoMap(map: Record<string, BidProjectGeneralInfoCacheRow>) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(BID_PROJECT_GENERAL_INFO_STORAGE_KEY, JSON.stringify(map));
+}
+
+function writeBidProjectGeneralInfo(projectId: string, draft: BidPackageDraft) {
+  const current = readBidProjectGeneralInfoMap();
+  current[projectId] = {
+    projectName: (draft.project_name ?? "").trim(),
+    projectNumber: (draft.package_number ?? "").trim(),
+    clientName: (draft.owner ?? "").trim(),
+    projectAddress: (draft.location ?? "").trim(),
+    architect: (draft.architect ?? "").trim(),
+    bidSetDate: (draft.bid_set_date ?? "").trim(),
+    clientPhone: (draft.client_phone ?? "").trim(),
+    clientEmail: (draft.client_email ?? "").trim(),
+  };
+  writeBidProjectGeneralInfoMap(current);
 }
 
 export default function NewBidPackagePage() {
@@ -452,13 +516,17 @@ export default function NewBidPackagePage() {
         setLoadingExistingProject(false);
         return;
       }
+      const cachedGeneralInfo = readBidProjectGeneralInfoMap()[projectId];
       setDraft((prev) => ({
         ...prev,
         project_name: detail.project.project_name ?? "",
+        package_number: cachedGeneralInfo?.projectNumber ?? prev.package_number,
         status: prev.status,
-        architect: "",
-        bid_set_date: "",
+        architect: cachedGeneralInfo?.architect ?? "",
+        bid_set_date: cachedGeneralInfo?.bidSetDate ?? "",
         owner: detail.project.owner ?? "",
+        client_phone: cachedGeneralInfo?.clientPhone ?? "",
+        client_email: cachedGeneralInfo?.clientEmail ?? "",
         location: detail.project.location ?? "",
         budget:
           detail.project.budget !== null && detail.project.budget !== undefined
@@ -969,6 +1037,7 @@ export default function NewBidPackagePage() {
               setSubmitting(false);
               return;
             }
+            writeBidProjectGeneralInfo(editingProjectId, draft);
 
             router.push(`/bidding?project=${editingProjectId}`);
             router.refresh();
@@ -1002,6 +1071,7 @@ export default function NewBidPackagePage() {
             setSubmitting(false);
             return;
           }
+          writeBidProjectGeneralInfo(created.id, draft);
 
           setDraft(createDefaultDraft());
           localStorage.removeItem(BID_PACKAGE_AUTOSAVE_STORAGE_KEY);
@@ -1082,6 +1152,29 @@ export default function NewBidPackagePage() {
                 }
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
                 placeholder="Architect"
+              />
+            </label>
+            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-3">
+              Client Phone Number
+              <input
+                value={draft.client_phone}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, client_phone: event.target.value }))
+                }
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                placeholder="(555) 555-5555"
+              />
+            </label>
+            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-3">
+              Client Email
+              <input
+                type="email"
+                value={draft.client_email}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, client_email: event.target.value }))
+                }
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                placeholder="client@example.com"
               />
             </label>
             <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-3">
