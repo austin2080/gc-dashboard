@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { EmptyState } from "./EmptyState";
 import { SettingsCard } from "./SettingsCard";
@@ -38,32 +38,7 @@ const settingsNavItems: SettingsNavItem[] = [
   { id: "audit-log", label: "Audit Log", description: "Access history", icon: "🧾" },
 ];
 
-const initialUsers: TeamUser[] = [
-  {
-    id: "1",
-    name: "Sierra Johnson",
-    email: "sierra@builderos.com",
-    role: "Admin",
-    status: "Active",
-    lastActive: "2 minutes ago",
-  },
-  {
-    id: "2",
-    name: "Mateo Cooper",
-    email: "mateo@builderos.com",
-    role: "Estimator",
-    status: "Invited",
-    lastActive: "Never",
-  },
-  {
-    id: "3",
-    name: "Noah Bennett",
-    email: "noah@builderos.com",
-    role: "PM",
-    status: "Active",
-    lastActive: "3 hours ago",
-  },
-];
+const initialUsers: TeamUser[] = [];
 
 const roles: RoleDefinition[] = [
   { id: "admin", name: "Admin", description: "Full access across all modules" },
@@ -330,6 +305,20 @@ export function SettingsShell() {
 
   const [saveStatus, setSaveStatus] = useState<"saved" | "unsaved">("saved");
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [teamUsers, setTeamUsers] = useState<TeamUser[]>(initialUsers);
+  const [loadingTeamUsers, setLoadingTeamUsers] = useState(false);
+  const [teamUsersError, setTeamUsersError] = useState<string | null>(null);
+  const [editingUser, setEditingUser] = useState<TeamUser | null>(null);
+  const [editCompanyDraft, setEditCompanyDraft] = useState("");
+  const [editNameDraft, setEditNameDraft] = useState("");
+  const [editAddressDraft, setEditAddressDraft] = useState("");
+  const [editCityStateZipDraft, setEditCityStateZipDraft] = useState("");
+  const [editPhoneDraft, setEditPhoneDraft] = useState("");
+  const [editEmailDraft, setEditEmailDraft] = useState("");
+  const [editRoleDraft, setEditRoleDraft] = useState("");
+  const [editStatusDraft, setEditStatusDraft] = useState<UserStatus>("Active");
+  const [savingUserEdit, setSavingUserEdit] = useState(false);
+  const [editUserError, setEditUserError] = useState<string | null>(null);
   const [roleFilter, setRoleFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
@@ -342,8 +331,39 @@ export function SettingsShell() {
     }))
   );
 
+  useEffect(() => {
+    let active = true;
+    async function loadTeamUsers() {
+      setLoadingTeamUsers(true);
+      setTeamUsersError(null);
+      try {
+        const response = await fetch("/api/settings/team-users", { cache: "no-store" });
+        const payload = (await response.json().catch(() => null)) as
+          | { users?: TeamUser[]; error?: string }
+          | null;
+        if (!active) return;
+        if (!response.ok) {
+          setTeamUsers([]);
+          setTeamUsersError(payload?.error ?? "Unable to load team users.");
+          return;
+        }
+        setTeamUsers(Array.isArray(payload?.users) ? payload.users : []);
+      } catch {
+        if (!active) return;
+        setTeamUsers([]);
+        setTeamUsersError("Unable to load team users.");
+      } finally {
+        if (active) setLoadingTeamUsers(false);
+      }
+    }
+    void loadTeamUsers();
+    return () => {
+      active = false;
+    };
+  }, []);
+
   const filteredUsers = useMemo(() => {
-    return initialUsers.filter((user) => {
+    return teamUsers.filter((user) => {
       const matchesSearch =
         user.name.toLowerCase().includes(search.toLowerCase()) ||
         user.email.toLowerCase().includes(search.toLowerCase());
@@ -351,9 +371,80 @@ export function SettingsShell() {
       const matchesStatus = statusFilter === "all" || user.status === statusFilter;
       return matchesSearch && matchesRole && matchesStatus;
     });
-  }, [roleFilter, search, statusFilter]);
+  }, [roleFilter, search, statusFilter, teamUsers]);
 
   const markUnsaved = () => setSaveStatus("unsaved");
+
+  const openEditUserModal = (user: TeamUser) => {
+    setEditingUser(user);
+    setEditCompanyDraft(user.company ?? "");
+    setEditNameDraft(user.name ?? "");
+    setEditAddressDraft(user.address ?? "");
+    setEditCityStateZipDraft(user.cityStateZip ?? "");
+    setEditPhoneDraft(user.phone ?? "");
+    setEditEmailDraft(user.email ?? "");
+    setEditRoleDraft(user.role);
+    setEditStatusDraft(user.status === "Deactivated" ? "Deactivated" : "Active");
+    setEditUserError(null);
+  };
+
+  const closeEditUserModal = () => {
+    setEditingUser(null);
+    setEditCompanyDraft("");
+    setEditNameDraft("");
+    setEditAddressDraft("");
+    setEditCityStateZipDraft("");
+    setEditPhoneDraft("");
+    setEditEmailDraft("");
+    setEditRoleDraft("");
+    setEditStatusDraft("Active");
+    setSavingUserEdit(false);
+    setEditUserError(null);
+  };
+
+  const submitEditUser = async () => {
+    if (!editingUser) return;
+    setSavingUserEdit(true);
+    setEditUserError(null);
+    try {
+      const response = await fetch(`/api/settings/team-users/${editingUser.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: editRoleDraft,
+          status: editStatusDraft,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+      if (!response.ok) {
+        setEditUserError(payload?.error ?? "Unable to update user.");
+        setSavingUserEdit(false);
+        return;
+      }
+      setTeamUsers((prev) =>
+        prev.map((user) =>
+          user.id === editingUser.id
+            ? {
+                ...user,
+                company: editCompanyDraft.trim(),
+                name: editNameDraft.trim() || user.name,
+                address: editAddressDraft.trim(),
+                cityStateZip: editCityStateZipDraft.trim(),
+                phone: editPhoneDraft.trim(),
+                email: editEmailDraft.trim() || user.email,
+                role: editRoleDraft.trim() || user.role,
+                status: editStatusDraft,
+              }
+            : user
+        )
+      );
+      markUnsaved();
+      closeEditUserModal();
+    } catch {
+      setEditUserError("Unable to update user.");
+      setSavingUserEdit(false);
+    }
+  };
 
   const onSectionChange = (section: SettingsSectionId) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -468,6 +559,16 @@ export function SettingsShell() {
         }
       />
       <SettingsCard>
+        {loadingTeamUsers ? (
+          <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+            Loading users...
+          </div>
+        ) : null}
+        {teamUsersError ? (
+          <div className="mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {teamUsersError}
+          </div>
+        ) : null}
         <div className="mb-4 flex flex-wrap gap-2">
           <input
             className="min-w-52 flex-1 rounded-lg border border-slate-300 p-2 text-sm"
@@ -536,10 +637,23 @@ export function SettingsShell() {
                     </td>
                     <td className="px-2 py-3 text-slate-600">{user.lastActive}</td>
                     <td className="px-2 py-3">
-                      <button type="button" className="mr-2 text-xs font-medium text-blue-600">
+                      <button
+                        type="button"
+                        className="mr-2 text-xs font-medium text-blue-600"
+                        onClick={() => openEditUserModal(user)}
+                      >
                         Edit
                       </button>
-                      <button type="button" className="text-xs font-medium text-rose-600">
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-rose-600"
+                        onClick={() =>
+                          openEditUserModal({
+                            ...user,
+                            status: "Deactivated",
+                          })
+                        }
+                      >
                         Deactivate
                       </button>
                     </td>
@@ -588,6 +702,120 @@ export function SettingsShell() {
                 }}
               >
                 Send invite
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {editingUser ? (
+        <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <h3 className="text-lg font-semibold text-slate-900">Edit user</h3>
+            <p className="mt-1 text-sm text-slate-600">{editingUser.name} • {editingUser.email}</p>
+            <div className="mt-4 space-y-3">
+              <label className="space-y-1 text-sm">
+                <span className="font-medium text-slate-700">Company</span>
+                <input
+                  className="w-full rounded-lg border border-slate-300 p-2"
+                  value={editCompanyDraft}
+                  onChange={(event) => setEditCompanyDraft(event.target.value)}
+                  placeholder="Company name"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-medium text-slate-700">Name</span>
+                <input
+                  className="w-full rounded-lg border border-slate-300 p-2"
+                  value={editNameDraft}
+                  onChange={(event) => setEditNameDraft(event.target.value)}
+                  placeholder="Full name"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-medium text-slate-700">Address</span>
+                <input
+                  className="w-full rounded-lg border border-slate-300 p-2"
+                  value={editAddressDraft}
+                  onChange={(event) => setEditAddressDraft(event.target.value)}
+                  placeholder="Street address"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-medium text-slate-700">City, State ZIP</span>
+                <input
+                  className="w-full rounded-lg border border-slate-300 p-2"
+                  value={editCityStateZipDraft}
+                  onChange={(event) => setEditCityStateZipDraft(event.target.value)}
+                  placeholder="City, ST ZIP"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-medium text-slate-700">Phone</span>
+                <input
+                  className="w-full rounded-lg border border-slate-300 p-2"
+                  value={editPhoneDraft}
+                  onChange={(event) => setEditPhoneDraft(event.target.value)}
+                  placeholder="(555) 555-5555"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-medium text-slate-700">Email</span>
+                <input
+                  type="email"
+                  className="w-full rounded-lg border border-slate-300 p-2"
+                  value={editEmailDraft}
+                  onChange={(event) => setEditEmailDraft(event.target.value)}
+                  placeholder="user@company.com"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-medium text-slate-700">Role</span>
+                <select
+                  className="w-full rounded-lg border border-slate-300 p-2"
+                  value={editRoleDraft}
+                  onChange={(event) => setEditRoleDraft(event.target.value)}
+                >
+                  {roles.map((role) => (
+                    <option key={role.id} value={role.name}>
+                      {role.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-medium text-slate-700">Status</span>
+                <select
+                  className="w-full rounded-lg border border-slate-300 p-2"
+                  value={editStatusDraft}
+                  onChange={(event) => setEditStatusDraft(event.target.value as UserStatus)}
+                >
+                  <option value="Active">Active</option>
+                  <option value="Deactivated">Deactivated</option>
+                </select>
+              </label>
+            </div>
+            {editUserError ? (
+              <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                {editUserError}
+              </div>
+            ) : null}
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm"
+                onClick={closeEditUserModal}
+                disabled={savingUserEdit}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-60"
+                onClick={submitEditUser}
+                disabled={savingUserEdit}
+              >
+                {savingUserEdit ? "Saving..." : "Save changes"}
               </button>
             </div>
           </div>

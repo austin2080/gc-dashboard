@@ -26,6 +26,10 @@ export type TeamUser = {
   role: string;
   status: UserStatus;
   lastActive: string;
+  company?: string;
+  address?: string;
+  cityStateZip?: string;
+  phone?: string;
 };
 
 export type RoleDefinition = {
