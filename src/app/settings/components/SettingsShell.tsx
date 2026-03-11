@@ -65,6 +65,17 @@ const statusPillStyles: Record<UserStatus, string> = {
   Deactivated: "bg-slate-200 text-slate-700",
 };
 
+function splitFullName(value: string): { firstName: string; lastName: string } {
+  const trimmed = value.trim();
+  if (!trimmed) return { firstName: "", lastName: "" };
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+  return {
+    firstName: parts[0],
+    lastName: parts.slice(1).join(" "),
+  };
+}
+
 const defaultCompanyCostCodes: Array<{ code: string; description: string }> = [
   { code: "00", description: "Professional Services" },
   { code: "00-00-00-00", description: "Professional Services" },
@@ -310,7 +321,8 @@ export function SettingsShell() {
   const [teamUsersError, setTeamUsersError] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<TeamUser | null>(null);
   const [editCompanyDraft, setEditCompanyDraft] = useState("");
-  const [editNameDraft, setEditNameDraft] = useState("");
+  const [editFirstNameDraft, setEditFirstNameDraft] = useState("");
+  const [editLastNameDraft, setEditLastNameDraft] = useState("");
   const [editAddressDraft, setEditAddressDraft] = useState("");
   const [editCityStateZipDraft, setEditCityStateZipDraft] = useState("");
   const [editPhoneDraft, setEditPhoneDraft] = useState("");
@@ -376,9 +388,11 @@ export function SettingsShell() {
   const markUnsaved = () => setSaveStatus("unsaved");
 
   const openEditUserModal = (user: TeamUser) => {
+    const parsed = splitFullName(user.name ?? "");
     setEditingUser(user);
     setEditCompanyDraft(user.company ?? "");
-    setEditNameDraft(user.name ?? "");
+    setEditFirstNameDraft(user.firstName ?? parsed.firstName);
+    setEditLastNameDraft(user.lastName ?? parsed.lastName);
     setEditAddressDraft(user.address ?? "");
     setEditCityStateZipDraft(user.cityStateZip ?? "");
     setEditPhoneDraft(user.phone ?? "");
@@ -391,7 +405,8 @@ export function SettingsShell() {
   const closeEditUserModal = () => {
     setEditingUser(null);
     setEditCompanyDraft("");
-    setEditNameDraft("");
+    setEditFirstNameDraft("");
+    setEditLastNameDraft("");
     setEditAddressDraft("");
     setEditCityStateZipDraft("");
     setEditPhoneDraft("");
@@ -413,6 +428,13 @@ export function SettingsShell() {
         body: JSON.stringify({
           role: editRoleDraft,
           status: editStatusDraft,
+          firstName: editFirstNameDraft,
+          lastName: editLastNameDraft,
+          company: editCompanyDraft,
+          address: editAddressDraft,
+          cityStateZip: editCityStateZipDraft,
+          phone: editPhoneDraft,
+          email: editEmailDraft,
         }),
       });
       const payload = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -427,7 +449,11 @@ export function SettingsShell() {
             ? {
                 ...user,
                 company: editCompanyDraft.trim(),
-                name: editNameDraft.trim() || user.name,
+                firstName: editFirstNameDraft.trim(),
+                lastName: editLastNameDraft.trim(),
+                name:
+                  [editFirstNameDraft.trim(), editLastNameDraft.trim()].filter(Boolean).join(" ") ||
+                  user.name,
                 address: editAddressDraft.trim(),
                 cityStateZip: editCityStateZipDraft.trim(),
                 phone: editPhoneDraft.trim(),
@@ -438,7 +464,7 @@ export function SettingsShell() {
             : user
         )
       );
-      markUnsaved();
+      setSaveStatus("saved");
       closeEditUserModal();
     } catch {
       setEditUserError("Unable to update user.");
@@ -724,12 +750,21 @@ export function SettingsShell() {
                 />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="font-medium text-slate-700">Name</span>
+                <span className="font-medium text-slate-700">First Name</span>
                 <input
                   className="w-full rounded-lg border border-slate-300 p-2"
-                  value={editNameDraft}
-                  onChange={(event) => setEditNameDraft(event.target.value)}
-                  placeholder="Full name"
+                  value={editFirstNameDraft}
+                  onChange={(event) => setEditFirstNameDraft(event.target.value)}
+                  placeholder="First name"
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-medium text-slate-700">Last Name</span>
+                <input
+                  className="w-full rounded-lg border border-slate-300 p-2"
+                  value={editLastNameDraft}
+                  onChange={(event) => setEditLastNameDraft(event.target.value)}
+                  placeholder="Last name"
                 />
               </label>
               <label className="space-y-1 text-sm">

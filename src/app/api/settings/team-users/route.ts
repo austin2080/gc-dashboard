@@ -11,6 +11,60 @@ function toTitleCase(value: string): string {
     .join(" ");
 }
 
+function formatNameFromEmailLocal(localPart: string): string {
+  const withSpaces = localPart
+    .replace(/[._-]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/([a-zA-Z])(\d)/g, "$1 $2")
+    .replace(/(\d)([a-zA-Z])/g, "$1 $2")
+    .trim();
+  return withSpaces
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function extractNameFromMetadata(metadata: Record<string, unknown>): string {
+  const fullName =
+    (typeof metadata.full_name === "string" && metadata.full_name.trim()) ||
+    (typeof metadata.name === "string" && metadata.name.trim()) ||
+    "";
+  if (fullName) return fullName;
+  const givenName =
+    (typeof metadata.given_name === "string" && metadata.given_name.trim()) ||
+    (typeof metadata.first_name === "string" && metadata.first_name.trim()) ||
+    "";
+  const familyName =
+    (typeof metadata.family_name === "string" && metadata.family_name.trim()) ||
+    (typeof metadata.last_name === "string" && metadata.last_name.trim()) ||
+    "";
+  return [givenName, familyName].filter(Boolean).join(" ").trim();
+}
+
+function extractFirstLastFromMetadata(metadata: Record<string, unknown>): {
+  firstName: string;
+  lastName: string;
+} {
+  const firstName =
+    (typeof metadata.given_name === "string" && metadata.given_name.trim()) ||
+    (typeof metadata.first_name === "string" && metadata.first_name.trim()) ||
+    "";
+  const lastName =
+    (typeof metadata.family_name === "string" && metadata.family_name.trim()) ||
+    (typeof metadata.last_name === "string" && metadata.last_name.trim()) ||
+    "";
+  return { firstName, lastName };
+}
+
+function splitDisplayName(value: string): { firstName: string; lastName: string } {
+  const trimmed = value.trim();
+  if (!trimmed) return { firstName: "", lastName: "" };
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  if (parts.length === 1) return { firstName: parts[0], lastName: "" };
+  return { firstName: parts[0], lastName: parts.slice(1).join(" ") };
+}
+
 function formatLastActive(value: string | null | undefined): string {
   if (!value) return "Never";
   const parsed = new Date(value);
@@ -27,6 +81,8 @@ export async function GET() {
     }
     const userId = authData.user.id;
     const currentUserEmail = authData.user.email ?? "";
+    const currentUserMetadata = (authData.user.user_metadata ?? {}) as Record<string, unknown>;
+    const currentUserName = extractNameFromMetadata(currentUserMetadata);
     const admin = createAdminClient();
 
     const { data: activeMember } = await admin
@@ -66,15 +122,83 @@ export async function GET() {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const users = (data ?? []).map((row) => {
+    const membershipRows = data ?? [];
+    const authUsersById = new Map<
+      string,
+      {
+        email: string;
+        fullName: string;
+        firstName: string;
+        lastName: string;
+        company: string;
+        address: string;
+        phone: string;
+        cityStateZip: string;
+      }
+    >();
+    await Promise.all(
+      membershipRows.map(async (row) => {
+        const authLookup = await admin.auth.admin.getUserById(row.user_id);
+        const authUser = authLookup.data.user;
+        const metadata = (authUser?.user_metadata ?? {}) as Record<string, unknown>;
+        const fullNameRaw = extractNameFromMetadata(metadata);
+        const { firstName, lastName } = extractFirstLastFromMetadata(metadata);
+        const emailRaw = authUser?.email ?? "";
+        const phoneRaw =
+          (typeof metadata.phone === "string" && metadata.phone) ||
+          (typeof metadata.phone_number === "string" && metadata.phone_number) ||
+          "";
+        const companyRaw = typeof metadata.company === "string" ? metadata.company.trim() : "";
+        const addressRaw = typeof metadata.address === "string" ? metadata.address.trim() : "";
+        const cityStateZipRaw =
+          typeof metadata.city_state_zip === "string" ? metadata.city_state_zip.trim() : "";
+        const cityRaw = typeof metadata.city === "string" ? metadata.city.trim() : "";
+        const stateRaw = typeof metadata.state === "string" ? metadata.state.trim() : "";
+        const zipRaw = typeof metadata.zip === "string" ? metadata.zip.trim() : "";
+        const cityStateZip = [cityRaw, stateRaw].filter(Boolean).join(", ");
+        const cityStateZipWithZip = cityStateZipRaw || [cityStateZip, zipRaw].filter(Boolean).join(" ");
+        authUsersById.set(row.user_id, {
+          email: emailRaw,
+          fullName: fullNameRaw.trim(),
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          company: companyRaw,
+          address: addressRaw,
+          phone: phoneRaw.trim(),
+          cityStateZip: cityStateZipWithZip.trim(),
+        });
+      })
+    );
+
+    const users = membershipRows.map((row) => {
       const roleRaw = typeof row.role === "string" ? row.role.trim() : "";
+      const authUser = authUsersById.get(row.user_id);
+      const fallbackEmail = row.user_id === userId ? currentUserEmail : "";
+      const email = authUser?.email || fallbackEmail || "—";
+      const nameFromEmailLocal =
+        email !== "—" && email.includes("@")
+          ? email.split("@")[0]
+          : "";
+      const readableName =
+        (row.user_id === userId ? currentUserName : "") ||
+        authUser?.fullName ||
+        (nameFromEmailLocal
+          ? formatNameFromEmailLocal(nameFromEmailLocal)
+          : "");
+      const parsedName = splitDisplayName(readableName);
       return {
         id: row.user_id,
-        name: row.user_id === userId ? "You" : `User ${String(row.user_id).slice(0, 8)}`,
-        email: row.user_id === userId ? currentUserEmail || "—" : "—",
+        name: readableName || (row.user_id === userId ? "You" : `User ${String(row.user_id).slice(0, 8)}`),
+        email,
         role: roleRaw ? toTitleCase(roleRaw) : "Member",
         status: row.is_active ? "Active" : "Deactivated",
         lastActive: formatLastActive(row.created_at ?? null),
+        company: authUser?.company || "Your Company",
+        firstName: authUser?.firstName || parsedName.firstName,
+        lastName: authUser?.lastName || parsedName.lastName,
+        address: authUser?.address || "",
+        cityStateZip: authUser?.cityStateZip ?? "",
+        phone: authUser?.phone ?? "",
       };
     });
 

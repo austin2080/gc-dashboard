@@ -22,6 +22,8 @@ export type UserStatus = "Active" | "Invited" | "Deactivated";
 export type TeamUser = {
   id: string;
   name: string;
+  firstName?: string;
+  lastName?: string;
   email: string;
   role: string;
   status: UserStatus;

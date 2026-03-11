@@ -109,6 +109,14 @@ type InvitationEmailDraft = {
   requireAcknowledgement: boolean;
 };
 
+type CompanyUserOption = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  status: "Active" | "Invited" | "Deactivated";
+};
+
 type ToastState = {
   type: "success" | "error";
   message: string;
@@ -285,6 +293,10 @@ function buildTradeLabel(trade: { code: string; description: string | null }): s
   return `${trade.code}${trade.description ? ` ${trade.description}` : ""}`.trim();
 }
 
+function normalizeContactName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 type BidProjectGeneralInfoCacheRow = {
   projectName: string;
   projectNumber: string;
@@ -294,6 +306,7 @@ type BidProjectGeneralInfoCacheRow = {
   bidSetDate: string;
   clientPhone: string;
   clientEmail: string;
+  primaryBiddingContact: string;
 };
 
 function readBidProjectGeneralInfoMap(): Record<string, BidProjectGeneralInfoCacheRow> {
@@ -316,6 +329,8 @@ function readBidProjectGeneralInfoMap(): Record<string, BidProjectGeneralInfoCac
         bidSetDate: typeof row.bidSetDate === "string" ? row.bidSetDate : "",
         clientPhone: typeof row.clientPhone === "string" ? row.clientPhone : "",
         clientEmail: typeof row.clientEmail === "string" ? row.clientEmail : "",
+        primaryBiddingContact:
+          typeof row.primaryBiddingContact === "string" ? row.primaryBiddingContact : "",
       };
     }
     return next;
@@ -340,6 +355,7 @@ function writeBidProjectGeneralInfo(projectId: string, draft: BidPackageDraft) {
     bidSetDate: (draft.bid_set_date ?? "").trim(),
     clientPhone: (draft.client_phone ?? "").trim(),
     clientEmail: (draft.client_email ?? "").trim(),
+    primaryBiddingContact: (draft.primary_bidding_contact ?? "").trim(),
   };
   writeBidProjectGeneralInfoMap(current);
 }
@@ -363,6 +379,7 @@ export default function NewBidPackagePage() {
   const [expandedTradeId, setExpandedTradeId] = useState<string | null>(null);
   const [subOptions, setSubOptions] = useState<SubOption[]>([]);
   const [loadingSubOptions, setLoadingSubOptions] = useState(false);
+  const [companyUserOptions, setCompanyUserOptions] = useState<CompanyUserOption[]>([]);
   const [manageQueryByTradeId, setManageQueryByTradeId] = useState<Record<string, string>>({});
   const [manageSearchActiveByTradeId, setManageSearchActiveByTradeId] = useState<Record<string, boolean>>({});
   const [assignedSubsByTradeId, setAssignedSubsByTradeId] = useState<Record<string, AssignedSub[]>>({});
@@ -402,6 +419,43 @@ export default function NewBidPackagePage() {
     () => uploadedFiles.filter((file) => file.section === activeFileSection),
     [activeFileSection, uploadedFiles]
   );
+  const selectedPrimaryBiddingUser = useMemo(() => {
+    if (!companyUserOptions.length) return null;
+    const normalizedCurrent = normalizeContactName(draft.primary_bidding_contact || "");
+    return (
+      companyUserOptions.find(
+        (user) => normalizeContactName(user.name) === normalizedCurrent
+      ) ?? null
+    );
+  }, [companyUserOptions, draft.primary_bidding_contact]);
+  const biddingCcUserOptions = useMemo(
+    () =>
+      companyUserOptions.map((user) => ({
+        ...user,
+        disabled: Boolean(selectedPrimaryBiddingUser?.id && user.id === selectedPrimaryBiddingUser.id),
+      })),
+    [companyUserOptions, selectedPrimaryBiddingUser?.id]
+  );
+  const hasSelectableCcUser = useMemo(
+    () => biddingCcUserOptions.some((user) => !user.disabled),
+    [biddingCcUserOptions]
+  );
+  const primaryBiddingContactDisplay = useMemo(() => {
+    if (!companyUserOptions.length) return draft.primary_bidding_contact;
+    const normalizedCurrent = normalizeContactName(draft.primary_bidding_contact || "");
+    const matchingUser = companyUserOptions.find(
+      (user) => normalizeContactName(user.name) === normalizedCurrent
+    );
+    return matchingUser?.name ?? draft.primary_bidding_contact;
+  }, [companyUserOptions, draft.primary_bidding_contact]);
+  const primaryBiddingContactEmail = useMemo(() => {
+    if (!companyUserOptions.length) return "test@builderos.com";
+    const normalizedCurrent = normalizeContactName(draft.primary_bidding_contact || "");
+    const matchingUser = companyUserOptions.find(
+      (user) => normalizeContactName(user.name) === normalizedCurrent
+    );
+    return matchingUser?.email || "test@builderos.com";
+  }, [companyUserOptions, draft.primary_bidding_contact]);
 
   const handleUploadFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -461,6 +515,51 @@ export default function NewBidPackagePage() {
       }
     }
     loadCostCodes();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    async function loadCompanyUsers() {
+      try {
+        const response = await fetch("/api/settings/team-users", { cache: "no-store" });
+        const payload = (await response.json().catch(() => null)) as
+          | { users?: CompanyUserOption[]; error?: string }
+          | null;
+        if (!active || !response.ok) {
+          if (active) setCompanyUserOptions([]);
+          return;
+        }
+        const users = Array.isArray(payload?.users) ? payload.users : [];
+        const activeUsers = users.filter((user) => user.status === "Active");
+        setCompanyUserOptions(activeUsers);
+        if (activeUsers.length) {
+          setDraft((prev) => {
+            const normalizedCurrent = normalizeContactName(prev.primary_bidding_contact || "");
+            const matchingUser = activeUsers.find(
+              (user) => normalizeContactName(user.name) === normalizedCurrent
+            );
+            const isLegacyValue =
+              prev.primary_bidding_contact === "Project Manager" ||
+              prev.primary_bidding_contact === "Estimator" ||
+              prev.primary_bidding_contact === "Precon Manager";
+            if (matchingUser && matchingUser.name !== prev.primary_bidding_contact) {
+              return { ...prev, primary_bidding_contact: matchingUser.name };
+            }
+            if (!prev.primary_bidding_contact || isLegacyValue || !matchingUser) {
+              return { ...prev, primary_bidding_contact: activeUsers[0].name };
+            }
+            return prev;
+          });
+        }
+      } catch {
+        if (!active) return;
+        setCompanyUserOptions([]);
+      }
+    }
+    void loadCompanyUsers();
     return () => {
       active = false;
     };
@@ -570,6 +669,52 @@ export default function NewBidPackagePage() {
       active = false;
     };
   }, [editingProjectId]);
+
+  useEffect(() => {
+    if (!bidPackageAutosaveHydrated || !companyUserOptions.length) return;
+    setDraft((prev) => {
+      const normalizedCurrent = normalizeContactName(prev.primary_bidding_contact || "");
+      const matchingUser = companyUserOptions.find(
+        (user) => normalizeContactName(user.name) === normalizedCurrent
+      );
+      const isLegacyValue =
+        prev.primary_bidding_contact === "Project Manager" ||
+        prev.primary_bidding_contact === "Estimator" ||
+        prev.primary_bidding_contact === "Precon Manager";
+      if (matchingUser && matchingUser.name !== prev.primary_bidding_contact) {
+        return { ...prev, primary_bidding_contact: matchingUser.name };
+      }
+      if (!prev.primary_bidding_contact || isLegacyValue || !matchingUser) {
+        return { ...prev, primary_bidding_contact: companyUserOptions[0].name };
+      }
+      return prev;
+    });
+  }, [bidPackageAutosaveHydrated, companyUserOptions]);
+
+  useEffect(() => {
+    if (!companyUserOptions.length) return;
+    setDraft((prev) => {
+      const current = prev.bidding_cc_group?.trim() || "";
+      if (!current) return prev;
+      const byId = companyUserOptions.find((user) => user.id === current);
+      const mappedUser =
+        byId ??
+        companyUserOptions.find(
+          (user) =>
+            user.email.toLowerCase() === current.toLowerCase() ||
+            normalizeContactName(user.name) === normalizeContactName(current)
+        ) ??
+        null;
+      const nextId = mappedUser?.id ?? "";
+      if (selectedPrimaryBiddingUser?.id && nextId === selectedPrimaryBiddingUser.id) {
+        return { ...prev, bidding_cc_group: "" };
+      }
+      if (nextId !== current) {
+        return { ...prev, bidding_cc_group: nextId };
+      }
+      return prev;
+    });
+  }, [companyUserOptions, selectedPrimaryBiddingUser?.id]);
 
   useEffect(() => {
     if (editingProjectId) {
@@ -785,7 +930,7 @@ export default function NewBidPackagePage() {
       "{prebid_info}": prebidParts.length ? prebidParts.join(" | ") : "No pre-bid details available.",
       "{portal_link}": portalLink,
       "{contact_name}": draft.primary_bidding_contact || "Primary bidding contact",
-      "{contact_email}": "test@builderos.com",
+      "{contact_email}": primaryBiddingContactEmail,
     } as Record<(typeof TOKEN_LIST)[number], string>;
   }, [
     draft.due_date,
@@ -798,6 +943,7 @@ export default function NewBidPackagePage() {
     draft.rfi_deadline_enabled,
     draft.site_walkthrough_date,
     draft.site_walkthrough_enabled,
+    primaryBiddingContactEmail,
   ]);
 
   const renderTokens = (input: string) =>
@@ -1201,15 +1347,27 @@ export default function NewBidPackagePage() {
                 onValueChange={(value) => setDraft((prev) => ({ ...prev, primary_bidding_contact: value }))}
               >
                 <SelectTrigger className="w-full rounded-lg border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:ring-blue-500">
-                  <SelectValue />
+                  <SelectValue>{primaryBiddingContactDisplay}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Project Manager">Project Manager</SelectItem>
-                  <SelectItem value="Estimator">Estimator</SelectItem>
-                  <SelectItem value="Precon Manager">Precon Manager</SelectItem>
+                  {companyUserOptions.length ? (
+                    companyUserOptions.map((user) => (
+                      <SelectItem key={user.id} value={user.name}>
+                        {user.name} • {user.role}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <>
+                      <SelectItem value="Project Manager">Project Manager</SelectItem>
+                      <SelectItem value="Estimator">Estimator</SelectItem>
+                      <SelectItem value="Precon Manager">Precon Manager</SelectItem>
+                    </>
+                  )}
                 </SelectContent>
               </Select>
-              <span className="text-sm font-normal text-slate-600">Emails will be sent from: test@builderos.com</span>
+              <span className="text-sm font-normal text-slate-600">
+                Emails will be sent from: {primaryBiddingContactEmail}
+              </span>
             </label>
 
             <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
@@ -1224,15 +1382,34 @@ export default function NewBidPackagePage() {
                 }
               >
                 <SelectTrigger className="w-full rounded-lg border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:ring-blue-500">
-                  <SelectValue placeholder="Choose a distribution group" />
+                  <SelectValue placeholder="Select CC user" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none">Choose a distribution group</SelectItem>
-                  <SelectItem value="estimating-team">Estimating Team</SelectItem>
-                  <SelectItem value="operations-leadership">Operations Leadership</SelectItem>
-                  <SelectItem value="executive-updates">Executive Updates</SelectItem>
+                  <SelectItem value="__none">No CC</SelectItem>
+                  {biddingCcUserOptions.length ? (
+                    biddingCcUserOptions.map((user) => (
+                      <SelectItem
+                        key={user.id}
+                        value={user.id}
+                        disabled={user.disabled}
+                        className={user.disabled ? "text-slate-400" : ""}
+                      >
+                        {user.name} • {user.role}
+                        {user.disabled ? " (Primary contact)" : ""}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="__no_users" disabled className="text-slate-400">
+                      No company users available
+                    </SelectItem>
+                  )}
                 </SelectContent>
               </Select>
+              {!hasSelectableCcUser && companyUserOptions.length ? (
+                <span className="text-xs font-normal text-slate-500">
+                  Add another active user to CC someone other than the primary contact.
+                </span>
+              ) : null}
             </label>
           </div>
         </section>

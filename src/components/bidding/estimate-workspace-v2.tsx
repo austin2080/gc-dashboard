@@ -858,6 +858,19 @@ type BidProjectGeneralInfoCacheRow = {
   bidSetDate: string;
   clientPhone: string;
   clientEmail: string;
+  primaryBiddingContact: string;
+};
+
+type CompanyUserOption = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  status: "Active" | "Invited" | "Deactivated";
+  company?: string;
+  address?: string;
+  cityStateZip?: string;
+  phone?: string;
 };
 
 const createWorksheetLineItem = (seed: string): WorksheetLineItem => ({
@@ -891,6 +904,9 @@ const addDaysToIsoDate = (isoDate: string, days: number) => {
   return `${nextYear}-${nextMonth}-${nextDay}`;
 };
 
+const normalizeContactName = (value: string) =>
+  value.toLowerCase().replace(/[^a-z0-9]/g, "");
+
 function readBidProjectGeneralInfoMap(): Record<string, BidProjectGeneralInfoCacheRow> {
   if (typeof window === "undefined") return {};
   try {
@@ -910,6 +926,8 @@ function readBidProjectGeneralInfoMap(): Record<string, BidProjectGeneralInfoCac
         bidSetDate: typeof row.bidSetDate === "string" ? row.bidSetDate : "",
         clientPhone: typeof row.clientPhone === "string" ? row.clientPhone : "",
         clientEmail: typeof row.clientEmail === "string" ? row.clientEmail : "",
+        primaryBiddingContact:
+          typeof row.primaryBiddingContact === "string" ? row.primaryBiddingContact : "",
       };
     }
     return next;
@@ -1113,6 +1131,25 @@ export default function EstimateWorkspaceV2() {
       const generalInfoMap = readBidProjectGeneralInfoMap();
       const cachedInfo =
         generalInfoMap[resolvedProjectId] ?? generalInfoMap[queryProjectIdValue];
+      let selectedPrimaryUser: CompanyUserOption | null = null;
+      if (cachedInfo?.primaryBiddingContact) {
+        try {
+          const usersResponse = await fetch("/api/settings/team-users", { cache: "no-store" });
+          const usersPayload = (await usersResponse.json().catch(() => null)) as
+            | { users?: CompanyUserOption[] }
+            | null;
+          const activeUsers = Array.isArray(usersPayload?.users)
+            ? usersPayload.users.filter((user) => user.status === "Active")
+            : [];
+          const normalizedCached = normalizeContactName(cachedInfo.primaryBiddingContact);
+          selectedPrimaryUser =
+            activeUsers.find(
+              (user) => normalizeContactName(user.name) === normalizedCached
+            ) ?? null;
+        } catch {
+          selectedPrimaryUser = null;
+        }
+      }
       setCoverPageFields((prev) =>
         prev.map((field) => {
           if (field.id === "cover-project-name") {
@@ -1150,6 +1187,42 @@ export default function EstimateWorkspaceV2() {
           }
           if (field.id === "cover-bid-set-date") {
             return { ...field, value: cachedInfo?.bidSetDate ?? field.value };
+          }
+          if (field.id === "cover-contractor-company") {
+            return {
+              ...field,
+              value: selectedPrimaryUser?.company || field.value,
+            };
+          }
+          if (field.id === "cover-contractor-name") {
+            return {
+              ...field,
+              value: selectedPrimaryUser?.name || field.value,
+            };
+          }
+          if (field.id === "cover-contractor-address") {
+            return {
+              ...field,
+              value: selectedPrimaryUser?.address || field.value,
+            };
+          }
+          if (field.id === "cover-contractor-city-state-zip") {
+            return {
+              ...field,
+              value: selectedPrimaryUser?.cityStateZip || field.value,
+            };
+          }
+          if (field.id === "cover-contractor-phone") {
+            return {
+              ...field,
+              value: selectedPrimaryUser?.phone || field.value,
+            };
+          }
+          if (field.id === "cover-contractor-email") {
+            return {
+              ...field,
+              value: selectedPrimaryUser?.email || field.value,
+            };
           }
           return field;
         })
