@@ -122,7 +122,7 @@ export default function VendorComplianceHub({ basePath = "/waiverdesk/vendors" }
           <div>
             <h1 className="text-2xl font-semibold">Vendor Compliance Hub</h1>
             <p className="text-sm text-[color:var(--muted)]">
-              Monitor vendor waiver compliance, exposure, and project impact across WaiverDesk.
+              Monitor vendor waiver compliance, exposure, and project impact across BuilderOS.
             </p>
           </div>
           <Link

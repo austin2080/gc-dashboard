@@ -12,7 +12,7 @@ const RECENT_PROJECTS_STORAGE_KEY = "recentProjectIds";
 
 const PROJECT_TOOL_ITEMS = [
   { label: "Bid Management", href: "/bidding/all", description: "Track bids, proposals, and award pipeline." },
-  { label: "WaiverDesk", href: "/waiverdesk/waivers", description: "Manage waivers and compliance status." },
+  { label: "BuilderOS", href: "/waiverdesk/waivers", description: "Manage waivers and compliance status." },
   { label: "Project Management", href: "/dashboard", description: "Monitor daily progress across active jobs." },
 ];
 
@@ -267,8 +267,10 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
       <div className="px-4 py-3 md:px-6">
         <div className="flex flex-wrap items-center gap-2 md:flex-nowrap">
           <Link href={homeHref} className="min-w-fit rounded-lg px-2 py-1.5 hover:bg-white/10">
-            <span className="text-xs uppercase tracking-widest text-white/70">{mode === "waiverdesk" ? "WD" : "GC"}</span>
-            <div className="text-base font-semibold">{mode === "waiverdesk" ? "WaiverDesk" : "Dashboard"}</div>
+            {mode === "waiverdesk" ? null : (
+              <span className="text-xs uppercase tracking-widest text-white/70">GC</span>
+            )}
+            <div className="text-base font-semibold">{mode === "waiverdesk" ? "BuilderOS" : "Dashboard"}</div>
           </Link>
 
           <div className="relative min-w-[220px] flex-1 md:max-w-[360px]" ref={projectsRef}>

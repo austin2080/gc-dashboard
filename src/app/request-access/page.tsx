@@ -7,7 +7,7 @@ export default function RequestAccessPage() {
         </div>
         <h1 className="mt-2 text-2xl font-semibold">Request Project Management Access</h1>
         <p className="mt-3 text-sm text-[color:var(--muted)]">
-          Your account is currently limited to WaiverDesk. If you need access to the
+          Your account is currently limited to BuilderOS. If you need access to the
           Project Management app, contact your administrator.
         </p>
         <div className="mt-6 rounded-md border border-[color:var(--warning)]/30 bg-[color:var(--warning)]/10 px-4 py-3 text-sm text-[color:var(--warning)]">

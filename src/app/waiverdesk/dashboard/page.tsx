@@ -246,9 +246,9 @@ export default function WaiverDeskDashboardPage() {
     <main className="p-6 space-y-6">
       <section className="rounded-lg border border-black/10 bg-white p-6">
         <div className="text-xs uppercase tracking-wide text-[color:var(--muted)]">
-          WaiverDesk
+          BuilderOS
         </div>
-        <h1 className="mt-2 text-2xl font-semibold">WaiverDesk Dashboard</h1>
+        <h1 className="mt-2 text-2xl font-semibold">BuilderOS Dashboard</h1>
         <p className="mt-2 text-sm text-[color:var(--muted)]">
           Track what’s blocking payment and what needs attention today.
         </p>
@@ -522,7 +522,7 @@ export default function WaiverDeskDashboardPage() {
       <footer className="overflow-hidden rounded-2xl border border-black/10 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 p-6 text-white shadow-sm">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <div className="text-xs uppercase tracking-[0.2em] text-white/60">WaiverDesk</div>
+            <div className="text-xs uppercase tracking-[0.2em] text-white/60">BuilderOS</div>
             <p className="mt-2 max-w-2xl text-sm text-white/80">
               Great teams get paid faster when waiver follow-through is systematic. Keep owners,
               vendors, and accounting aligned by closing today’s highest-risk waiver tasks first.

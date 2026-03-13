@@ -128,7 +128,7 @@ export default function VendorDetail({ vendorsPath, waiversPath }: VendorDetailP
       <main className="space-y-4 p-6">
         <h1 className="text-2xl font-semibold">Vendor not found</h1>
         <p className="text-sm text-[color:var(--muted)]">
-          We could not locate this vendor in WaiverDesk.
+          We could not locate this vendor in BuilderOS.
         </p>
         <button
           className="rounded-full border border-black/10 px-4 py-2 text-sm"
