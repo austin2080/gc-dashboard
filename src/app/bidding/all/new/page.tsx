@@ -2139,15 +2139,31 @@ export default function NewBidPackagePage() {
                         <article key={`invite-${trade.id}`} className="overflow-hidden rounded-lg border border-slate-200">
                           <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 px-4 py-3">
                             <div className="flex items-center gap-3">
-                              {assigned.length >= 3 ? (
-                                <span className="inline-flex size-7 items-center justify-center rounded-full bg-emerald-600 text-sm text-white">✓</span>
+                              {assigned.length > 0 ? (
+                                <span
+                                  className={`inline-flex size-7 items-center justify-center rounded-full text-sm text-white ${
+                                    assigned.length >= 3
+                                      ? "bg-emerald-600"
+                                      : assigned.length === 2
+                                        ? "bg-yellow-500"
+                                        : "bg-orange-500"
+                                  }`}
+                                >
+                                  ✓
+                                </span>
                               ) : null}
                               <div className="text-2xl font-semibold text-slate-900">
                                 {trade.code}
                                 {trade.description ? <span className="ml-2 text-lg font-medium text-slate-600">{trade.description}</span> : null}
                               </div>
-                              <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
-                                {assigned.length} Selected
+                              <span
+                                className={`rounded px-2 py-0.5 text-xs font-semibold ${
+                                  assigned.length === 0 ? "bg-amber-100 text-amber-700" : "text-slate-600"
+                                }`}
+                              >
+                                {assigned.length === 0
+                                  ? "0 Selected"
+                                  : `Coverage: ${Math.min(assigned.length, 3)}/3 subs invited`}
                               </span>
                             </div>
                             <div className="flex items-center gap-3 text-sm text-slate-600">

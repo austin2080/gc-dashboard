@@ -1275,15 +1275,7 @@ export default function BiddingPage() {
 
   const openEditModal = () => {
     if (!selectedProject) return;
-    setEditDraft({
-      project_name: selectedProject.project_name ?? "",
-      owner: selectedProject.owner ?? "",
-      location: selectedProject.location ?? "",
-      budget: selectedProject.budget !== null && selectedProject.budget !== undefined ? String(selectedProject.budget) : "",
-      due_date: selectedProject.due_date ?? "",
-    });
-    setEditError(null);
-    setEditModalOpen(true);
+    router.push(`/bidding/all/new?project=${selectedProject.id}`);
   };
 
   return (
