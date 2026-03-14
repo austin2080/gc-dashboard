@@ -43,6 +43,12 @@ function formatDateTime(value: string | null): string {
   });
 }
 
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function StatusPill({ status }: { status: BidTradeStatus }) {
   const styles: Record<BidTradeStatus, string> = {
     submitted: "bg-emerald-100 text-emerald-800",
@@ -72,6 +78,20 @@ type QuoteLineItemDraft = {
   id: string;
   label: string;
   amount: string;
+};
+
+type UploadedBidDocument = {
+  id: string;
+  name: string;
+  size: number;
+  uploadedAt: string;
+  url: string;
+};
+
+type BidTimelineEntry = {
+  id: string;
+  timestamp: string;
+  message: string;
 };
 
 type DirectoryCompanyMeta = {
@@ -105,6 +125,7 @@ const QUOTE_LINE_ITEMS_STORAGE_KEY = "bidQuoteLineItemsByCell";
 const BID_STATUS_UPDATED_STORAGE_KEY = "bidStatusUpdatedAtByBidId";
 const BID_INCLUSIONS_STORAGE_KEY = "bidInclusionsByCell";
 const BID_EXCLUSIONS_STORAGE_KEY = "bidExclusionsByCell";
+const BID_TIMELINE_STORAGE_KEY = "bidTimelineByCell";
 
 function readProposalDueMap(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -196,6 +217,36 @@ function readBidTextByCellMap(storageKey: string): Record<string, string> {
 function writeBidTextByCellMap(storageKey: string, map: Record<string, string>) {
   if (typeof window === "undefined") return;
   localStorage.setItem(storageKey, JSON.stringify(map));
+}
+
+function readBidTimelineMap(): Record<string, BidTimelineEntry[]> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(BID_TIMELINE_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, BidTimelineEntry[]> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!Array.isArray(value)) continue;
+      next[key] = value.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const row = item as Partial<BidTimelineEntry>;
+        if (typeof row.id !== "string" || typeof row.timestamp !== "string" || typeof row.message !== "string") {
+          return [];
+        }
+        return [{ id: row.id, timestamp: row.timestamp, message: row.message }];
+      });
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function writeBidTimelineMap(map: Record<string, BidTimelineEntry[]>) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(BID_TIMELINE_STORAGE_KEY, JSON.stringify(map));
 }
 
 function countNotesItems(notes: string | null): number {
@@ -317,6 +368,7 @@ export default function ItbsProjectBidTable() {
   );
   const [subSearchActive, setSubSearchActive] = useState(false);
   const subSearchRef = useRef<HTMLDivElement | null>(null);
+  const bidDocumentInputRef = useRef<HTMLInputElement | null>(null);
   const [expandedTrades, setExpandedTrades] = useState<Record<string, boolean>>({});
   const [editTradesModalOpen, setEditTradesModalOpen] = useState(false);
   const [tradeDrafts, setTradeDrafts] = useState<TradeEditDraft[]>([]);
@@ -327,6 +379,10 @@ export default function ItbsProjectBidTable() {
   const [tradeEditError, setTradeEditError] = useState<string | null>(null);
   const [savingTrades, setSavingTrades] = useState(false);
   const [tradeFilter, setTradeFilter] = useState<TradeFilter>("all");
+  const [bidDocumentsByCell, setBidDocumentsByCell] = useState<Record<string, UploadedBidDocument[]>>({});
+  const [bidTimelineByCell, setBidTimelineByCell] = useState<Record<string, BidTimelineEntry[]>>(
+    () => readBidTimelineMap()
+  );
 
   useEffect(() => {
     const refreshMappedProject = () => {
@@ -588,6 +644,7 @@ export default function ItbsProjectBidTable() {
   };
 
   const handleInlineStatusChange = async (bidId: string, nextStatus: BidTradeStatus) => {
+    const targetBid = detail.tradeBids.find((bid) => bid.id === bidId) ?? null;
     const success = await updateTradeBid({
       id: bidId,
       status: nextStatus,
@@ -614,6 +671,12 @@ export default function ItbsProjectBidTable() {
       writeBidStatusUpdatedMap(next);
       return next;
     });
+    if (targetBid) {
+      appendTimelineEntry(
+        `${detail.project.id}:${targetBid.trade_id}:${targetBid.project_sub_id}`,
+        `Status changed to ${nextStatus === "ghosted" ? "Viewed" : nextStatus}.`
+      );
+    }
   };
 
   const addTradeDraftIfMissing = (tradeLabel: string): boolean => {
@@ -815,6 +878,27 @@ export default function ItbsProjectBidTable() {
     if (tradeFilter === "declined") return row.hasDeclined;
     return row.hasNoInvites;
   });
+  const activeBidDocumentKey = drawerState
+    ? `${detail.project.id}:${drawerState.tradeId}:${drawerState.projectSubId}`
+    : null;
+  const activeBidDocuments = activeBidDocumentKey ? (bidDocumentsByCell[activeBidDocumentKey] ?? []) : [];
+  const activeBidTimeline = activeBidDocumentKey ? (bidTimelineByCell[activeBidDocumentKey] ?? []) : [];
+
+  const appendTimelineEntry = (cellKey: string, message: string) => {
+    const entry: BidTimelineEntry = {
+      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      timestamp: new Date().toISOString(),
+      message,
+    };
+    setBidTimelineByCell((prev) => {
+      const next = {
+        ...prev,
+        [cellKey]: [entry, ...(prev[cellKey] ?? [])],
+      };
+      writeBidTimelineMap(next);
+      return next;
+    });
+  };
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -1037,7 +1121,7 @@ export default function ItbsProjectBidTable() {
                                   }
                                   className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                                 >
-                                  Open bid
+                                  Bid Details
                                 </button>
                               </div>
                             </div>
@@ -1257,6 +1341,19 @@ export default function ItbsProjectBidTable() {
                     return;
                   }
                 }
+                const timelineKey = `${detail.project.id}:${drawerState.tradeId}:${selectedProjectSubId}`;
+                const existingBid =
+                  detail.tradeBids.find((bid) => bid.id === drawerState.bidId) ??
+                  detail.tradeBids.find(
+                    (bid) => bid.trade_id === drawerState.tradeId && bid.project_sub_id === selectedProjectSubId
+                  ) ??
+                  null;
+                const previousQuoteTotal =
+                  existingBid?.bid_amount !== null && existingBid?.bid_amount !== undefined
+                    ? existingBid.bid_amount
+                    : null;
+                const proposalDueMap = readProposalDueMap();
+                const previousProposalDate = proposalDueMap[timelineKey] ?? "";
                 const payload = {
                   status: bidOnlyDrawer ? statusDraft : "invited",
                   bid_amount: bidOnlyDrawer ? quoteLineItemsTotal : null,
@@ -1279,11 +1376,14 @@ export default function ItbsProjectBidTable() {
                 if (!bidOnlyDrawer) {
                   const refreshed = await getBidProjectDetail(detail.project.id);
                   if (refreshed) setDetail(refreshed);
+                  appendTimelineEntry(
+                    timelineKey,
+                    `Invite created for ${selectedSub?.company ?? "subcontractor"}.`
+                  );
                   closeDrawer();
                   return;
                 }
-                const proposalDueMap = readProposalDueMap();
-                const proposalDueKey = `${detail.project.id}:${drawerState.tradeId}:${selectedProjectSubId}`;
+                const proposalDueKey = timelineKey;
                 if (proposalDueDateDraft.trim()) {
                   proposalDueMap[proposalDueKey] = proposalDueDateDraft.trim();
                 } else {
@@ -1315,6 +1415,35 @@ export default function ItbsProjectBidTable() {
                   delete quoteLineItemsMap[quoteLineItemsKey];
                 }
                 writeQuoteLineItemsMap(quoteLineItemsMap);
+                if (!existingBid) {
+                  appendTimelineEntry(
+                    timelineKey,
+                    `Bid details created for ${selectedSub?.company ?? "subcontractor"}.`
+                  );
+                }
+                if (existingBid?.status !== statusDraft) {
+                  appendTimelineEntry(
+                    timelineKey,
+                    `Status changed to ${statusDraft === "ghosted" ? "Viewed" : statusDraft}.`
+                  );
+                }
+                const nextQuoteTotal = quoteLineItemsTotal;
+                if (previousQuoteTotal !== nextQuoteTotal) {
+                  appendTimelineEntry(
+                    timelineKey,
+                    nextQuoteTotal === null
+                      ? "Bid amount cleared."
+                      : `Bid amount updated to ${formatCurrency(nextQuoteTotal)}.`
+                  );
+                }
+                if (previousProposalDate !== proposalDueDateDraft.trim()) {
+                  appendTimelineEntry(
+                    timelineKey,
+                    proposalDueDateDraft.trim()
+                      ? `Proposal submitted date set to ${proposalDueDateDraft.trim()}.`
+                      : "Proposal submitted date cleared."
+                  );
+                }
                 const refreshed = await getBidProjectDetail(detail.project.id);
                 if (refreshed) setDetail(refreshed);
                 closeDrawer();
@@ -1443,6 +1572,93 @@ export default function ItbsProjectBidTable() {
                 </Select>
               </label>
               <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-800">Bid Documents</div>
+                    <div className="text-xs text-slate-500">Upload the subcontractor's bid or supporting files.</div>
+                  </div>
+                  <input
+                    ref={bidDocumentInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(event) => {
+                      if (!activeBidDocumentKey) return;
+                      const files = Array.from(event.target.files ?? []);
+                      if (!files.length) return;
+                      const now = new Date().toISOString();
+                      const nextFiles = files.map((file) => ({
+                        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+                        name: file.name,
+                        size: file.size,
+                        uploadedAt: now,
+                        url: URL.createObjectURL(file),
+                      }));
+                      setBidDocumentsByCell((prev) => ({
+                        ...prev,
+                        [activeBidDocumentKey]: [...(prev[activeBidDocumentKey] ?? []), ...nextFiles],
+                      }));
+                      nextFiles.forEach((file) => {
+                        appendTimelineEntry(activeBidDocumentKey, `Uploaded document: ${file.name}.`);
+                      });
+                      event.currentTarget.value = "";
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => bidDocumentInputRef.current?.click()}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  >
+                    Upload Document
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {activeBidDocuments.length ? (
+                    activeBidDocuments.map((document) => (
+                      <div
+                        key={document.id}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <a
+                            href={document.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="truncate text-sm font-semibold text-slate-800 hover:underline"
+                          >
+                            {document.name}
+                          </a>
+                          <div className="text-xs text-slate-500">
+                            {formatFileSize(document.size)} · Uploaded {formatDateTime(document.uploadedAt)}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            {
+                              setBidDocumentsByCell((prev) => ({
+                                ...prev,
+                                [activeBidDocumentKey!]: (prev[activeBidDocumentKey!] ?? []).filter(
+                                  (item) => item.id !== document.id
+                                ),
+                              }));
+                              appendTimelineEntry(activeBidDocumentKey!, `Removed document: ${document.name}.`);
+                            }
+                          }
+                          className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-500">
+                      No bid documents uploaded yet.
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-3 rounded-lg border border-slate-200 bg-white p-3">
                 <div className="flex items-center justify-between">
                   <div className="text-sm font-semibold text-slate-800">Quote Line Items</div>
                   <button
@@ -1552,8 +1768,19 @@ export default function ItbsProjectBidTable() {
                 </div>
                 <div>
                   <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">Invite history timeline</div>
-                  <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
-                    Timeline tracking coming soon.
+                  <div className="rounded-md border border-slate-200 bg-white">
+                    {activeBidTimeline.length ? (
+                      <div className="max-h-48 overflow-auto">
+                        {activeBidTimeline.map((entry) => (
+                          <div key={entry.id} className="border-b border-slate-100 px-3 py-2 last:border-b-0">
+                            <div className="text-sm text-slate-700">{entry.message}</div>
+                            <div className="mt-0.5 text-xs text-slate-500">{formatDateTime(entry.timestamp)}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="px-3 py-2 text-sm text-slate-600">No history yet.</div>
+                    )}
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
