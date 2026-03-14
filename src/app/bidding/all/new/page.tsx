@@ -122,6 +122,12 @@ type ToastState = {
   message: string;
 };
 
+type NewSubTradeSelection = {
+  id: string;
+  code: string;
+  description: string | null;
+};
+
 type BidPackageAutosavePayload = {
   draft: BidPackageDraft;
   activePanel: "general" | "files" | "trade-coverage" | "invite-subs" | "bid-email";
@@ -186,6 +192,10 @@ function toIsoDate(value: Date): string {
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function formatTradeLabel(trade: { code: string; description: string | null }) {
+  return `${trade.code}${trade.description ? ` ${trade.description}` : ""}`.trim();
 }
 
 function DatePickerField({
@@ -392,6 +402,8 @@ export default function NewBidPackagePage() {
     email: "",
     phone: "",
   });
+  const [newSubTrades, setNewSubTrades] = useState<NewSubTradeSelection[]>([]);
+  const [newSubTradeQuery, setNewSubTradeQuery] = useState("");
   const [newSubSaving, setNewSubSaving] = useState(false);
   const [newSubError, setNewSubError] = useState<string | null>(null);
   const [invitationEmailDraft, setInvitationEmailDraft] = useState<InvitationEmailDraft>({
@@ -989,6 +1001,28 @@ export default function NewBidPackagePage() {
   const activeDrawerTrade = newSubDrawerTradeId
     ? selectedTrades.find((trade) => trade.id === newSubDrawerTradeId) ?? null
     : null;
+  const filteredNewSubTradeOptions = useMemo(() => {
+    const selectedIds = new Set(newSubTrades.map((trade) => trade.id));
+    const query = newSubTradeQuery.trim().toLowerCase();
+    return costCodes.filter((code) => {
+      if (selectedIds.has(code.id)) return false;
+      if (!query) return true;
+      return `${code.code} ${code.description ?? ""}`.toLowerCase().includes(query);
+    });
+  }, [costCodes, newSubTradeQuery, newSubTrades]);
+
+  useEffect(() => {
+    if (!newSubDrawerTradeId) {
+      setNewSubTradeQuery("");
+      return;
+    }
+    setNewSubTradeQuery("");
+    setNewSubTrades(
+      activeDrawerTrade
+        ? [{ id: activeDrawerTrade.id, code: activeDrawerTrade.code, description: activeDrawerTrade.description }]
+        : []
+    );
+  }, [activeDrawerTrade, newSubDrawerTradeId]);
   const persistAssignedSubsForTrades = async (projectId: string): Promise<boolean> => {
     const allAssignedSubs = Object.values(assignedSubsByTradeId).flat();
     if (!allAssignedSubs.length) return true;
@@ -2781,7 +2815,11 @@ export default function NewBidPackagePage() {
                     companies: [
                       {
                         company_name: companyName,
-                        trade: activeDrawerTrade?.code ?? null,
+                        trade: newSubTrades.length
+                          ? newSubTrades.map((trade) => formatTradeLabel(trade)).join(" | ")
+                          : activeDrawerTrade
+                            ? formatTradeLabel(activeDrawerTrade)
+                            : null,
                         primary_contact: newSubDraft.primary_contact.trim() || null,
                         email: newSubDraft.email.trim() || null,
                         phone: newSubDraft.phone.trim() || null,
@@ -2827,7 +2865,12 @@ export default function NewBidPackagePage() {
                   if (prev.some((item) => item.id === newOption.id)) return prev;
                   return [...prev, newOption].sort((a, b) => a.company.localeCompare(b.company));
                 });
-                addSubToTrade(tradeId, newOption);
+                const packageTradeIds = new Set(selectedTrades.map((trade) => trade.id));
+                const tradeIdsToAssign = new Set<string>([tradeId]);
+                newSubTrades.forEach((trade) => {
+                  if (packageTradeIds.has(trade.id)) tradeIdsToAssign.add(trade.id);
+                });
+                tradeIdsToAssign.forEach((id) => addSubToTrade(id, newOption));
                 setManageSearchActiveByTradeId((prev) => ({ ...prev, [tradeId]: true }));
                 setManageQueryByTradeId((prev) => ({ ...prev, [tradeId]: "" }));
                 setNewSubDrawerTradeId(null);
@@ -2872,6 +2915,79 @@ export default function NewBidPackagePage() {
                     placeholder="(555) 555-5555"
                   />
                 </label>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <div className="text-sm font-medium text-slate-700">Trades / Cost Codes</div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Add the trades this subcontractor performs. Matching trades in this bid package will be invited automatically.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {newSubTrades.map((trade) => {
+                    const locked = trade.id === activeDrawerTrade?.id;
+                    return (
+                      <span
+                        key={`new-sub-trade-${trade.id}`}
+                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700"
+                      >
+                        {formatTradeLabel(trade)}
+                        {locked ? (
+                          <span className="text-[11px] font-medium text-slate-500">Current trade</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setNewSubTrades((prev) => prev.filter((item) => item.id !== trade.id))
+                            }
+                            className="text-slate-400 hover:text-slate-700"
+                            aria-label={`Remove ${formatTradeLabel(trade)}`}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </span>
+                    );
+                  })}
+                </div>
+                <div className="rounded-lg border border-slate-300 p-3">
+                  <input
+                    value={newSubTradeQuery}
+                    onChange={(event) => setNewSubTradeQuery(event.target.value)}
+                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
+                    placeholder="Search cost codes to add"
+                  />
+                  <div className="mt-3 max-h-56 overflow-auto rounded-md border border-slate-200">
+                    {loadingCostCodes ? (
+                      <div className="px-3 py-3 text-sm text-slate-500">Loading cost codes...</div>
+                    ) : filteredNewSubTradeOptions.length ? (
+                      filteredNewSubTradeOptions.slice(0, 10).map((trade) => (
+                        <button
+                          key={`new-sub-trade-option-${trade.id}`}
+                          type="button"
+                          onClick={() => {
+                            setNewSubTrades((prev) => [
+                              ...prev,
+                              { id: trade.id, code: trade.code, description: trade.description },
+                            ]);
+                            setNewSubTradeQuery("");
+                          }}
+                          className="flex w-full items-start justify-between gap-3 border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50"
+                        >
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-slate-800">{trade.code}</div>
+                            <div className="text-xs text-slate-500">{trade.description ?? "No description"}</div>
+                          </div>
+                          <span className="text-xs font-semibold text-blue-600">Add</span>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="px-3 py-3 text-sm text-slate-500">
+                        {costCodeLoadError ?? "No matching cost codes found."}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
               {newSubError ? (
                 <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{newSubError}</p>
