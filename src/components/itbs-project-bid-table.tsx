@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import type { BidProjectDetail, BidTradeStatus } from "@/lib/bidding/types";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -315,6 +315,8 @@ export default function ItbsProjectBidTable() {
   const [statusUpdatedAtByBidId, setStatusUpdatedAtByBidId] = useState<Record<string, string>>(
     () => readBidStatusUpdatedMap()
   );
+  const [subSearchActive, setSubSearchActive] = useState(false);
+  const subSearchRef = useRef<HTMLDivElement | null>(null);
   const [expandedTrades, setExpandedTrades] = useState<Record<string, boolean>>({});
   const [editTradesModalOpen, setEditTradesModalOpen] = useState(false);
   const [tradeDrafts, setTradeDrafts] = useState<TradeEditDraft[]>([]);
@@ -430,6 +432,17 @@ export default function ItbsProjectBidTable() {
     };
   }, [editTradesModalOpen, projectTradeProjectId]);
 
+  useEffect(() => {
+    if (!subSearchActive) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!subSearchRef.current?.contains(event.target as Node)) {
+        setSubSearchActive(false);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [subSearchActive]);
+
   const tradeNamesLower = useMemo(
     () => new Set(tradeDrafts.map((trade) => trade.trade_name.trim().toLowerCase()).filter(Boolean)),
     [tradeDrafts]
@@ -540,6 +553,7 @@ export default function ItbsProjectBidTable() {
     setNotesDraft(payload.bid?.notes ?? "");
     setSelectedProjectSubId(shouldInitializeEmpty ? "" : payload.projectSubId);
     setSubSearch(shouldInitializeEmpty ? "" : payload.subCompany);
+    setSubSearchActive(false);
     setDrawerError(null);
   };
 
@@ -547,6 +561,7 @@ export default function ItbsProjectBidTable() {
     setDrawerState(null);
     setDrawerError(null);
     setSavingDrawer(false);
+    setSubSearchActive(false);
   };
 
   const toggleTradeExpanded = (tradeId: string) => {
@@ -761,6 +776,9 @@ export default function ItbsProjectBidTable() {
       );
     const availableSubsForTrade = subs.filter((sub) => !tradeMap.has(sub.id));
     const submittedCount = assignedEntries.filter((entry) => entry.bid.status === "submitted").length;
+    const biddingOrSubmittedCount = assignedEntries.filter(
+      (entry) => entry.bid.status === "bidding" || entry.bid.status === "submitted"
+    ).length;
     const hasInvited = assignedEntries.some((entry) => entry.bid.status === "invited");
     const hasViewed = assignedEntries.some((entry) => entry.bid.status === "ghosted");
     const hasBidding = assignedEntries.some((entry) => entry.bid.status === "bidding");
@@ -772,6 +790,7 @@ export default function ItbsProjectBidTable() {
       assignedEntries,
       availableSubsForTrade,
       submittedCount,
+      biddingOrSubmittedCount,
       hasInvited,
       hasBidding,
       hasSubmitted,
@@ -836,9 +855,10 @@ export default function ItbsProjectBidTable() {
           </div>
 
           <div className="space-y-3 p-3">
-            {visibleTradeRows.map(({ trade, assignedEntries, availableSubsForTrade, submittedCount }) => {
+            {visibleTradeRows.map(({ trade, assignedEntries, availableSubsForTrade, submittedCount, biddingOrSubmittedCount }) => {
               const isExpanded = Boolean(expandedTrades[trade.id]);
               const panelId = `trade-panel-${trade.id}`;
+              const indicatorCount = biddingOrSubmittedCount > 0 ? biddingOrSubmittedCount : assignedEntries.length;
               return (
                 <article key={trade.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
                   <div className="flex w-full items-center justify-between gap-3 bg-slate-50 px-4 py-3">
@@ -859,12 +879,12 @@ export default function ItbsProjectBidTable() {
                             ⚑
                           </span>
                         ) : null}
-                        {submittedCount > 0 ? (
+                        {indicatorCount > 0 ? (
                           <span
                             className={`inline-flex size-7 items-center justify-center rounded-full text-sm text-white ${
-                              submittedCount >= 3
+                              indicatorCount >= 3
                                 ? "bg-emerald-600"
-                                : submittedCount === 2
+                                : indicatorCount === 2
                                   ? "bg-yellow-500"
                                   : "bg-orange-500"
                             }`}
@@ -1218,17 +1238,12 @@ export default function ItbsProjectBidTable() {
                   setSavingDrawer(false);
                   return;
                 }
-                if (!bidOnlyDrawer && !emailDraft.trim()) {
-                  setDrawerError("Email is required.");
-                  setSavingDrawer(false);
-                  return;
-                }
                 if (drawerState.bidId && selectedProjectSubId !== drawerState.projectSubId) {
                   setDrawerError("To change subcontractor, open an empty cell for the desired sub.");
                     setSavingDrawer(false);
                     return;
                 }
-                if (!bidOnlyDrawer && selectedSub?.subcontractorId) {
+                if (bidOnlyDrawer && selectedSub?.subcontractorId) {
                   const synced = await updateBidSubcontractor({
                     id: selectedSub.subcontractorId,
                     company_name: selectedSub.company,
@@ -1243,10 +1258,10 @@ export default function ItbsProjectBidTable() {
                   }
                 }
                 const payload = {
-                  status: statusDraft,
-                  bid_amount: quoteLineItemsTotal,
-                  contact_name: contactDraft.trim() || null,
-                  notes: notesDraft.trim() || null,
+                  status: bidOnlyDrawer ? statusDraft : "invited",
+                  bid_amount: bidOnlyDrawer ? quoteLineItemsTotal : null,
+                  contact_name: bidOnlyDrawer ? contactDraft.trim() || null : null,
+                  notes: bidOnlyDrawer ? notesDraft.trim() || null : null,
                 };
                 const ok = drawerState.bidId
                   ? await updateTradeBid({ id: drawerState.bidId, ...payload })
@@ -1259,6 +1274,12 @@ export default function ItbsProjectBidTable() {
                 if (!ok) {
                   setDrawerError("Unable to save bid details.");
                   setSavingDrawer(false);
+                  return;
+                }
+                if (!bidOnlyDrawer) {
+                  const refreshed = await getBidProjectDetail(detail.project.id);
+                  if (refreshed) setDetail(refreshed);
+                  closeDrawer();
                   return;
                 }
                 const proposalDueMap = readProposalDueMap();
@@ -1300,19 +1321,22 @@ export default function ItbsProjectBidTable() {
               }}
             >
               {!bidOnlyDrawer ? (
-              <div className="space-y-2">
+              <div ref={subSearchRef} className="space-y-2">
                 <label className="text-sm font-medium text-slate-700">Subcontractor</label>
                 <input
                   value={subSearch}
                   onChange={(event) => {
+                    setSubSearchActive(true);
                     setSubSearch(event.target.value);
                     if (selectedSub && event.target.value !== selectedSub.company) {
                       setSelectedProjectSubId("");
                     }
                   }}
+                  onFocus={() => setSubSearchActive(true)}
                   placeholder="Search subcontractors"
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
                 />
+                {subSearchActive ? (
                 <div className="max-h-48 overflow-auto rounded-lg border border-slate-200">
                   {filteredSubs.length ? (
                     filteredSubs.map((sub) => {
@@ -1353,6 +1377,7 @@ export default function ItbsProjectBidTable() {
                     <div className="px-3 py-2 text-sm text-slate-500">No subcontractors found.</div>
                   )}
                 </div>
+                ) : null}
               </div>
               ) : null}
               {!bidOnlyDrawer ? (
@@ -1389,6 +1414,8 @@ export default function ItbsProjectBidTable() {
                 </label>
               </div>
               ) : null}
+              {bidOnlyDrawer ? (
+              <>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Proposal Submitted Date
                 <input
@@ -1518,7 +1545,6 @@ export default function ItbsProjectBidTable() {
                   className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
                 />
               </label>
-              {!bidOnlyDrawer ? (
               <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <div className="text-sm font-semibold text-slate-800">Future Actions</div>
                 <div className="text-sm text-slate-700">
@@ -1550,6 +1576,7 @@ export default function ItbsProjectBidTable() {
                   Auto-track opened email: planned for future integration.
                 </div>
               </div>
+              </>
               ) : null}
               {drawerError ? (
                 <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{drawerError}</p>

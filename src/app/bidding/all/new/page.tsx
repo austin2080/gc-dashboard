@@ -1004,12 +1004,12 @@ export default function NewBidPackagePage() {
   const filteredNewSubTradeOptions = useMemo(() => {
     const selectedIds = new Set(newSubTrades.map((trade) => trade.id));
     const query = newSubTradeQuery.trim().toLowerCase();
-    return costCodes.filter((code) => {
-      if (selectedIds.has(code.id)) return false;
+    return selectedTrades.filter((trade) => {
+      if (selectedIds.has(trade.id)) return false;
       if (!query) return true;
-      return `${code.code} ${code.description ?? ""}`.toLowerCase().includes(query);
+      return `${trade.code} ${trade.description ?? ""}`.toLowerCase().includes(query);
     });
-  }, [costCodes, newSubTradeQuery, newSubTrades]);
+  }, [newSubTradeQuery, newSubTrades, selectedTrades]);
 
   useEffect(() => {
     if (!newSubDrawerTradeId) {
@@ -2959,7 +2959,7 @@ export default function NewBidPackagePage() {
                   />
                   <div className="mt-3 max-h-56 overflow-auto rounded-md border border-slate-200">
                     {loadingCostCodes ? (
-                      <div className="px-3 py-3 text-sm text-slate-500">Loading cost codes...</div>
+                      <div className="px-3 py-3 text-sm text-slate-500">Loading trades...</div>
                     ) : filteredNewSubTradeOptions.length ? (
                       filteredNewSubTradeOptions.slice(0, 10).map((trade) => (
                         <button
@@ -2983,7 +2983,7 @@ export default function NewBidPackagePage() {
                       ))
                     ) : (
                       <div className="px-3 py-3 text-sm text-slate-500">
-                        {costCodeLoadError ?? "No matching cost codes found."}
+                        No matching trades found.
                       </div>
                     )}
                   </div>
