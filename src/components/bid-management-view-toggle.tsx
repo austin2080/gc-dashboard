@@ -6,7 +6,6 @@ import { usePathname, useSearchParams } from "next/navigation";
 const VIEWS = [
   { label: "Overview", href: "/bidding" },
   { label: "Files", href: "/bidding/files" },
-  { label: "Bidding", href: "/bidding/all" },
   { label: "Invites", href: "/bidding/itbs" },
   { label: "Leveling", href: "/bidding/bid-leveling" },
   { label: "Estimate", href: "/bidding/estimate" },
