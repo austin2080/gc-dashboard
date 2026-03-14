@@ -10,11 +10,8 @@ export default function BiddingTabPageHeader({ label }: { label: string }) {
       <div className="px-6 pt-3 pb-1">
         <BiddingBreadcrumb label={label} />
       </div>
-      <div className="flex flex-wrap items-start justify-between gap-4 px-6 pb-[2px]">
-        <div>
-          <BiddingProjectHeading />
-        </div>
-        <div className="flex flex-wrap items-center gap-3" />
+      <div className="px-6 pb-[2px]">
+        <BiddingProjectHeading />
       </div>
       <div className="px-6">
         <BidManagementViewToggle />

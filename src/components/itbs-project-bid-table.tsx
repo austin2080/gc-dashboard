@@ -807,6 +807,28 @@ export default function ItbsProjectBidTable() {
                         aria-controls={panelId}
                         onClick={() => toggleTradeExpanded(trade.id)}
                       >
+                        {assignedEntries.length === 0 && submittedCount === 0 ? (
+                          <span
+                            className="inline-flex size-7 items-center justify-center rounded-full bg-rose-600 text-sm text-white"
+                            aria-label="Red flag"
+                            title="No invited subs and no bids received"
+                          >
+                            ⚑
+                          </span>
+                        ) : null}
+                        {submittedCount > 0 ? (
+                          <span
+                            className={`inline-flex size-7 items-center justify-center rounded-full text-sm text-white ${
+                              submittedCount >= 3
+                                ? "bg-emerald-600"
+                                : submittedCount === 2
+                                  ? "bg-yellow-500"
+                                  : "bg-orange-500"
+                            }`}
+                          >
+                            ✓
+                          </span>
+                        ) : null}
                         <span
                           className={`inline-flex text-slate-500 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
                         >
@@ -821,9 +843,19 @@ export default function ItbsProjectBidTable() {
                         <div className="min-w-0">
                           <div className="truncate text-xl font-semibold text-slate-900">{trade.trade_name}</div>
                           <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                            <span className="rounded-md bg-slate-100 px-2 py-0.5">{assignedEntries.length} invite subs</span>
+                            <span className="rounded-md bg-slate-100 px-2 py-0.5">{assignedEntries.length} invited subs</span>
                             <span>
-                              Coverage: <span className="font-semibold">{submittedCount}/3</span> Received
+                              Coverage:{" "}
+                              <span
+                                className={`font-semibold ${
+                                  submittedCount === 0 && assignedEntries.length > 0
+                                    ? "rounded-md bg-amber-100 px-2 py-0.5 text-amber-700"
+                                    : ""
+                                }`}
+                              >
+                                {submittedCount}
+                              </span>{" "}
+                              bids received
                             </span>
                           </div>
                         </div>
