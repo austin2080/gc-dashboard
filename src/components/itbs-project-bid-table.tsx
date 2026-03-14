@@ -54,7 +54,7 @@ function StatusPill({ status }: { status: BidTradeStatus }) {
 
   return (
     <span className={`inline-flex rounded-md px-2 py-1 text-[11px] font-semibold tracking-[0.08em] ${styles[status]}`}>
-      {status.toUpperCase()}
+      {status === "ghosted" ? "VIEWED" : status.toUpperCase()}
     </span>
   );
 }
@@ -79,6 +79,15 @@ type DirectoryCompanyMeta = {
   state: string;
   trade: string;
 };
+
+type TradeFilter =
+  | "all"
+  | "invited"
+  | "bidding"
+  | "submitted"
+  | "viewed"
+  | "declined"
+  | "not_invited";
 
 function normalizeCompanyName(value: string): string {
   return value.trim().toLowerCase();
@@ -315,6 +324,7 @@ export default function ItbsProjectBidTable() {
   const [companyCostCodeError, setCompanyCostCodeError] = useState<string | null>(null);
   const [tradeEditError, setTradeEditError] = useState<string | null>(null);
   const [savingTrades, setSavingTrades] = useState(false);
+  const [tradeFilter, setTradeFilter] = useState<TradeFilter>("all");
 
   useEffect(() => {
     const refreshMappedProject = () => {
@@ -737,12 +747,55 @@ export default function ItbsProjectBidTable() {
     setProjectTrades((prev) => prev.map((row) => (row.id === optimisticId ? created : row)));
   };
 
-  const invitedStatusCount = detail.tradeBids.filter((bid) => bid.status === "invited").length;
-  const viewedStatusCount = detail.tradeBids.filter((bid) => bid.status === "ghosted").length;
-  const biddingStatusCount = detail.tradeBids.filter((bid) => bid.status === "bidding").length;
-  const notInvitedTradesCount = sortedTrades.filter(
-    (trade) => (bidsByTrade.get(trade.id)?.size ?? 0) === 0
-  ).length;
+  const tradeRows = sortedTrades.map((trade) => {
+    const tradeMap = bidsByTrade.get(trade.id) ?? new Map<string, (typeof detail.tradeBids)[number]>();
+    const assignedEntries = subs
+      .map((sub) => ({ sub, bid: tradeMap.get(sub.id) ?? null }))
+      .filter(
+        (
+          entry
+        ): entry is {
+          sub: (typeof subs)[number];
+          bid: (typeof detail.tradeBids)[number];
+        } => Boolean(entry.bid)
+      );
+    const availableSubsForTrade = subs.filter((sub) => !tradeMap.has(sub.id));
+    const submittedCount = assignedEntries.filter((entry) => entry.bid.status === "submitted").length;
+    const hasInvited = assignedEntries.some((entry) => entry.bid.status === "invited");
+    const hasViewed = assignedEntries.some((entry) => entry.bid.status === "ghosted");
+    const hasBidding = assignedEntries.some((entry) => entry.bid.status === "bidding");
+    const hasSubmitted = assignedEntries.some((entry) => entry.bid.status === "submitted");
+    const hasDeclined = assignedEntries.some((entry) => entry.bid.status === "declined");
+    const hasNoInvites = assignedEntries.length === 0;
+    return {
+      trade,
+      assignedEntries,
+      availableSubsForTrade,
+      submittedCount,
+      hasInvited,
+      hasBidding,
+      hasSubmitted,
+      hasViewed,
+      hasDeclined,
+      hasNoInvites,
+    };
+  });
+
+  const invitedTradeCount = tradeRows.filter((row) => row.hasInvited).length;
+  const biddingTradeCount = tradeRows.filter((row) => row.hasBidding).length;
+  const submittedTradeCount = tradeRows.filter((row) => row.hasSubmitted).length;
+  const viewedTradeCount = tradeRows.filter((row) => row.hasViewed).length;
+  const declinedTradeCount = tradeRows.filter((row) => row.hasDeclined).length;
+  const notInvitedTradesCount = tradeRows.filter((row) => row.hasNoInvites).length;
+  const visibleTradeRows = tradeRows.filter((row) => {
+    if (tradeFilter === "all") return true;
+    if (tradeFilter === "invited") return row.hasInvited;
+    if (tradeFilter === "bidding") return row.hasBidding;
+    if (tradeFilter === "submitted") return row.hasSubmitted;
+    if (tradeFilter === "viewed") return row.hasViewed;
+    if (tradeFilter === "declined") return row.hasDeclined;
+    return row.hasNoInvites;
+  });
 
   return (
     <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -751,18 +804,21 @@ export default function ItbsProjectBidTable() {
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
             <div className="flex flex-wrap items-center gap-2">
               {[
-                { label: "All", value: sortedTrades.length, active: true },
-                { label: "Invited", value: invitedStatusCount },
-                { label: "Viewed", value: viewedStatusCount },
-                { label: "Bidding", value: biddingStatusCount },
-                { label: "Not invited", value: notInvitedTradesCount },
+                { key: "all" as const, label: "All", value: sortedTrades.length },
+                { key: "invited" as const, label: "Invited", value: invitedTradeCount },
+                { key: "bidding" as const, label: "Bidding", value: biddingTradeCount },
+                { key: "submitted" as const, label: "Submitted", value: submittedTradeCount },
+                { key: "viewed" as const, label: "Viewed", value: viewedTradeCount },
+                { key: "declined" as const, label: "Declined", value: declinedTradeCount },
+                { key: "not_invited" as const, label: "Not invited", value: notInvitedTradesCount },
               ].map((chip) => (
                 <button
-                  key={chip.label}
+                  key={chip.key}
                   type="button"
+                  onClick={() => setTradeFilter(chip.key)}
                   className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${
-                    chip.active
-                      ? "border-blue-700 bg-blue-700 text-white"
+                    tradeFilter === chip.key
+                      ? "border-slate-800 bg-slate-800 text-white"
                       : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                   }`}
                 >
@@ -773,29 +829,16 @@ export default function ItbsProjectBidTable() {
             <button
               type="button"
               onClick={openEditTradesModal}
-              className="rounded-lg bg-orange-500 px-5 py-2 text-base font-semibold text-white hover:bg-orange-600"
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
             >
-              + Invite New Trade
+              Add Trade
             </button>
           </div>
 
           <div className="space-y-3 p-3">
-            {sortedTrades.map((trade) => {
-              const tradeMap = bidsByTrade.get(trade.id) ?? new Map<string, (typeof detail.tradeBids)[number]>();
-              const assignedEntries = subs
-                .map((sub) => ({ sub, bid: tradeMap.get(sub.id) ?? null }))
-                .filter(
-                  (
-                    entry
-                  ): entry is {
-                    sub: (typeof subs)[number];
-                    bid: (typeof detail.tradeBids)[number];
-                  } => Boolean(entry.bid)
-                );
-              const availableSubsForTrade = subs.filter((sub) => !tradeMap.has(sub.id));
+            {visibleTradeRows.map(({ trade, assignedEntries, availableSubsForTrade, submittedCount }) => {
               const isExpanded = Boolean(expandedTrades[trade.id]);
               const panelId = `trade-panel-${trade.id}`;
-              const submittedCount = assignedEntries.filter((entry) => entry.bid.status === "submitted").length;
               return (
                 <article key={trade.id} className="overflow-hidden rounded-xl border border-slate-200 bg-white">
                   <div className="flex w-full items-center justify-between gap-3 bg-slate-50 px-4 py-3">
@@ -853,7 +896,7 @@ export default function ItbsProjectBidTable() {
                                     : ""
                                 }`}
                               >
-                                {submittedCount}
+                                {submittedCount}/3
                               </span>{" "}
                               bids received
                             </span>
@@ -892,7 +935,6 @@ export default function ItbsProjectBidTable() {
                         assignedEntries.map(({ sub, bid }) => {
                           const lastUpdated = statusUpdatedAtByBidId[bid.id] ?? sub.invitedAt ?? null;
                           const proposalReceived = bid.status === "bidding" || bid.status === "submitted";
-                          const notesCount = countNotesItems(bid.notes);
                           return (
                             <div
                               key={`${trade.id}-${sub.id}`}
@@ -919,7 +961,6 @@ export default function ItbsProjectBidTable() {
                                   Bid amount: {bid.bid_amount !== null && bid.bid_amount !== undefined ? formatCurrency(bid.bid_amount) : "-"}
                                 </div>
                                 <div className="text-sm text-slate-700">Proposal received: {proposalReceived ? "Yes" : "No"}</div>
-                                <div className="text-sm text-slate-700">Notes/Exclusions: {notesCount}</div>
                               </div>
 
                               <div>
@@ -938,7 +979,6 @@ export default function ItbsProjectBidTable() {
                                     <SelectItem value="bidding">Bidding</SelectItem>
                                     <SelectItem value="submitted">Submitted</SelectItem>
                                     <SelectItem value="declined">Declined</SelectItem>
-                                    <SelectItem value="ghosted">Viewed</SelectItem>
                                   </SelectContent>
                                 </Select>
                                 <div className="mt-2 text-xs text-slate-500">
@@ -979,12 +1019,6 @@ export default function ItbsProjectBidTable() {
                                 >
                                   Open bid
                                 </button>
-                                <button
-                                  type="button"
-                                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                                >
-                                  More actions
-                                </button>
                               </div>
                             </div>
                           );
@@ -1016,6 +1050,11 @@ export default function ItbsProjectBidTable() {
                 </article>
               );
             })}
+            {visibleTradeRows.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-600">
+                No trades match the selected filter.
+              </div>
+            ) : null}
           </div>
         </div>
 
@@ -1372,7 +1411,6 @@ export default function ItbsProjectBidTable() {
                     <SelectItem value="invited">Invited</SelectItem>
                     <SelectItem value="bidding">Bidding</SelectItem>
                     <SelectItem value="submitted">Submitted</SelectItem>
-                    <SelectItem value="ghosted">Ghosted</SelectItem>
                     <SelectItem value="declined">Declined</SelectItem>
                   </SelectContent>
                 </Select>
