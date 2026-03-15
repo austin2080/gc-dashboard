@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { getBidLevelingProjectData } from "@/lib/bidding/leveling-store";
@@ -92,6 +93,21 @@ type ImportedEstimateUnitPrice = {
   subcontractorName: string;
 };
 
+type PersistedManualLineItem = {
+  id: string;
+  label: string;
+};
+
+type ContactInfoModalState = {
+  companyId: string | null;
+  companyName: string;
+  contactTitle: string;
+  primaryContact: string;
+  email: string;
+  phone: string;
+  officePhone: string;
+};
+
 type UploadedBidDocument = {
   id: string;
   name: string;
@@ -114,6 +130,8 @@ const BID_INCLUSIONS_STORAGE_KEY = "bidInclusionsByCell";
 const BID_EXCLUSIONS_STORAGE_KEY = "bidExclusionsByCell";
 const BID_DOCUMENTS_STORAGE_KEY = "bidDocumentsByCell";
 const ESTIMATE_UNIT_PRICE_IMPORTS_STORAGE_KEY = "estimateUnitPriceImportsByProject";
+const LEVELING_MANUAL_LINE_ITEMS_STORAGE_KEY = "levelingManualLineItemsByTrade";
+const LEVELING_AMOUNT_DRAFTS_STORAGE_KEY = "levelingAmountDraftsByTrade";
 const MIN_SUBCONTRACTOR_COLUMNS = 3;
 const LINE_ITEM_COLUMN_WIDTH_PX = 420;
 const SUBCONTRACTOR_COLUMN_MIN_WIDTH_PX = 280;
@@ -262,6 +280,60 @@ function writeEstimateUnitPriceImportsMap(map: Record<string, ImportedEstimateUn
   localStorage.setItem(ESTIMATE_UNIT_PRICE_IMPORTS_STORAGE_KEY, JSON.stringify(map));
 }
 
+function readManualLineItemsMap(): Record<string, PersistedManualLineItem[]> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(LEVELING_MANUAL_LINE_ITEMS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, PersistedManualLineItem[]> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!Array.isArray(value)) continue;
+      next[key] = value.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const row = item as Partial<PersistedManualLineItem>;
+        if (typeof row.id !== "string" || typeof row.label !== "string") return [];
+        return [{ id: row.id, label: row.label }];
+      });
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function writeManualLineItemsMap(map: Record<string, PersistedManualLineItem[]>) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(LEVELING_MANUAL_LINE_ITEMS_STORAGE_KEY, JSON.stringify(map));
+}
+
+function readLevelingAmountDraftsMap(): Record<string, Record<string, string>> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(LEVELING_AMOUNT_DRAFTS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, Record<string, string>> = {};
+    for (const [tradeKey, value] of Object.entries(parsed)) {
+      if (!value || typeof value !== "object") continue;
+      next[tradeKey] = Object.entries(value).reduce<Record<string, string>>((acc, [cellKey, cellValue]) => {
+        if (typeof cellValue === "string") acc[cellKey] = cellValue;
+        return acc;
+      }, {});
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function writeLevelingAmountDraftsMap(map: Record<string, Record<string, string>>) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(LEVELING_AMOUNT_DRAFTS_STORAGE_KEY, JSON.stringify(map));
+}
+
 export default function LevelingPageV2({
   hideCreateBidForm = false,
   leftNavItems,
@@ -276,7 +348,9 @@ export default function LevelingPageV2({
   const [loading, setLoading] = useState(true);
   const [selectedTradeId, setSelectedTradeId] = useState<string | null>(null);
   const [selectedLeftNavItem, setSelectedLeftNavItem] = useState<string | null>(leftNavItems?.[0] ?? null);
-  const [manualLineItems, setManualLineItems] = useState<LineItemRow[]>([]);
+  const [manualLineItemsByTradeKey, setManualLineItemsByTradeKey] = useState<Record<string, PersistedManualLineItem[]>>(
+    () => readManualLineItemsMap()
+  );
   const [inviteQuoteLineItemsMap, setInviteQuoteLineItemsMap] = useState<Record<string, InviteQuoteLineItem[]>>(
     () => readQuoteLineItemsMap()
   );
@@ -289,7 +363,9 @@ export default function LevelingPageV2({
   const [bidDocumentsByCell, setBidDocumentsByCell] = useState<Record<string, UploadedBidDocument[]>>(() =>
     readBidDocumentsMap()
   );
-  const [amountDraftByCell, setAmountDraftByCell] = useState<Record<string, string>>({});
+  const [amountDraftsByTradeKey, setAmountDraftsByTradeKey] = useState<Record<string, Record<string, string>>>(
+    () => readLevelingAmountDraftsMap()
+  );
   const [additionalInfoDraftByCell, setAdditionalInfoDraftByCell] = useState<Record<string, string>>({});
   const [addedColumnsByTradeId, setAddedColumnsByTradeId] = useState<Record<string, AddedSubcontractorColumn[]>>({});
   const [hiddenSubIdsByTradeId, setHiddenSubIdsByTradeId] = useState<Record<string, string[]>>({});
@@ -301,6 +377,8 @@ export default function LevelingPageV2({
   const [activeSearchAnchorId, setActiveSearchAnchorId] = useState<string | null>(null);
   const subcontractorSearchRef = useRef<HTMLTableSectionElement | null>(null);
   const [openActionsColumnId, setOpenActionsColumnId] = useState<string | null>(null);
+  const [lineItemPendingDelete, setLineItemPendingDelete] = useState<LineItemRow | null>(null);
+  const [contactInfoModal, setContactInfoModal] = useState<ContactInfoModalState | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -343,6 +421,18 @@ export default function LevelingPageV2({
   const selectedTrade = useMemo(
     () => data?.trades.find((trade) => trade.id === selectedTradeId) ?? null,
     [data?.trades, selectedTradeId]
+  );
+  const selectedTradeStorageKey = useMemo(
+    () => (data?.project.id && selectedTrade?.id ? `${data.project.id}:${selectedTrade.id}` : ""),
+    [data?.project.id, selectedTrade?.id]
+  );
+  const manualLineItems = useMemo(
+    () => (selectedTradeStorageKey ? manualLineItemsByTradeKey[selectedTradeStorageKey] ?? [] : []),
+    [manualLineItemsByTradeKey, selectedTradeStorageKey]
+  );
+  const amountDraftByCell = useMemo(
+    () => (selectedTradeStorageKey ? amountDraftsByTradeKey[selectedTradeStorageKey] ?? {} : {}),
+    [amountDraftsByTradeKey, selectedTradeStorageKey]
   );
   const addedColumnsForTrade = useMemo(
     () => (selectedTrade ? addedColumnsByTradeId[selectedTrade.id] ?? [] : []),
@@ -448,7 +538,9 @@ export default function LevelingPageV2({
         event.key !== QUOTE_LINE_ITEMS_STORAGE_KEY &&
         event.key !== BID_INCLUSIONS_STORAGE_KEY &&
         event.key !== BID_EXCLUSIONS_STORAGE_KEY &&
-        event.key !== BID_DOCUMENTS_STORAGE_KEY
+        event.key !== BID_DOCUMENTS_STORAGE_KEY &&
+        event.key !== LEVELING_MANUAL_LINE_ITEMS_STORAGE_KEY &&
+        event.key !== LEVELING_AMOUNT_DRAFTS_STORAGE_KEY
       ) {
         return;
       }
@@ -456,6 +548,8 @@ export default function LevelingPageV2({
       setInclusionsByCellKey(readBidTextByCellMap(BID_INCLUSIONS_STORAGE_KEY));
       setExclusionsByCellKey(readBidTextByCellMap(BID_EXCLUSIONS_STORAGE_KEY));
       setBidDocumentsByCell(readBidDocumentsMap());
+      setManualLineItemsByTradeKey(readManualLineItemsMap());
+      setAmountDraftsByTradeKey(readLevelingAmountDraftsMap());
     };
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
@@ -471,6 +565,14 @@ export default function LevelingPageV2({
       ])
     );
   }, [data]);
+  const directoryCompanyByNormalizedName = useMemo(() => {
+    return new Map(
+      (directoryData?.companies ?? []).map((company) => [
+        normalizeSubcontractorName(company.name ?? ""),
+        company,
+      ])
+    );
+  }, [directoryData]);
   const visibleSubIds = useMemo(
     () => new Set(bidColumns.map((column) => column.subId).filter((value): value is string => Boolean(value))),
     [bidColumns]
@@ -627,6 +729,48 @@ export default function LevelingPageV2({
     });
     totalByColumnId[col.id] = hasValue ? sum : null;
   });
+  const bidPositionByColumnId = useMemo(() => {
+    const ranked = bidColumns
+      .map((col) => ({ id: col.id, total: totalByColumnId[col.id] }))
+      .filter((entry): entry is { id: string; total: number } => entry.total !== null)
+      .sort((a, b) => a.total - b.total);
+    const next: Record<string, "low" | "mid" | "high"> = {};
+    if (ranked.length === 0) return next;
+    if (ranked.length === 1) {
+      next[ranked[0].id] = "low";
+      return next;
+    }
+    if (ranked.length === 2) {
+      next[ranked[0].id] = "low";
+      next[ranked[1].id] = "high";
+      return next;
+    }
+    ranked.forEach((entry, index) => {
+      if (index === 0) {
+        next[entry.id] = "low";
+        return;
+      }
+      if (index === ranked.length - 1) {
+        next[entry.id] = "high";
+        return;
+      }
+      next[entry.id] = "mid";
+    });
+    return next;
+  }, [bidColumns, totalByColumnId]);
+  const orderedBidColumns = useMemo(
+    () =>
+      [...bidColumns].sort((a, b) => {
+        const aTotal = totalByColumnId[a.id];
+        const bTotal = totalByColumnId[b.id];
+        if (aTotal === null && bTotal === null) return a.subName.localeCompare(b.subName);
+        if (aTotal === null) return 1;
+        if (bTotal === null) return -1;
+        if (aTotal !== bTotal) return aTotal - bTotal;
+        return a.subName.localeCompare(b.subName);
+      }),
+    [bidColumns, totalByColumnId]
+  );
   const tableWidthPx =
     LINE_ITEM_COLUMN_WIDTH_PX + bidColumns.length * SUBCONTRACTOR_COLUMN_MIN_WIDTH_PX + ADD_COLUMN_CELL_WIDTH_PX;
 
@@ -643,7 +787,7 @@ export default function LevelingPageV2({
         [selectedTrade.id]: Array.from(new Set([...(prev[selectedTrade.id] ?? []), targetColumn.subId!])),
       }));
     }
-    setAmountDraftByCell((prev) => {
+    updateAmountDraftsForTrade((prev) => {
       const next = { ...prev };
       Object.keys(next).forEach((key) => {
         if (key.endsWith(`:${columnId}`)) delete next[key];
@@ -686,6 +830,78 @@ export default function LevelingPageV2({
     setActiveSearchAnchorId(null);
   };
 
+  const updateManualLineItems = (
+    updater: (prev: PersistedManualLineItem[]) => PersistedManualLineItem[]
+  ) => {
+    if (!selectedTradeStorageKey) return;
+    setManualLineItemsByTradeKey((prev) => {
+      const nextItems = updater(prev[selectedTradeStorageKey] ?? []);
+      const next = { ...prev, [selectedTradeStorageKey]: nextItems };
+      writeManualLineItemsMap(next);
+      return next;
+    });
+  };
+
+  const updateAmountDraftsForTrade = (
+    updater: (prev: Record<string, string>) => Record<string, string>
+  ) => {
+    if (!selectedTradeStorageKey) return;
+    setAmountDraftsByTradeKey((prev) => {
+      const nextDrafts = updater(prev[selectedTradeStorageKey] ?? {});
+      const next = { ...prev, [selectedTradeStorageKey]: nextDrafts };
+      writeLevelingAmountDraftsMap(next);
+      return next;
+    });
+  };
+
+  const renameManualLineItem = (lineItemId: string, nextLabel: string) => {
+    const normalizedNext = normalizeLineItemLabel(nextLabel);
+    const existingMatch =
+      normalizedNext.length > 0
+        ? manualLineItems.find(
+            (item) => item.id !== lineItemId && normalizeLineItemLabel(item.label) === normalizedNext
+          ) ?? null
+        : null;
+
+    if (!existingMatch) {
+      updateManualLineItems((prev) =>
+        prev.map((item) => (item.id === lineItemId ? { ...item, label: nextLabel } : item))
+      );
+      return;
+    }
+
+    updateAmountDraftsForTrade((prev) => {
+      const next = { ...prev };
+      bidColumns.forEach((column) => {
+        const sourceKey = getAmountCellKey(lineItemId, column.id);
+        const targetKey = getAmountCellKey(existingMatch.id, column.id);
+        const sourceValue = next[sourceKey];
+        const targetValue = next[targetKey];
+        if ((!targetValue || targetValue.trim().length === 0) && sourceValue && sourceValue.trim().length > 0) {
+          next[targetKey] = sourceValue;
+        }
+        delete next[sourceKey];
+      });
+      return next;
+    });
+    updateManualLineItems((prev) =>
+      prev
+        .map((item) => (item.id === existingMatch.id ? { ...item, label: existingMatch.label || nextLabel } : item))
+        .filter((item) => item.id !== lineItemId)
+    );
+  };
+
+  const removeManualLineItem = (lineItemId: string) => {
+    updateManualLineItems((prev) => prev.filter((item) => item.id !== lineItemId));
+    updateAmountDraftsForTrade((prev) => {
+      const next = { ...prev };
+      bidColumns.forEach((column) => {
+        delete next[getAmountCellKey(lineItemId, column.id)];
+      });
+      return next;
+    });
+  };
+
   const handleUseInEstimate = (column: BidColumn) => {
     if (!selectedTrade || !data) return;
     const totalByColumn = totalByColumnId[column.id];
@@ -707,6 +923,20 @@ export default function LevelingPageV2({
     };
     writeEstimateUnitPriceImportsMap(nextMap);
     setEstimateImportsByProject(nextMap);
+    setOpenActionsColumnId(null);
+  };
+
+  const handleOpenContactInfo = (column: BidColumn) => {
+    const directoryCompany = directoryCompanyByNormalizedName.get(normalizeSubcontractorName(column.subName));
+    setContactInfoModal({
+      companyId: directoryCompany?.id ?? null,
+      companyName: column.subName,
+      contactTitle: directoryCompany?.contactTitle ?? "",
+      primaryContact: directoryCompany?.primaryContact ?? "",
+      email: directoryCompany?.email ?? "",
+      phone: directoryCompany?.phone ?? "",
+      officePhone: directoryCompany?.officePhone ?? "",
+    });
     setOpenActionsColumnId(null);
   };
 
@@ -732,6 +962,45 @@ export default function LevelingPageV2({
     const rows = estimateImportsByProject[data.project.id] ?? [];
     return new Map(rows.map((row) => [normalizeCostCodeCode(row.costCodeCode), row.subcontractorName]));
   }, [data, estimateImportsByProject]);
+
+  useEffect(() => {
+    if (!data || !selectedTrade) return;
+    const tradeCostCode = normalizeCostCodeCode(extractTradeCostCode(selectedTrade.trade_name ?? ""));
+    if (!tradeCostCode) return;
+    const activeSubName = usedInEstimateSubNameByTradeCode.get(tradeCostCode);
+    if (!activeSubName) return;
+    const activeColumn =
+      bidColumns.find((column) => normalizeSubcontractorName(column.subName) === normalizeSubcontractorName(activeSubName)) ??
+      null;
+    if (!activeColumn) return;
+    const liveTotal = totalByColumnId[activeColumn.id];
+    if (liveTotal === null) return;
+    const projectKey = data.project.id;
+    const nextUnitPrice = formatCurrencyInput(String(liveTotal));
+    const existingRows = estimateImportsByProject[projectKey] ?? [];
+    const existingRow =
+      existingRows.find((row) => normalizeCostCodeCode(row.costCodeCode) === tradeCostCode) ?? null;
+    if (existingRow?.unitPrice === nextUnitPrice && existingRow.subcontractorName === activeColumn.subName) return;
+    const nextRows = existingRows.filter((row) => normalizeCostCodeCode(row.costCodeCode) !== tradeCostCode);
+    nextRows.push({
+      costCodeCode: extractTradeCostCode(selectedTrade.trade_name ?? ""),
+      unitPrice: nextUnitPrice,
+      subcontractorName: activeColumn.subName,
+    });
+    const nextMap = {
+      ...estimateImportsByProject,
+      [projectKey]: nextRows,
+    };
+    writeEstimateUnitPriceImportsMap(nextMap);
+    setEstimateImportsByProject(nextMap);
+  }, [
+    bidColumns,
+    data,
+    estimateImportsByProject,
+    selectedTrade,
+    totalByColumnId,
+    usedInEstimateSubNameByTradeCode,
+  ]);
 
   const renderSubcontractorSearchDropdown = () =>
     subcontractorSearchOpen ? (
@@ -869,7 +1138,7 @@ export default function LevelingPageV2({
             >
               <colgroup>
                 <col style={{ width: `${LINE_ITEM_COLUMN_WIDTH_PX}px` }} />
-                {bidColumns.map((col) => (
+                {orderedBidColumns.map((col) => (
                   <col key={col.id} style={{ width: `${SUBCONTRACTOR_COLUMN_MIN_WIDTH_PX}px` }} />
                 ))}
                 <col style={{ width: `${ADD_COLUMN_CELL_WIDTH_PX}px` }} />
@@ -882,7 +1151,7 @@ export default function LevelingPageV2({
                     </div>
                     <div className="mt-2 text-2xl font-semibold text-slate-900">{submittedCount} Bids Submitted</div>
                   </th>
-                  {bidColumns.map((col) => (
+                  {orderedBidColumns.map((col) => (
                     <th key={`head-${col.id}`} className="border-b border-r border-slate-200 bg-slate-50 p-4 text-left align-top last:border-r-0">
                       {col.isPlaceholder ? (
                         <div className="relative pt-1">
@@ -920,50 +1189,76 @@ export default function LevelingPageV2({
                                 </div>
                               ) : null}
                             </div>
-                            <div className="relative" data-leveling-sub-actions>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setOpenActionsColumnId((prev) => (prev === col.id ? null : col.id))
-                                }
-                                className="inline-flex size-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                                aria-label="Open subcontractor actions"
-                                title="Actions"
-                              >
-                                <svg viewBox="0 0 20 20" fill="currentColor" className="size-4" aria-hidden="true">
-                                  <path d="M10 4.25a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5ZM10 11.25a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5ZM11.25 17.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Z" />
-                                </svg>
-                              </button>
-                              {openActionsColumnId === col.id ? (
-                                <div className="absolute right-0 top-full z-20 mt-2 w-44 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
-                                  {selectedTrade &&
-                                  usedInEstimateSubNameByTradeCode.get(
-                                    normalizeCostCodeCode(extractTradeCostCode(selectedTrade.trade_name ?? ""))
-                                  ) === col.subName ? (
+                            <div className="flex flex-col items-end gap-2">
+                              <div className="relative" data-leveling-sub-actions>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setOpenActionsColumnId((prev) => (prev === col.id ? null : col.id))
+                                  }
+                                  className="inline-flex size-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                                  aria-label="Open subcontractor actions"
+                                  title="Actions"
+                                >
+                                  <svg viewBox="0 0 20 20" fill="currentColor" className="size-4" aria-hidden="true">
+                                    <path d="M10 4.25a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5ZM10 11.25a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5ZM11.25 17.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Z" />
+                                  </svg>
+                                </button>
+                                {openActionsColumnId === col.id ? (
+                                  <div className="absolute right-0 top-full z-20 mt-2 w-44 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
                                     <button
                                       type="button"
-                                      onClick={handleRemoveFromEstimate}
-                                      className="flex w-full rounded-md px-3 py-2 text-left text-sm font-medium text-rose-700 hover:bg-rose-50"
-                                    >
-                                      Remove From Estimate Page
-                                    </button>
-                                  ) : (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleUseInEstimate(col)}
+                                      onClick={() => handleOpenContactInfo(col)}
                                       className="flex w-full rounded-md px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50"
                                     >
-                                      Use in Estimate
+                                      Contact Info
                                     </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={() => handleRemoveSubcontractorColumn(col.id)}
-                                    className="flex w-full rounded-md px-3 py-2 text-left text-sm font-medium text-rose-700 hover:bg-rose-50"
-                                  >
-                                    Remove
-                                  </button>
-                                </div>
+                                    {selectedTrade &&
+                                    usedInEstimateSubNameByTradeCode.get(
+                                      normalizeCostCodeCode(extractTradeCostCode(selectedTrade.trade_name ?? ""))
+                                    ) === col.subName ? (
+                                      <button
+                                        type="button"
+                                        onClick={handleRemoveFromEstimate}
+                                        className="flex w-full rounded-md px-3 py-2 text-left text-sm font-medium text-rose-700 hover:bg-rose-50"
+                                      >
+                                        Remove From Estimate Page
+                                      </button>
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleUseInEstimate(col)}
+                                        className="flex w-full rounded-md px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50"
+                                      >
+                                        Use in Estimate
+                                      </button>
+                                    )}
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveSubcontractorColumn(col.id)}
+                                      className="flex w-full rounded-md px-3 py-2 text-left text-sm font-medium text-rose-700 hover:bg-rose-50"
+                                    >
+                                      Remove
+                                    </button>
+                                  </div>
+                                ) : null}
+                              </div>
+                              {bidPositionByColumnId[col.id] ? (
+                                <span
+                                  className={`inline-flex rounded-md px-2 py-1 text-xs font-semibold ${
+                                    bidPositionByColumnId[col.id] === "low"
+                                      ? "bg-emerald-100 text-emerald-800"
+                                      : bidPositionByColumnId[col.id] === "high"
+                                        ? "bg-rose-100 text-rose-800"
+                                        : "bg-amber-100 text-amber-800"
+                                  }`}
+                                >
+                                  {bidPositionByColumnId[col.id] === "low"
+                                    ? "Low Bid"
+                                    : bidPositionByColumnId[col.id] === "high"
+                                      ? "High Bid"
+                                      : "Mid Bid"}
+                                </span>
                               ) : null}
                             </div>
                           </div>
@@ -996,40 +1291,53 @@ export default function LevelingPageV2({
                 {displayLineItems.map((row, rowIndex) => (
                   <tr key={row.id}>
                     <td className="border-b border-r border-slate-200 px-4 py-2.5 text-base font-medium text-slate-700">
-                      <input
-                        value={row.label}
-                        onChange={(event) =>
-                          row.id.startsWith("imported-")
-                            ? undefined
-                            : row.id === "base-bid"
+                      <div className="group relative">
+                        {!row.id.startsWith("imported-") && row.id !== "base-bid" ? (
+                          <button
+                            type="button"
+                            onClick={() => setLineItemPendingDelete(row)}
+                            className="invisible absolute left-0 top-1/2 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-md border border-rose-200 bg-white text-lg font-semibold leading-none text-rose-700 opacity-0 transition group-hover:visible group-hover:opacity-100 hover:bg-rose-50"
+                            aria-label="Remove line item"
+                            title="Remove line item"
+                          >
+                            x
+                          </button>
+                        ) : (
+                          null
+                        )}
+                        <input
+                          value={row.label}
+                          onChange={(event) =>
+                            row.id.startsWith("imported-")
                               ? undefined
-                              : setManualLineItems((prev) =>
-                                  prev.map((item) =>
-                                    item.id === row.id ? { ...item, label: event.target.value } : item
-                                  )
-                                )
-                        }
-                        placeholder={rowIndex === 0 ? "Base Bid" : "Add line item"}
-                        readOnly={row.id.startsWith("imported-")}
-                        className={`w-full rounded-md border border-slate-200 px-2 py-1.5 text-base text-slate-700 focus:border-slate-400 focus:outline-none ${
-                          row.id.startsWith("imported-") ? "bg-slate-50" : ""
-                        }`}
-                      />
+                              : row.id === "base-bid"
+                                ? undefined
+                                : renameManualLineItem(row.id, event.target.value)
+                          }
+                          placeholder={rowIndex === 0 ? "Base Bid" : "Add line item"}
+                          readOnly={row.id.startsWith("imported-")}
+                          className={`w-full rounded-md border border-slate-200 px-2 py-1.5 text-base text-slate-700 transition-[padding] focus:border-slate-400 focus:outline-none ${
+                            !row.id.startsWith("imported-") && row.id !== "base-bid" ? "group-hover:pl-10" : ""
+                          } ${
+                            row.id.startsWith("imported-") ? "bg-slate-50" : ""
+                          }`}
+                        />
+                      </div>
                     </td>
-                    {bidColumns.map((col) => (
+                    {orderedBidColumns.map((col) => (
                       <td key={`${row.id}-${col.id}`} className="border-b border-r border-slate-200 px-4 py-2.5 text-right text-base text-slate-700 last:border-r-0">
                         <div className="relative ml-auto w-full max-w-[180px]">
                           <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span>
                           <input
                             value={getDisplayAmountForCell(row, col)}
                             onChange={(event) =>
-                              setAmountDraftByCell((prev) => ({
+                              updateAmountDraftsForTrade((prev) => ({
                                 ...prev,
                                 [getAmountCellKey(row.id, col.id)]: formatCurrencyWhileTyping(event.target.value),
                               }))
                             }
                             onBlur={(event) =>
-                              setAmountDraftByCell((prev) => ({
+                              updateAmountDraftsForTrade((prev) => ({
                                 ...prev,
                                 [getAmountCellKey(row.id, col.id)]: formatCurrencyInput(event.target.value),
                               }))
@@ -1051,7 +1359,7 @@ export default function LevelingPageV2({
                     <button
                       type="button"
                       onClick={() =>
-                        setManualLineItems((prev) => [
+                        updateManualLineItems((prev) => [
                           ...prev,
                           {
                             id: `line-item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -1064,7 +1372,7 @@ export default function LevelingPageV2({
                       + Add line item
                     </button>
                   </td>
-                  {bidColumns.map((col) => (
+                  {orderedBidColumns.map((col) => (
                     <td key={`line-item-add-${col.id}`} className="border-b border-r border-slate-200 px-4 py-2.5 last:border-r-0" />
                   ))}
                   <td className="border-b border-slate-200 p-2">
@@ -1075,7 +1383,7 @@ export default function LevelingPageV2({
                   <td className="border-b border-r border-slate-200 bg-slate-50 px-4 py-2.5 text-base font-semibold text-slate-900">
                     Total
                   </td>
-                  {bidColumns.map((col) => (
+                  {orderedBidColumns.map((col) => (
                     <td
                       key={`line-item-total-${col.id}`}
                       className="border-b border-r border-slate-200 bg-slate-50 px-4 py-2.5 text-right text-base font-semibold text-slate-900 last:border-r-0"
@@ -1094,7 +1402,7 @@ export default function LevelingPageV2({
                   <td className="border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-lg font-semibold text-slate-900">
                     Additional Bid Information
                   </td>
-                  {bidColumns.map((col) => (
+                  {orderedBidColumns.map((col) => (
                     <td key={`additional-head-${col.id}`} className="border-b border-r border-slate-200 bg-slate-50 px-4 py-3 last:border-r-0" />
                   ))}
                   <td className="border-b border-slate-200 p-2">
@@ -1107,7 +1415,7 @@ export default function LevelingPageV2({
                     <td className="border-b border-r border-slate-200 px-4 py-3 text-base font-medium text-slate-700">
                       {row.label}
                     </td>
-                    {bidColumns.map((col) => (
+                    {orderedBidColumns.map((col) => (
                       <td key={`${row.key}-${col.id}`} className="border-b border-r border-slate-200 px-4 py-3 text-base text-slate-700 last:border-r-0">
                         {row.key === "attachments" ? (
                           (() => {
@@ -1158,6 +1466,96 @@ export default function LevelingPageV2({
           </div>
         </div>
       </div>
+      {lineItemPendingDelete ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <h3 className="text-lg font-semibold text-slate-900">Delete Line Item?</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              Remove <span className="font-semibold text-slate-900">{lineItemPendingDelete.label || "this line item"}</span> from the leveling sheet?
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setLineItemPendingDelete(null)}
+                className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  removeManualLineItem(lineItemPendingDelete.id);
+                  setLineItemPendingDelete(null);
+                }}
+                className="rounded-md bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {contactInfoModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-xl border border-slate-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">
+                  {contactInfoModal.companyId ? (
+                    <Link
+                      href={`/directory/${contactInfoModal.companyId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline-offset-2 hover:underline"
+                    >
+                      {contactInfoModal.companyName}
+                    </Link>
+                  ) : (
+                    contactInfoModal.companyName
+                  )}
+                </h3>
+                <p className="mt-1 text-sm text-slate-500">Subcontractor contact information</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setContactInfoModal(null)}
+                className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Close
+              </button>
+            </div>
+            <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Contact</div>
+                  <div className="mt-1 text-sm font-medium text-slate-900">
+                    {contactInfoModal.primaryContact || "Not available"}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Title</div>
+                  <div className="mt-1 text-sm text-slate-700">{contactInfoModal.contactTitle || "Not available"}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Email</div>
+                  <div className="mt-1 text-sm text-slate-700">{contactInfoModal.email || "Not available"}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Cell</div>
+                  <div className="mt-1 text-sm text-slate-700">{contactInfoModal.phone || "Not available"}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">Office</div>
+                  <div className="mt-1 text-sm text-slate-700">{contactInfoModal.officePhone || "Not available"}</div>
+                </div>
+              </div>
+            </div>
+            <p className="mt-4 text-xs text-slate-500">
+              Additional company contacts are not stored separately in the current subcontractor data model yet.
+            </p>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
