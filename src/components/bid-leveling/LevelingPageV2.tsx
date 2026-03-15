@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { getBidLevelingProjectData } from "@/lib/bidding/leveling-store";
 import type { BidLevelingProjectData, LevelingBid } from "@/lib/bidding/leveling-types";
 import { getBidProjectIdForProject } from "@/lib/bidding/project-links";
+import { useDirectoryData } from "@/components/directory/use-directory-data";
 
 function formatDate(iso: string | null): string {
   if (!iso) return "No due date";
@@ -64,6 +65,8 @@ type BidColumn = {
   subId: string | null;
   subName: string;
   status: string;
+  isRemovable?: boolean;
+  isPlaceholder?: boolean;
 };
 
 type LineItemRow = {
@@ -74,6 +77,13 @@ type LineItemRow = {
 type InviteQuoteLineItem = {
   label: string;
   amount: string;
+};
+
+type AddedSubcontractorColumn = {
+  id: string;
+  subId: string | null;
+  subName: string;
+  status: string;
 };
 
 type UploadedBidDocument = {
@@ -103,6 +113,10 @@ const SUBCONTRACTOR_COLUMN_MIN_WIDTH_PX = 280;
 const ADD_COLUMN_CELL_WIDTH_PX = 168;
 
 function normalizeLineItemLabel(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function normalizeSubcontractorName(value: string): string {
   return value.trim().toLowerCase();
 }
 
@@ -200,6 +214,7 @@ export default function LevelingPageV2({
   leftNavItems?: string[];
 }) {
   const searchParams = useSearchParams();
+  const { data: directoryData } = useDirectoryData();
   const queryProjectId = searchParams.get("project");
   const [data, setData] = useState<BidLevelingProjectData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -220,12 +235,11 @@ export default function LevelingPageV2({
   );
   const [amountDraftByCell, setAmountDraftByCell] = useState<Record<string, string>>({});
   const [additionalInfoDraftByCell, setAdditionalInfoDraftByCell] = useState<Record<string, string>>({});
-  const [subcontractorNameDraftByColumnId, setSubcontractorNameDraftByColumnId] = useState<Record<string, string>>(
-    {}
-  );
-  const [extraPlaceholderColumnIdsByTradeId, setExtraPlaceholderColumnIdsByTradeId] = useState<
-    Record<string, string[]>
-  >({});
+  const [addedColumnsByTradeId, setAddedColumnsByTradeId] = useState<Record<string, AddedSubcontractorColumn[]>>({});
+  const [subcontractorSearch, setSubcontractorSearch] = useState("");
+  const [subcontractorSearchOpen, setSubcontractorSearchOpen] = useState(false);
+  const [activeSearchAnchorId, setActiveSearchAnchorId] = useState<string | null>(null);
+  const subcontractorSearchRef = useRef<HTMLTableSectionElement | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -269,9 +283,9 @@ export default function LevelingPageV2({
     () => data?.trades.find((trade) => trade.id === selectedTradeId) ?? null,
     [data?.trades, selectedTradeId]
   );
-  const extraPlaceholderColumnIdsForTrade = useMemo(
-    () => (selectedTrade ? extraPlaceholderColumnIdsByTradeId[selectedTrade.id] ?? [] : []),
-    [extraPlaceholderColumnIdsByTradeId, selectedTrade]
+  const addedColumnsForTrade = useMemo(
+    () => (selectedTrade ? addedColumnsByTradeId[selectedTrade.id] ?? [] : []),
+    [addedColumnsByTradeId, selectedTrade]
   );
 
   const bidColumns = useMemo(() => {
@@ -279,8 +293,11 @@ export default function LevelingPageV2({
     const subNameById = new Map(
       data.projectSubs.map((sub) => [sub.id, sub.subcontractor?.company_name ?? "Subcontractor"])
     );
-    const realColumns: BidColumn[] = data.bids
-      .filter((bid) => bid.trade_id === selectedTrade.id)
+    const bidsBySubId = new Map(
+      data.bids.filter((bid) => bid.trade_id === selectedTrade.id).map((bid) => [bid.sub_id, bid])
+    );
+    const submittedColumns: BidColumn[] = data.bids
+      .filter((bid) => bid.trade_id === selectedTrade.id && bid.status === "submitted")
       .sort((a, b) => {
         const aAmount = a.base_bid_amount ?? Number.POSITIVE_INFINITY;
         const bAmount = b.base_bid_amount ?? Number.POSITIVE_INFINITY;
@@ -294,28 +311,50 @@ export default function LevelingPageV2({
         subName: subNameById.get(bid.sub_id) ?? "Subcontractor",
         status: bid.status,
       }));
-    const next = [...realColumns];
-    const minimumPlaceholderCount = Math.max(0, MIN_SUBCONTRACTOR_COLUMNS - realColumns.length);
-    for (let index = 0; index < minimumPlaceholderCount; index += 1) {
+    const visibleSubIds = new Set(submittedColumns.map((col) => col.subId).filter((value): value is string => Boolean(value)));
+    const next = [...submittedColumns];
+    addedColumnsForTrade.forEach((column) => {
+      if (column.subId && visibleSubIds.has(column.subId)) return;
+      const bid = column.subId ? (bidsBySubId.get(column.subId) ?? null) : null;
+      next.push({
+        id: column.id,
+        bid,
+        subId: column.subId,
+        subName: column.subName,
+        status: bid?.status ?? column.status,
+        isRemovable: true,
+      });
+    });
+    const placeholderCount = Math.max(0, MIN_SUBCONTRACTOR_COLUMNS - next.length);
+    for (let index = 0; index < placeholderCount; index += 1) {
       next.push({
         id: `placeholder-sub-${selectedTrade.id}-${index + 1}`,
         bid: null,
         subId: null,
-        subName: `Subcontractor ${realColumns.length + index + 1}`,
+        subName: "Add Subcontractor",
         status: "not invited",
+        isPlaceholder: true,
       });
     }
-    extraPlaceholderColumnIdsForTrade.forEach((columnId, index) => {
-      next.push({
-        id: columnId,
-        bid: null,
-        subId: null,
-        subName: `Subcontractor ${realColumns.length + minimumPlaceholderCount + index + 1}`,
-        status: "not invited",
-      });
-    });
     return next;
-  }, [data, extraPlaceholderColumnIdsForTrade, selectedTrade]);
+  }, [addedColumnsForTrade, data, selectedTrade]);
+
+  useEffect(() => {
+    setSubcontractorSearch("");
+    setSubcontractorSearchOpen(false);
+    setActiveSearchAnchorId(null);
+  }, [selectedTradeId]);
+
+  useEffect(() => {
+    if (!subcontractorSearchOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!subcontractorSearchRef.current?.contains(event.target as Node)) {
+        setSubcontractorSearchOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [subcontractorSearchOpen]);
 
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
@@ -338,6 +377,69 @@ export default function LevelingPageV2({
   }, []);
 
   const submittedCount = bidColumns.filter((col) => col.status === "submitted").length;
+  const projectSubByNormalizedName = useMemo(() => {
+    if (!data) return new Map<string, { id: string; name: string }>();
+    return new Map(
+      data.projectSubs.map((sub) => [
+        normalizeSubcontractorName(sub.subcontractor?.company_name ?? "Subcontractor"),
+        { id: sub.id, name: sub.subcontractor?.company_name ?? "Subcontractor" },
+      ])
+    );
+  }, [data]);
+  const visibleSubIds = useMemo(
+    () => new Set(bidColumns.map((column) => column.subId).filter((value): value is string => Boolean(value))),
+    [bidColumns]
+  );
+  const visibleSubNames = useMemo(
+    () => new Set(bidColumns.map((column) => normalizeSubcontractorName(column.subName)).filter(Boolean)),
+    [bidColumns]
+  );
+  const recommendedSubcontractors = useMemo(() => {
+    if (!data || !selectedTrade) return [] as AddedSubcontractorColumn[];
+    const subNameById = new Map(
+      data.projectSubs.map((sub) => [sub.id, sub.subcontractor?.company_name ?? "Subcontractor"])
+    );
+    return data.bids
+      .filter((bid) => bid.trade_id === selectedTrade.id && bid.status !== "submitted" && !visibleSubIds.has(bid.sub_id))
+      .sort((a, b) => {
+        const aName = subNameById.get(a.sub_id) ?? "";
+        const bName = subNameById.get(b.sub_id) ?? "";
+        return aName.localeCompare(bName);
+      })
+      .map((bid) => ({
+        id: `recommended-${selectedTrade.id}-${bid.sub_id}`,
+        subId: bid.sub_id,
+        subName: subNameById.get(bid.sub_id) ?? "Subcontractor",
+        status: bid.status,
+      }));
+  }, [data, selectedTrade, visibleSubIds]);
+  const directoryMatches = useMemo(() => {
+    const query = subcontractorSearch.trim().toLowerCase();
+    if (!query || !directoryData) return [];
+    return directoryData.companies
+      .filter((company) => {
+        const name = company.name ?? "";
+        const trade = company.trade ?? "";
+        return (
+          name.toLowerCase().includes(query) ||
+          trade.toLowerCase().includes(query) ||
+          (company.city ?? "").toLowerCase().includes(query)
+        );
+      })
+      .filter((company) => !visibleSubNames.has(normalizeSubcontractorName(company.name ?? "")))
+      .slice(0, 12)
+      .map((company) => {
+        const matchedProjectSub = projectSubByNormalizedName.get(normalizeSubcontractorName(company.name ?? ""));
+        return {
+          id: `directory-${selectedTrade?.id ?? "trade"}-${company.id}`,
+          subId: matchedProjectSub?.id ?? null,
+          subName: matchedProjectSub?.name ?? company.name ?? "Subcontractor",
+          status: matchedProjectSub?.id ? "invited" : "not invited",
+          tradeLabel: company.trade ?? "",
+          locationLabel: [company.city, company.state].filter(Boolean).join(", "),
+        };
+      });
+  }, [directoryData, projectSubByNormalizedName, selectedTrade?.id, subcontractorSearch, visibleSubNames]);
 
   const inviteLineItemsByColumnId = useMemo(() => {
     if (!data || !selectedTrade) return {} as Record<string, InviteQuoteLineItem[]>;
@@ -438,33 +540,14 @@ export default function LevelingPageV2({
     totalByColumnId[col.id] = hasValue ? sum : null;
   });
   const tableWidthPx =
-    LINE_ITEM_COLUMN_WIDTH_PX +
-    bidColumns.length * SUBCONTRACTOR_COLUMN_MIN_WIDTH_PX +
-    ADD_COLUMN_CELL_WIDTH_PX;
-
-  const isUserAddedColumn = (columnId: string) => extraPlaceholderColumnIdsForTrade.includes(columnId);
-
-  const handleAddSubcontractorColumn = () => {
-    if (!selectedTrade) return;
-    const nextId = `manual-sub-${selectedTrade.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-    setExtraPlaceholderColumnIdsByTradeId((prev) => ({
-      ...prev,
-      [selectedTrade.id]: [...(prev[selectedTrade.id] ?? []), nextId],
-    }));
-  };
+    LINE_ITEM_COLUMN_WIDTH_PX + bidColumns.length * SUBCONTRACTOR_COLUMN_MIN_WIDTH_PX + ADD_COLUMN_CELL_WIDTH_PX;
 
   const handleRemoveSubcontractorColumn = (columnId: string) => {
     if (!selectedTrade) return;
-    if (!isUserAddedColumn(columnId)) return;
-    setExtraPlaceholderColumnIdsByTradeId((prev) => ({
+    setAddedColumnsByTradeId((prev) => ({
       ...prev,
-      [selectedTrade.id]: (prev[selectedTrade.id] ?? []).filter((id) => id !== columnId),
+      [selectedTrade.id]: (prev[selectedTrade.id] ?? []).filter((column) => column.id !== columnId),
     }));
-    setSubcontractorNameDraftByColumnId((prev) => {
-      const next = { ...prev };
-      delete next[columnId];
-      return next;
-    });
     setAmountDraftByCell((prev) => {
       const next = { ...prev };
       Object.keys(next).forEach((key) => {
@@ -480,6 +563,83 @@ export default function LevelingPageV2({
       return next;
     });
   };
+
+  const handleAddSubcontractorColumn = (column: AddedSubcontractorColumn) => {
+    if (!selectedTrade) return;
+    setAddedColumnsByTradeId((prev) => {
+      const existing = prev[selectedTrade.id] ?? [];
+      const alreadyExists = existing.some((item) =>
+        column.subId
+          ? item.subId === column.subId
+          : normalizeSubcontractorName(item.subName) === normalizeSubcontractorName(column.subName)
+      );
+      if (alreadyExists) return prev;
+      return {
+        ...prev,
+        [selectedTrade.id]: [...existing, column],
+      };
+    });
+    setSubcontractorSearch("");
+    setSubcontractorSearchOpen(false);
+    setActiveSearchAnchorId(null);
+  };
+
+  const renderSubcontractorSearchDropdown = () =>
+    subcontractorSearchOpen ? (
+      <div className="absolute left-0 top-full z-20 mt-2 w-80 rounded-xl border border-slate-200 bg-white p-2 shadow-xl">
+        <div className="max-h-80 overflow-y-auto">
+          <div className="px-2 pb-2 pt-1 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+            Recommended
+          </div>
+          {recommendedSubcontractors.length ? (
+            recommendedSubcontractors.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleAddSubcontractorColumn(item)}
+                className="mb-1 w-full rounded-lg px-3 py-2 text-left hover:bg-slate-50"
+              >
+                <div className="text-sm font-semibold text-slate-900">{item.subName}</div>
+                <div className="text-xs text-slate-500">Status: {item.status}</div>
+              </button>
+            ))
+          ) : (
+            <div className="px-3 py-2 text-sm text-slate-500">No invited subcontractors to recommend.</div>
+          )}
+          <div className="px-2 pb-2 pt-3 text-xs font-semibold uppercase tracking-[0.08em] text-slate-500">
+            Directory
+          </div>
+          {subcontractorSearch.trim().length ? (
+            directoryMatches.length ? (
+              directoryMatches.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() =>
+                    handleAddSubcontractorColumn({
+                      id: `${item.id}-${Date.now()}`,
+                      subId: item.subId,
+                      subName: item.subName,
+                      status: item.status,
+                    })
+                  }
+                  className="mb-1 w-full rounded-lg px-3 py-2 text-left hover:bg-slate-50"
+                >
+                  <div className="text-sm font-semibold text-slate-900">{item.subName}</div>
+                  <div className="text-xs text-slate-500">
+                    {[item.tradeLabel, item.locationLabel].filter(Boolean).join(" · ") || "Directory match"}
+                  </div>
+                </button>
+              ))
+            ) : (
+              <div className="px-3 py-2 text-sm text-slate-500">No directory matches found.</div>
+            )
+          ) : (
+            <div className="px-3 py-2 text-sm text-slate-500">Type to search the subcontractor directory.</div>
+          )}
+        </div>
+      </div>
+    ) : null;
 
   if (!queryProjectId) {
     return (
@@ -565,7 +725,7 @@ export default function LevelingPageV2({
                 ))}
                 <col style={{ width: `${ADD_COLUMN_CELL_WIDTH_PX}px` }} />
               </colgroup>
-              <thead>
+              <thead ref={subcontractorSearchRef}>
                 <tr>
                   <th className="border-b border-r border-slate-200 bg-slate-50 p-4 text-left align-top">
                     <div className="text-sm text-slate-500">
@@ -575,47 +735,72 @@ export default function LevelingPageV2({
                   </th>
                   {bidColumns.map((col) => (
                     <th key={`head-${col.id}`} className="border-b border-r border-slate-200 bg-slate-50 p-4 text-left align-top last:border-r-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          {col.bid ? (
-                            <div className="truncate text-2xl font-semibold text-slate-900">{col.subName}</div>
-                          ) : (
-                            <input
-                              value={subcontractorNameDraftByColumnId[col.id] ?? col.subName}
-                              onChange={(event) =>
-                                setSubcontractorNameDraftByColumnId((prev) => ({
-                                  ...prev,
-                                  [col.id]: event.target.value,
-                                }))
-                              }
-                              placeholder={col.subName}
-                              className="w-full rounded-md border border-slate-200 bg-white px-2 py-1.5 text-2xl font-semibold text-slate-900 focus:border-slate-400 focus:outline-none"
-                            />
-                          )}
+                      {col.isPlaceholder ? (
+                        <div className="relative pt-1">
+                          <input
+                            value={activeSearchAnchorId === col.id ? subcontractorSearch : ""}
+                            onChange={(event) => {
+                              setActiveSearchAnchorId(col.id);
+                              setSubcontractorSearch(event.target.value);
+                              setSubcontractorSearchOpen(true);
+                            }}
+                            onFocus={() => {
+                              setSubcontractorSearchOpen(true);
+                              setActiveSearchAnchorId(col.id);
+                            }}
+                            placeholder="Add Subcontractor"
+                            className="h-11 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+                          />
+                          {activeSearchAnchorId === col.id ? renderSubcontractorSearchDropdown() : null}
                         </div>
-                        {isUserAddedColumn(col.id) ? (
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveSubcontractorColumn(col.id)}
-                            className="rounded-md border border-rose-200 bg-white px-2 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-50"
-                            aria-label="Delete subcontractor column"
-                            title="Delete column"
-                          >
-                            Delete
-                          </button>
-                        ) : null}
-                      </div>
-                      <div className="mt-1 text-sm text-slate-500">{col.status}</div>
+                      ) : (
+                        <>
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0 flex-1">
+                              <div className="whitespace-normal break-words text-2xl font-semibold text-slate-900">
+                                {col.subName}
+                              </div>
+                            </div>
+                            {col.isRemovable ? (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveSubcontractorColumn(col.id)}
+                                className="inline-flex size-8 items-center justify-center rounded-md border border-rose-200 bg-white text-rose-700 hover:bg-rose-50"
+                                aria-label="Delete subcontractor column"
+                                title="Delete column"
+                              >
+                                <svg viewBox="0 0 20 20" fill="currentColor" className="size-4" aria-hidden="true">
+                                  <path
+                                    fillRule="evenodd"
+                                    d="M7 2.75A1.75 1.75 0 0 0 5.25 4.5v.25H3.5a.75.75 0 0 0 0 1.5h.568l.65 9.11A2.25 2.25 0 0 0 6.962 17.5h6.076a2.25 2.25 0 0 0 2.244-2.14l.65-9.11h.568a.75.75 0 0 0 0-1.5h-1.75V4.5A1.75 1.75 0 0 0 13 2.75H7Zm6.25 2V4.5A.25.25 0 0 0 13 4.25H7a.25.25 0 0 0-.25.25v.25h6.5Zm-4 3a.75.75 0 0 1 .75.75v5a.75.75 0 0 1-1.5 0v-5a.75.75 0 0 1 .75-.75Zm-3 0a.75.75 0 0 1 .75.75v5a.75.75 0 0 1-1.5 0v-5a.75.75 0 0 1 .75-.75Zm6 0a.75.75 0 0 1 .75.75v5a.75.75 0 0 1-1.5 0v-5a.75.75 0 0 1 .75-.75Z"
+                                    clipRule="evenodd"
+                                  />
+                                </svg>
+                              </button>
+                            ) : null}
+                          </div>
+                        </>
+                      )}
                     </th>
                   ))}
                   <th className="border-b border-slate-200 bg-slate-50 p-3 align-top">
-                    <button
-                      type="button"
-                      onClick={handleAddSubcontractorColumn}
-                      className="flex h-full min-h-[88px] w-full items-center justify-center rounded-md border-2 border-dashed border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-600 hover:border-slate-400 hover:bg-slate-50"
-                    >
-                      + Add Subcontractor
-                    </button>
+                    <div className="relative">
+                      <input
+                        value={activeSearchAnchorId === "add-column" ? subcontractorSearch : ""}
+                        onChange={(event) => {
+                          setActiveSearchAnchorId("add-column");
+                          setSubcontractorSearch(event.target.value);
+                          setSubcontractorSearchOpen(true);
+                        }}
+                        onFocus={() => {
+                          setSubcontractorSearchOpen(true);
+                          setActiveSearchAnchorId("add-column");
+                        }}
+                        placeholder="Add Subcontractor"
+                        className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm focus:border-slate-400 focus:outline-none"
+                      />
+                      {activeSearchAnchorId === "add-column" ? renderSubcontractorSearchDropdown() : null}
+                    </div>
                   </th>
                 </tr>
               </thead>
