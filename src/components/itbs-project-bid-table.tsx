@@ -125,6 +125,7 @@ const QUOTE_LINE_ITEMS_STORAGE_KEY = "bidQuoteLineItemsByCell";
 const BID_STATUS_UPDATED_STORAGE_KEY = "bidStatusUpdatedAtByBidId";
 const BID_INCLUSIONS_STORAGE_KEY = "bidInclusionsByCell";
 const BID_EXCLUSIONS_STORAGE_KEY = "bidExclusionsByCell";
+const BID_DOCUMENTS_STORAGE_KEY = "bidDocumentsByCell";
 const BID_TIMELINE_STORAGE_KEY = "bidTimelineByCell";
 
 function readProposalDueMap(): Record<string, string> {
@@ -217,6 +218,65 @@ function readBidTextByCellMap(storageKey: string): Record<string, string> {
 function writeBidTextByCellMap(storageKey: string, map: Record<string, string>) {
   if (typeof window === "undefined") return;
   localStorage.setItem(storageKey, JSON.stringify(map));
+}
+
+function readBidDocumentsMap(): Record<string, UploadedBidDocument[]> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(BID_DOCUMENTS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, UploadedBidDocument[]> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!Array.isArray(value)) continue;
+      next[key] = value.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const row = item as Partial<UploadedBidDocument>;
+        if (
+          typeof row.id !== "string" ||
+          typeof row.name !== "string" ||
+          typeof row.size !== "number" ||
+          typeof row.uploadedAt !== "string" ||
+          typeof row.url !== "string"
+        ) {
+          return [];
+        }
+        return [
+          {
+            id: row.id,
+            name: row.name,
+            size: row.size,
+            uploadedAt: row.uploadedAt,
+            url: row.url,
+          },
+        ];
+      });
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function writeBidDocumentsMap(map: Record<string, UploadedBidDocument[]>) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(BID_DOCUMENTS_STORAGE_KEY, JSON.stringify(map));
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+      reject(new Error("Unable to read file."));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Unable to read file."));
+    reader.readAsDataURL(file);
+  });
 }
 
 function readBidTimelineMap(): Record<string, BidTimelineEntry[]> {
@@ -379,7 +439,9 @@ export default function ItbsProjectBidTable() {
   const [tradeEditError, setTradeEditError] = useState<string | null>(null);
   const [savingTrades, setSavingTrades] = useState(false);
   const [tradeFilter, setTradeFilter] = useState<TradeFilter>("all");
-  const [bidDocumentsByCell, setBidDocumentsByCell] = useState<Record<string, UploadedBidDocument[]>>({});
+  const [bidDocumentsByCell, setBidDocumentsByCell] = useState<Record<string, UploadedBidDocument[]>>(
+    () => readBidDocumentsMap()
+  );
   const [bidTimelineByCell, setBidTimelineByCell] = useState<Record<string, BidTimelineEntry[]>>(
     () => readBidTimelineMap()
   );
@@ -1582,22 +1644,28 @@ export default function ItbsProjectBidTable() {
                     type="file"
                     multiple
                     className="hidden"
-                    onChange={(event) => {
+                    onChange={async (event) => {
                       if (!activeBidDocumentKey) return;
                       const files = Array.from(event.target.files ?? []);
                       if (!files.length) return;
                       const now = new Date().toISOString();
-                      const nextFiles = files.map((file) => ({
-                        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-                        name: file.name,
-                        size: file.size,
-                        uploadedAt: now,
-                        url: URL.createObjectURL(file),
-                      }));
-                      setBidDocumentsByCell((prev) => ({
-                        ...prev,
-                        [activeBidDocumentKey]: [...(prev[activeBidDocumentKey] ?? []), ...nextFiles],
-                      }));
+                      const nextFiles = await Promise.all(
+                        files.map(async (file) => ({
+                          id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+                          name: file.name,
+                          size: file.size,
+                          uploadedAt: now,
+                          url: await readFileAsDataUrl(file),
+                        }))
+                      );
+                      setBidDocumentsByCell((prev) => {
+                        const next = {
+                          ...prev,
+                          [activeBidDocumentKey]: [...(prev[activeBidDocumentKey] ?? []), ...nextFiles],
+                        };
+                        writeBidDocumentsMap(next);
+                        return next;
+                      });
                       nextFiles.forEach((file) => {
                         appendTimelineEntry(activeBidDocumentKey, `Uploaded document: ${file.name}.`);
                       });
@@ -1636,12 +1704,16 @@ export default function ItbsProjectBidTable() {
                           type="button"
                           onClick={() =>
                             {
-                              setBidDocumentsByCell((prev) => ({
-                                ...prev,
-                                [activeBidDocumentKey!]: (prev[activeBidDocumentKey!] ?? []).filter(
-                                  (item) => item.id !== document.id
-                                ),
-                              }));
+                              setBidDocumentsByCell((prev) => {
+                                const next = {
+                                  ...prev,
+                                  [activeBidDocumentKey!]: (prev[activeBidDocumentKey!] ?? []).filter(
+                                    (item) => item.id !== document.id
+                                  ),
+                                };
+                                writeBidDocumentsMap(next);
+                                return next;
+                              });
                               appendTimelineEntry(activeBidDocumentKey!, `Removed document: ${document.name}.`);
                             }
                           }

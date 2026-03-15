@@ -76,6 +76,14 @@ type InviteQuoteLineItem = {
   amount: string;
 };
 
+type UploadedBidDocument = {
+  id: string;
+  name: string;
+  size: number;
+  uploadedAt: string;
+  url: string;
+};
+
 const ADDITIONAL_INFO_ROWS = [
   { key: "inclusions", label: "Inclusions" },
   { key: "exclusions", label: "Exclusions" },
@@ -88,6 +96,7 @@ type AdditionalInfoRowKey = (typeof ADDITIONAL_INFO_ROWS)[number]["key"];
 const QUOTE_LINE_ITEMS_STORAGE_KEY = "bidQuoteLineItemsByCell";
 const BID_INCLUSIONS_STORAGE_KEY = "bidInclusionsByCell";
 const BID_EXCLUSIONS_STORAGE_KEY = "bidExclusionsByCell";
+const BID_DOCUMENTS_STORAGE_KEY = "bidDocumentsByCell";
 const MIN_SUBCONTRACTOR_COLUMNS = 3;
 const LINE_ITEM_COLUMN_WIDTH_PX = 420;
 const SUBCONTRACTOR_COLUMN_MIN_WIDTH_PX = 280;
@@ -138,6 +147,51 @@ function readBidTextByCellMap(storageKey: string): Record<string, string> {
   }
 }
 
+function readBidDocumentsMap(): Record<string, UploadedBidDocument[]> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(BID_DOCUMENTS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, UploadedBidDocument[]> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!Array.isArray(value)) continue;
+      next[key] = value.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const row = item as Partial<UploadedBidDocument>;
+        if (
+          typeof row.id !== "string" ||
+          typeof row.name !== "string" ||
+          typeof row.size !== "number" ||
+          typeof row.uploadedAt !== "string" ||
+          typeof row.url !== "string"
+        ) {
+          return [];
+        }
+        return [
+          {
+            id: row.id,
+            name: row.name,
+            size: row.size,
+            uploadedAt: row.uploadedAt,
+            url: row.url,
+          },
+        ];
+      });
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export default function LevelingPageV2({
   hideCreateBidForm = false,
   leftNavItems,
@@ -160,6 +214,9 @@ export default function LevelingPageV2({
   );
   const [exclusionsByCellKey, setExclusionsByCellKey] = useState<Record<string, string>>(() =>
     readBidTextByCellMap(BID_EXCLUSIONS_STORAGE_KEY)
+  );
+  const [bidDocumentsByCell, setBidDocumentsByCell] = useState<Record<string, UploadedBidDocument[]>>(() =>
+    readBidDocumentsMap()
   );
   const [amountDraftByCell, setAmountDraftByCell] = useState<Record<string, string>>({});
   const [additionalInfoDraftByCell, setAdditionalInfoDraftByCell] = useState<Record<string, string>>({});
@@ -266,13 +323,15 @@ export default function LevelingPageV2({
         event.key &&
         event.key !== QUOTE_LINE_ITEMS_STORAGE_KEY &&
         event.key !== BID_INCLUSIONS_STORAGE_KEY &&
-        event.key !== BID_EXCLUSIONS_STORAGE_KEY
+        event.key !== BID_EXCLUSIONS_STORAGE_KEY &&
+        event.key !== BID_DOCUMENTS_STORAGE_KEY
       ) {
         return;
       }
       setInviteQuoteLineItemsMap(readQuoteLineItemsMap());
       setInclusionsByCellKey(readBidTextByCellMap(BID_INCLUSIONS_STORAGE_KEY));
       setExclusionsByCellKey(readBidTextByCellMap(BID_EXCLUSIONS_STORAGE_KEY));
+      setBidDocumentsByCell(readBidDocumentsMap());
     };
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
@@ -309,22 +368,17 @@ export default function LevelingPageV2({
     return labels;
   }, [bidColumns, inviteLineItemsByColumnId]);
 
-  const hasImportedBaseBid = useMemo(
-    () => importedLineItemLabels.some((label) => normalizeLineItemLabel(label) === "base bid"),
-    [importedLineItemLabels]
-  );
-
   const displayLineItems = useMemo(() => {
     const rows: LineItemRow[] = [];
-    rows.push({ id: "base-bid", label: hasImportedBaseBid ? "Base Bid" : "" });
-    importedLineItemLabels
-      .filter((label) => normalizeLineItemLabel(label) !== "base bid")
-      .forEach((label) => {
+    if (!importedLineItemLabels.length) {
+      rows.push({ id: "base-bid", label: "" });
+    }
+    importedLineItemLabels.forEach((label) => {
         rows.push({ id: `imported-${normalizeLineItemLabel(label)}`, label });
       });
     manualLineItems.forEach((item) => rows.push(item));
     return rows;
-  }, [hasImportedBaseBid, importedLineItemLabels, manualLineItems]);
+  }, [importedLineItemLabels, manualLineItems]);
 
   const getInitialAmountForCell = (row: LineItemRow, col: BidColumn): string => {
     if (!col.bid) return "";
@@ -363,6 +417,12 @@ export default function LevelingPageV2({
   const getDisplayAdditionalInfoForCell = (rowKey: AdditionalInfoRowKey, col: BidColumn): string => {
     const key = getAdditionalInfoCellKey(rowKey, col.id);
     return additionalInfoDraftByCell[key] ?? getInitialAdditionalInfoForCell(rowKey, col);
+  };
+
+  const getBidDocumentsForColumn = (col: BidColumn): UploadedBidDocument[] => {
+    if (!col.subId || !data || !selectedTrade) return [];
+    const key = `${data.project.id}:${selectedTrade.id}:${col.subId}`;
+    return bidDocumentsByCell[key] ?? [];
   };
 
   const totalByColumnId: Record<string, number | null> = {};
@@ -677,7 +737,29 @@ export default function LevelingPageV2({
                     {bidColumns.map((col) => (
                       <td key={`${row.key}-${col.id}`} className="border-b border-r border-slate-200 px-4 py-3 text-base text-slate-700 last:border-r-0">
                         {row.key === "attachments" ? (
-                          "Download"
+                          (() => {
+                            const documents = getBidDocumentsForColumn(col);
+                            if (!documents.length) {
+                              return <span className="text-sm text-slate-400">No attachments</span>;
+                            }
+                            return (
+                              <div className="space-y-2">
+                                {documents.map((document) => (
+                                  <a
+                                    key={document.id}
+                                    href={document.url}
+                                    download={document.name}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="block rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                                  >
+                                    <div className="truncate">{document.name}</div>
+                                    <div className="text-xs text-slate-500">{formatFileSize(document.size)}</div>
+                                  </a>
+                                ))}
+                              </div>
+                            );
+                          })()
                         ) : (
                           <textarea
                             value={getDisplayAdditionalInfoForCell(row.key, col)}
