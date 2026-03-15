@@ -803,6 +803,15 @@ const parseNumericInput = (value: string) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const parseDerivedNumericInput = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "-") return null;
+  const formulaResult = evaluateUnitPriceFormula(trimmed);
+  if (formulaResult !== null) return formulaResult;
+  const parsed = Number.parseFloat(trimmed.replace(/[$,% ,]/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 const formatToTwoDecimals = (value: string) => {
   const parsed = Number.parseFloat(value.replace(/[$,]/g, "").trim());
   if (!Number.isFinite(parsed)) return "";
@@ -838,6 +847,7 @@ const normalizeUnitPriceInput = (value: string) => {
 
 const WORKSHEET_UNIT_OPTIONS = [
   "",
+  "allow",
   "ls",
   "ea",
   "sf",
@@ -897,6 +907,17 @@ const createWorksheetLineItem = (seed: string): WorksheetLineItem => ({
 const parsePercentValue = (value: string) => {
   const parsed = Number.parseFloat(value.replace("%", "").trim());
   return Number.isFinite(parsed) ? parsed : null;
+};
+
+const calculateGeneralConditionsRowTotal = (row: GeneralConditionsRow) => {
+  const quantity = parseDerivedNumericInput(row.quantity);
+  const unitPrice = parseDerivedNumericInput(row.unitPrice);
+  if (quantity === null || unitPrice === null || quantity <= 0 || unitPrice <= 0) return null;
+  const parsedPercent = row.percentage.trim() ? parsePercentValue(row.percentage) : null;
+  if (parsedPercent !== null && parsedPercent <= 0) return null;
+  const multiplier = parsedPercent === null ? 1 : parsedPercent / 100;
+  const total = quantity * unitPrice * multiplier;
+  return Number.isFinite(total) && total > 0 ? total : null;
 };
 
 const isProjectPlanningCalendarRow = (rowId: string) =>
@@ -1010,6 +1031,16 @@ const GC_WEEKS_SYNC_ROW_IDS = new Set([
   "gc-010600",
   "gc-010700",
 ]);
+
+const PRELIM_MARKUP_FEE_ROW_CONFIG = [
+  { rowId: "fees-general-liability", costCode: "90 01 00", label: "GENERAL LIABILITY INSURANCE" },
+  { rowId: "fees-builders-risk", costCode: "90 02 00", label: "BUILDERS RISK INSURANCE" },
+  { rowId: "fees-overhead", costCode: "90 03 00", label: "OVERHEAD" },
+  { rowId: "fees-profit", costCode: "90 04 00", label: "PROFIT" },
+  { rowId: "fees-performance-bond", costCode: "90 05 00", label: "PERFORMANCE BOND" },
+  { rowId: "fees-contingency", costCode: "90 06 00", label: "CONTINGENCY" },
+  { rowId: "__tax__", costCode: "90 07 00", label: "TAX" },
+] as const;
 
 const calculateDurationWeeks = (startIsoDate: string, endIsoDate: string) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startIsoDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endIsoDate)) {
@@ -1551,13 +1582,34 @@ export default function EstimateWorkspaceV2() {
       maximumFractionDigits: 2,
     });
   }, [costSummaryRows]);
-  const generalConditionsTotal = useMemo(() => {
-    return generalConditionsRows.reduce((sum, row) => {
-      const numericTotal = Number.parseFloat(row.total.replace(/[$,]/g, ""));
-      return sum + (Number.isNaN(numericTotal) ? 0 : numericTotal);
-    }, 0);
+  const computedGeneralConditionsRows = useMemo(() => {
+    return generalConditionsRows.map((row) => {
+      const computedTotal = calculateGeneralConditionsRowTotal(row);
+      return {
+        ...row,
+        computedTotal,
+        computedTotalDisplay: computedTotal === null ? "-" : formatCurrency(computedTotal),
+      };
+    });
   }, [generalConditionsRows]);
-  const generalConditionsWeekly = generalConditionsTotal / 14;
+  const generalConditionsTotal = useMemo(
+    () =>
+      computedGeneralConditionsRows.reduce(
+        (sum, row) => sum + (row.computedTotal !== null ? row.computedTotal : 0),
+        0
+      ),
+    [computedGeneralConditionsRows]
+  );
+  const projectDurationWeeks = useMemo(() => {
+    const rawValue =
+      projectPlanningRows.find((row) => row.id === "pp-project-duration")?.value ?? "";
+    const parsed = parseDerivedNumericInput(rawValue);
+    return parsed !== null && parsed > 0 ? parsed : null;
+  }, [projectPlanningRows]);
+  const generalConditionsWeekly =
+    projectDurationWeeks && projectDurationWeeks > 0
+      ? generalConditionsTotal / projectDurationWeeks
+      : 0;
   const generalConditionsMonthly = generalConditionsWeekly * 4;
   const worksheetDivisionGroups = useMemo(() => {
     const grouped = worksheetCostCodeGroups.reduce<Record<string, WorksheetCostCodeGroup[]>>(
@@ -1640,41 +1692,81 @@ export default function EstimateWorkspaceV2() {
     [worksheetCostCodeGroups]
   );
   const preliminaryMarkupRows = useMemo(() => {
-    const lookup = feeRows.reduce<Record<string, string>>((acc, row) => {
-      acc[row.factorName.toLowerCase()] = row.value;
+    const feeValueById = feeRows.reduce<Record<string, string>>((acc, row) => {
+      acc[row.id] = row.value;
       return acc;
     }, {});
-    const getAmountFromPercent = (factorName: string) => {
-      const raw = lookup[factorName.toLowerCase()];
+    const getNumericValue = (rowId: string) => {
+      const raw = feeValueById[rowId];
       if (!raw) return null;
-      const percent = parsePercentValue(raw);
-      if (percent === null) return null;
-      const amount = (preliminarySubtotal * percent) / 100;
-      return Number.isFinite(amount) && amount > 0 ? amount : null;
+      return parsePercentValue(raw);
+    };
+    const liabilityRate = getNumericValue("fees-general-liability");
+    const buildersRiskRate = getNumericValue("fees-builders-risk");
+    const overheadRate = getNumericValue("fees-overhead");
+    const profitRate = getNumericValue("fees-profit");
+    const performanceBondRate = getNumericValue("fees-performance-bond");
+    const contingencyRate = getNumericValue("fees-contingency");
+
+    const liabilityInsurance =
+      liabilityRate !== null && liabilityRate > 0
+        ? (preliminarySubtotal / 1000) * liabilityRate
+        : null;
+    const buildersRiskBase = preliminarySubtotal + (liabilityInsurance ?? 0);
+    const buildersRisk =
+      buildersRiskRate !== null && buildersRiskRate > 0
+        ? (buildersRiskBase / 100) * buildersRiskRate
+        : null;
+    const overheadBase = preliminarySubtotal + (liabilityInsurance ?? 0) + (buildersRisk ?? 0);
+    const overhead =
+      overheadRate !== null && overheadRate > 0 ? (overheadBase * overheadRate) / 100 : null;
+    const profitBase = overheadBase + (overhead ?? 0);
+    const profit =
+      profitRate !== null && profitRate > 0 ? (profitBase * profitRate) / 100 : null;
+    const performanceBond =
+      performanceBondRate !== null && performanceBondRate > 0
+        ? (preliminarySubtotal * performanceBondRate) / 100
+        : null;
+    const contingency =
+      contingencyRate !== null && contingencyRate > 0
+        ? (preliminarySubtotal * contingencyRate) / 100
+        : null;
+
+    const amountByRowId: Record<string, number | null> = {
+      "fees-general-liability":
+        liabilityInsurance !== null && Number.isFinite(liabilityInsurance) && liabilityInsurance > 0
+          ? liabilityInsurance
+          : null,
+      "fees-builders-risk":
+        buildersRisk !== null && Number.isFinite(buildersRisk) && buildersRisk > 0
+          ? buildersRisk
+          : null,
+      "fees-overhead":
+        overhead !== null && Number.isFinite(overhead) && overhead > 0 ? overhead : null,
+      "fees-profit": profit !== null && Number.isFinite(profit) && profit > 0 ? profit : null,
+      "fees-performance-bond":
+        performanceBond !== null && Number.isFinite(performanceBond) && performanceBond > 0
+          ? performanceBond
+          : null,
+      "fees-contingency":
+        contingency !== null && Number.isFinite(contingency) && contingency > 0 ? contingency : null,
+      __tax__: null,
     };
 
-    return [
-      {
-        costCode: "90 01 00",
-        label: "GENERAL LIABILITY INSURANCE",
-        amount: getAmountFromPercent("General Liability Insurance"),
-      },
-      {
-        costCode: "90 02 00",
-        label: "BUILDERS RISK INSURANCE",
-        amount: getAmountFromPercent("Builder's Risk Insurance"),
-      },
-      { costCode: "90 03 00", label: "OVERHEAD", amount: getAmountFromPercent("Overhead") },
-      { costCode: "90 04 00", label: "PROFIT", amount: getAmountFromPercent("Profit") },
-      {
-        costCode: "90 05 00",
-        label: "PERFORMANCE BOND",
-        amount: getAmountFromPercent("Performance Bond"),
-      },
-      { costCode: "90 06 00", label: "CONTINGENCY", amount: getAmountFromPercent("Contingency") },
-      { costCode: "90 07 00", label: "TAX", amount: null },
-    ];
+    return PRELIM_MARKUP_FEE_ROW_CONFIG.map((config) => ({
+      costCode: config.costCode,
+      label: config.label,
+      amount: amountByRowId[config.rowId] ?? null,
+    }));
   }, [feeRows, preliminarySubtotal]);
+  const preliminaryMarkupAmountByRowId = useMemo(() => {
+    const next: Record<string, number | null> = {};
+    PRELIM_MARKUP_FEE_ROW_CONFIG.forEach((config, index) => {
+      if (config.rowId === "__tax__") return;
+      next[config.rowId] = preliminaryMarkupRows[index]?.amount ?? null;
+    });
+    return next;
+  }, [preliminaryMarkupRows]);
   const preliminaryMarkupTotal = useMemo(
     () =>
       preliminaryMarkupRows.reduce(
@@ -1684,6 +1776,22 @@ export default function EstimateWorkspaceV2() {
     [preliminaryMarkupRows]
   );
   const preliminaryGrandTotal = preliminarySubtotal + preliminaryMarkupTotal;
+  const allowanceTotal = useMemo(
+    () =>
+      worksheetCostCodeGroups.reduce(
+        (sum, group) =>
+          sum +
+          group.lineItems.reduce((lineSum, lineItem) => {
+            if (lineItem.unit.trim().toLowerCase() !== "allow") return lineSum;
+            const quantity = parseNumericInput(lineItem.quantity);
+            const unitPrice = parseNumericInput(lineItem.unitPrice);
+            const gcMarkup = parseNumericInput(lineItem.gcMarkup);
+            return lineSum + quantity * unitPrice + gcMarkup;
+          }, 0),
+        0
+      ),
+    [worksheetCostCodeGroups]
+  );
   const getCoverPageFieldValue = (fieldId: string) =>
     coverPageFields.find((field) => field.id === fieldId)?.value ?? "";
   const coverProjectSquareFeet = useMemo(() => {
@@ -1692,6 +1800,50 @@ export default function EstimateWorkspaceV2() {
     const parsed = Number.parseFloat(projectSizeRaw.replace(/,/g, ""));
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   }, [projectPlanningRows]);
+  const derivedProjectDataValueById = useMemo(() => {
+    const revenue = preliminaryGrandTotal;
+    const rawConstructionCosts = preliminarySubtotal;
+    const grossProfit = revenue - rawConstructionCosts;
+    const grossMarginPercent = revenue > 0 ? (grossProfit / revenue) * 100 : null;
+    const laborBonuses = 0;
+    const netProfitExcludingActLabor = grossProfit - laborBonuses;
+    const netProfitPercentExcludingActLabor =
+      revenue > 0 ? (netProfitExcludingActLabor / revenue) * 100 : null;
+    const pricePerSqftLessTax =
+      coverProjectSquareFeet && coverProjectSquareFeet > 0 ? revenue / coverProjectSquareFeet : null;
+
+    return {
+      "project-revenue": revenue > 0 ? formatCurrency(revenue) : "",
+      "raw-construction-costs": rawConstructionCosts > 0 ? formatCurrency(rawConstructionCosts) : "",
+      "gross-margin-inc-labor":
+        grossMarginPercent !== null && Number.isFinite(grossMarginPercent)
+          ? grossMarginPercent.toFixed(2)
+          : "",
+      "gross-profit-inc-labor": grossProfit > 0 ? formatCurrency(grossProfit) : "",
+      "labor-bonuses": formatCurrency(laborBonuses),
+      "net-profit-excl-act":
+        Number.isFinite(netProfitExcludingActLabor) ? formatCurrency(netProfitExcludingActLabor) : "",
+      "net-profit-percent-excl-act-labor":
+        netProfitPercentExcludingActLabor !== null &&
+        Number.isFinite(netProfitPercentExcludingActLabor)
+          ? netProfitPercentExcludingActLabor.toFixed(2)
+          : "",
+      allowance: formatCurrency(allowanceTotal),
+      "price-per-sqft-less-tax":
+        pricePerSqftLessTax !== null && Number.isFinite(pricePerSqftLessTax)
+          ? formatCurrency(pricePerSqftLessTax)
+          : "",
+    } satisfies Partial<Record<ProjectDataRow["id"], string>>;
+  }, [allowanceTotal, coverProjectSquareFeet, preliminaryGrandTotal, preliminarySubtotal, projectDataRows]);
+  const resolvedProjectDataRows = useMemo(
+    () =>
+      projectDataRows.map((row) => {
+        const derivedValue = derivedProjectDataValueById[row.id as keyof typeof derivedProjectDataValueById];
+        if (typeof derivedValue !== "string") return { ...row, readOnly: false };
+        return { ...row, value: derivedValue, readOnly: true };
+      }),
+    [derivedProjectDataValueById, projectDataRows]
+  );
   const coverDivisionRows = useMemo(() => {
     return worksheetDivisionGroups.map((group) => {
       const summaryDescription = group.costCodeGroups
@@ -1993,7 +2145,11 @@ export default function EstimateWorkspaceV2() {
                             </div>
                           </td>
                           <td className="border-b border-slate-200 px-3 py-2 text-right text-base text-slate-500">
-                            $0.00
+                            {preliminaryMarkupAmountByRowId[row.id] !== undefined
+                              ? preliminaryMarkupAmountByRowId[row.id] === null
+                                ? "-"
+                                : `$${formatCurrency(preliminaryMarkupAmountByRowId[row.id] ?? 0)}`
+                              : "-"}
                           </td>
                         </tr>
                       ))}
@@ -2040,7 +2196,7 @@ export default function EstimateWorkspaceV2() {
                       </tr>
                     </thead>
                     <tbody>
-                      {projectDataRows.map((row) => (
+                      {resolvedProjectDataRows.map((row) => (
                         <tr key={row.id} className="odd:bg-white even:bg-slate-50/30">
                           <td className="border-b border-r border-slate-200 p-0">
                             <div className="min-h-11 px-3 py-2 text-base text-slate-900">{row.label}</div>
@@ -2055,7 +2211,10 @@ export default function EstimateWorkspaceV2() {
                                 onChange={(event) =>
                                   updateProjectDataValue(row.id, event.target.value)
                                 }
-                                className="h-full w-full border-0 bg-transparent text-right text-base text-slate-900 focus:bg-white focus:outline-none"
+                                readOnly={row.readOnly}
+                                className={`h-full w-full border-0 bg-transparent text-right text-base text-slate-900 focus:outline-none ${
+                                  row.readOnly ? "cursor-default" : "focus:bg-white"
+                                }`}
                               />
                               {row.valueType === "percent" ? (
                                 <span className="text-slate-700">%</span>
@@ -2346,7 +2505,7 @@ export default function EstimateWorkspaceV2() {
                       <td className="border-b border-r border-slate-400 px-2 py-2 font-semibold text-center">Total</td>
                       <td className="border-b border-slate-400 px-2 py-2 font-semibold text-center">Comments</td>
                     </tr>
-                    {generalConditionsRows.map((row) => (
+                    {computedGeneralConditionsRows.map((row) => (
                       <tr key={row.id} className="bg-white">
                         <td className="border-b border-r border-slate-300 p-0">
                           <input
@@ -2423,24 +2582,16 @@ export default function EstimateWorkspaceV2() {
                           )}
                         </td>
                         <td className="border-b border-r border-slate-300 p-0">
-                          {row.total === "-" || row.total === "" ? (
-                            <input
-                              value={row.total}
-                              onChange={(event) =>
-                                updateGeneralConditionsCell(row.id, "total", event.target.value)
-                              }
-                              className="h-8 w-full border-0 bg-transparent px-2 text-center text-sm text-slate-700 focus:bg-white focus:outline-none"
-                            />
+                          {row.computedTotal === null ? (
+                            <div className="flex h-8 items-center justify-center px-2 text-sm text-slate-700">
+                              -
+                            </div>
                           ) : (
                             <div className="flex h-8 items-center gap-2 px-2 text-sm">
                               <span className="text-slate-700">$</span>
-                              <input
-                                value={row.total}
-                                onChange={(event) =>
-                                  updateGeneralConditionsCell(row.id, "total", event.target.value)
-                                }
-                                className="h-full w-full border-0 bg-transparent text-right text-sm text-slate-700 focus:bg-white focus:outline-none"
-                              />
+                              <div className="w-full text-right text-sm text-slate-700">
+                                {row.computedTotalDisplay}
+                              </div>
                             </div>
                           )}
                         </td>

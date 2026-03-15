@@ -1917,7 +1917,7 @@ export default function NewBidPackagePage() {
                     }))
                   }
                 >
-                  <SelectTrigger className="rounded-md border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm">
+                  <SelectTrigger className="w-full rounded-md border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm">
                     <SelectValue placeholder="Select City" />
                   </SelectTrigger>
                   <SelectContent>
