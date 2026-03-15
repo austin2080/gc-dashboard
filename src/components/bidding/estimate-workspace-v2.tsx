@@ -82,6 +82,11 @@ type WorksheetCostCodeGroup = {
   division: string;
   lineItems: WorksheetLineItem[];
 };
+type ImportedEstimateUnitPrice = {
+  costCodeCode: string;
+  unitPrice: string;
+  subcontractorName: string;
+};
 type WorksheetRenderedCostCodeGroup = WorksheetCostCodeGroup & {
   total: number;
   readOnlyRollup?: boolean;
@@ -906,6 +911,46 @@ const addDaysToIsoDate = (isoDate: string, days: number) => {
 
 const normalizeContactName = (value: string) =>
   value.toLowerCase().replace(/[^a-z0-9]/g, "");
+const ESTIMATE_UNIT_PRICE_IMPORTS_STORAGE_KEY = "estimateUnitPriceImportsByProject";
+
+function normalizeCostCodeCode(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function readEstimateUnitPriceImportsMap(): Record<string, ImportedEstimateUnitPrice[]> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(ESTIMATE_UNIT_PRICE_IMPORTS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, ImportedEstimateUnitPrice[]> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!Array.isArray(value)) continue;
+      next[key] = value.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const row = item as Partial<ImportedEstimateUnitPrice>;
+        if (
+          typeof row.costCodeCode !== "string" ||
+          typeof row.unitPrice !== "string" ||
+          typeof row.subcontractorName !== "string"
+        ) {
+          return [];
+        }
+        return [
+          {
+            costCodeCode: row.costCodeCode,
+            unitPrice: row.unitPrice,
+            subcontractorName: row.subcontractorName,
+          },
+        ];
+      });
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
 
 function readBidProjectGeneralInfoMap(): Record<string, BidProjectGeneralInfoCacheRow> {
   if (typeof window === "undefined") return {};
@@ -1072,11 +1117,32 @@ export default function EstimateWorkspaceV2() {
             },
           ],
         }));
+        const importProjectKey = getBidProjectIdForProject(queryProjectId ?? "") ?? queryProjectId ?? "";
+        const importsByProject = readEstimateUnitPriceImportsMap();
+        const importedRows = importProjectKey ? importsByProject[importProjectKey] ?? [] : [];
+        const importedByCode = new Map(
+          importedRows.map((row) => [normalizeCostCodeCode(row.costCodeCode), row])
+        );
+        const hydratedGroups = groupsFromCodes.map((group) => {
+          const imported = importedByCode.get(normalizeCostCodeCode(group.code));
+          if (!imported) return group;
+          return {
+            ...group,
+            lineItems: group.lineItems.map((line, index) =>
+              index === 0
+                ? {
+                    ...line,
+                    unitPrice: imported.unitPrice,
+                  }
+                : line
+            ),
+          };
+        });
 
         if (isMounted) {
-          setWorksheetCostCodeGroups(groupsFromCodes);
+          setWorksheetCostCodeGroups(hydratedGroups);
           setExpandedWorksheetDivisionKeys(
-            groupsFromCodes.reduce<Record<string, boolean>>((acc, group) => {
+            hydratedGroups.reduce<Record<string, boolean>>((acc, group) => {
               const divisionKey = group.division?.trim() || "Other";
               if (acc[divisionKey] === undefined) {
                 acc[divisionKey] = true;
@@ -1085,7 +1151,7 @@ export default function EstimateWorkspaceV2() {
             }, {})
           );
           setExpandedWorksheetCostCodeIds(
-            groupsFromCodes.reduce<Record<string, boolean>>((acc, group) => {
+            hydratedGroups.reduce<Record<string, boolean>>((acc, group) => {
               acc[group.id] = true;
               return acc;
             }, {})

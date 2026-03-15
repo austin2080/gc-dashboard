@@ -86,6 +86,12 @@ type AddedSubcontractorColumn = {
   status: string;
 };
 
+type ImportedEstimateUnitPrice = {
+  costCodeCode: string;
+  unitPrice: string;
+  subcontractorName: string;
+};
+
 type UploadedBidDocument = {
   id: string;
   name: string;
@@ -107,6 +113,7 @@ const QUOTE_LINE_ITEMS_STORAGE_KEY = "bidQuoteLineItemsByCell";
 const BID_INCLUSIONS_STORAGE_KEY = "bidInclusionsByCell";
 const BID_EXCLUSIONS_STORAGE_KEY = "bidExclusionsByCell";
 const BID_DOCUMENTS_STORAGE_KEY = "bidDocumentsByCell";
+const ESTIMATE_UNIT_PRICE_IMPORTS_STORAGE_KEY = "estimateUnitPriceImportsByProject";
 const MIN_SUBCONTRACTOR_COLUMNS = 3;
 const LINE_ITEM_COLUMN_WIDTH_PX = 420;
 const SUBCONTRACTOR_COLUMN_MIN_WIDTH_PX = 280;
@@ -118,6 +125,15 @@ function normalizeLineItemLabel(value: string): string {
 
 function normalizeSubcontractorName(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function normalizeCostCodeCode(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
+function extractTradeCostCode(tradeName: string): string {
+  const match = tradeName.match(/^\d+(?:\s+\d+)*/);
+  return match ? match[0].trim() : tradeName.trim();
 }
 
 function readQuoteLineItemsMap(): Record<string, InviteQuoteLineItem[]> {
@@ -206,6 +222,46 @@ function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function readEstimateUnitPriceImportsMap(): Record<string, ImportedEstimateUnitPrice[]> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(ESTIMATE_UNIT_PRICE_IMPORTS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, ImportedEstimateUnitPrice[]> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!Array.isArray(value)) continue;
+      next[key] = value.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const row = item as Partial<ImportedEstimateUnitPrice>;
+        if (
+          typeof row.costCodeCode !== "string" ||
+          typeof row.unitPrice !== "string" ||
+          typeof row.subcontractorName !== "string"
+        ) {
+          return [];
+        }
+        return [
+          {
+            costCodeCode: row.costCodeCode,
+            unitPrice: row.unitPrice,
+            subcontractorName: row.subcontractorName,
+          },
+        ];
+      });
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function writeEstimateUnitPriceImportsMap(map: Record<string, ImportedEstimateUnitPrice[]>) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(ESTIMATE_UNIT_PRICE_IMPORTS_STORAGE_KEY, JSON.stringify(map));
+}
+
 export default function LevelingPageV2({
   hideCreateBidForm = false,
   leftNavItems,
@@ -236,10 +292,12 @@ export default function LevelingPageV2({
   const [amountDraftByCell, setAmountDraftByCell] = useState<Record<string, string>>({});
   const [additionalInfoDraftByCell, setAdditionalInfoDraftByCell] = useState<Record<string, string>>({});
   const [addedColumnsByTradeId, setAddedColumnsByTradeId] = useState<Record<string, AddedSubcontractorColumn[]>>({});
+  const [hiddenSubIdsByTradeId, setHiddenSubIdsByTradeId] = useState<Record<string, string[]>>({});
   const [subcontractorSearch, setSubcontractorSearch] = useState("");
   const [subcontractorSearchOpen, setSubcontractorSearchOpen] = useState(false);
   const [activeSearchAnchorId, setActiveSearchAnchorId] = useState<string | null>(null);
   const subcontractorSearchRef = useRef<HTMLTableSectionElement | null>(null);
+  const [openActionsColumnId, setOpenActionsColumnId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -287,6 +345,11 @@ export default function LevelingPageV2({
     () => (selectedTrade ? addedColumnsByTradeId[selectedTrade.id] ?? [] : []),
     [addedColumnsByTradeId, selectedTrade]
   );
+  const hiddenSubIdsForTrade = useMemo(
+    () => (selectedTrade ? new Set(hiddenSubIdsByTradeId[selectedTrade.id] ?? []) : new Set<string>()),
+    [hiddenSubIdsByTradeId, selectedTrade]
+  );
+  const overlayStateKey = `${openActionsColumnId ?? ""}:${subcontractorSearchOpen ? "1" : "0"}`;
 
   const bidColumns = useMemo(() => {
     if (!data || !selectedTrade) return [] as BidColumn[];
@@ -297,7 +360,12 @@ export default function LevelingPageV2({
       data.bids.filter((bid) => bid.trade_id === selectedTrade.id).map((bid) => [bid.sub_id, bid])
     );
     const submittedColumns: BidColumn[] = data.bids
-      .filter((bid) => bid.trade_id === selectedTrade.id && bid.status === "submitted")
+      .filter(
+        (bid) =>
+          bid.trade_id === selectedTrade.id &&
+          bid.status === "submitted" &&
+          !hiddenSubIdsForTrade.has(bid.sub_id)
+      )
       .sort((a, b) => {
         const aAmount = a.base_bid_amount ?? Number.POSITIVE_INFINITY;
         const bAmount = b.base_bid_amount ?? Number.POSITIVE_INFINITY;
@@ -337,24 +405,29 @@ export default function LevelingPageV2({
       });
     }
     return next;
-  }, [addedColumnsForTrade, data, selectedTrade]);
+  }, [addedColumnsForTrade, data, hiddenSubIdsForTrade, selectedTrade]);
 
   useEffect(() => {
     setSubcontractorSearch("");
     setSubcontractorSearchOpen(false);
     setActiveSearchAnchorId(null);
+    setOpenActionsColumnId(null);
   }, [selectedTradeId]);
 
   useEffect(() => {
-    if (!subcontractorSearchOpen) return;
+    if (!subcontractorSearchOpen && !openActionsColumnId) return;
     const handlePointerDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      const clickedActionsMenu = target?.closest("[data-leveling-sub-actions]") ?? null;
+      if (clickedActionsMenu) return;
       if (!subcontractorSearchRef.current?.contains(event.target as Node)) {
         setSubcontractorSearchOpen(false);
+        setOpenActionsColumnId(null);
       }
     };
     document.addEventListener("mousedown", handlePointerDown);
     return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, [subcontractorSearchOpen]);
+  }, [overlayStateKey]);
 
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
@@ -544,10 +617,17 @@ export default function LevelingPageV2({
 
   const handleRemoveSubcontractorColumn = (columnId: string) => {
     if (!selectedTrade) return;
+    const targetColumn = bidColumns.find((column) => column.id === columnId) ?? null;
     setAddedColumnsByTradeId((prev) => ({
       ...prev,
       [selectedTrade.id]: (prev[selectedTrade.id] ?? []).filter((column) => column.id !== columnId),
     }));
+    if (targetColumn?.subId) {
+      setHiddenSubIdsByTradeId((prev) => ({
+        ...prev,
+        [selectedTrade.id]: Array.from(new Set([...(prev[selectedTrade.id] ?? []), targetColumn.subId!])),
+      }));
+    }
     setAmountDraftByCell((prev) => {
       const next = { ...prev };
       Object.keys(next).forEach((key) => {
@@ -562,10 +642,17 @@ export default function LevelingPageV2({
       });
       return next;
     });
+    setOpenActionsColumnId(null);
   };
 
   const handleAddSubcontractorColumn = (column: AddedSubcontractorColumn) => {
     if (!selectedTrade) return;
+    if (column.subId) {
+      setHiddenSubIdsByTradeId((prev) => ({
+        ...prev,
+        [selectedTrade.id]: (prev[selectedTrade.id] ?? []).filter((subId) => subId !== column.subId),
+      }));
+    }
     setAddedColumnsByTradeId((prev) => {
       const existing = prev[selectedTrade.id] ?? [];
       const alreadyExists = existing.some((item) =>
@@ -582,6 +669,28 @@ export default function LevelingPageV2({
     setSubcontractorSearch("");
     setSubcontractorSearchOpen(false);
     setActiveSearchAnchorId(null);
+  };
+
+  const handleUseInEstimate = (column: BidColumn) => {
+    if (!selectedTrade || !data) return;
+    const totalByColumn = totalByColumnId[column.id];
+    if (totalByColumn === null) return;
+    const projectKey = data.project.id;
+    const tradeCostCode = extractTradeCostCode(selectedTrade.trade_name ?? "");
+    const imports = readEstimateUnitPriceImportsMap();
+    const nextRows = (imports[projectKey] ?? []).filter(
+      (row) => normalizeCostCodeCode(row.costCodeCode) !== normalizeCostCodeCode(tradeCostCode)
+    );
+    nextRows.push({
+      costCodeCode: tradeCostCode,
+      unitPrice: formatCurrencyInput(String(totalByColumn)),
+      subcontractorName: column.subName,
+    });
+    writeEstimateUnitPriceImportsMap({
+      ...imports,
+      [projectKey]: nextRows,
+    });
+    setOpenActionsColumnId(null);
   };
 
   const renderSubcontractorSearchDropdown = () =>
@@ -761,23 +870,39 @@ export default function LevelingPageV2({
                                 {col.subName}
                               </div>
                             </div>
-                            {col.isRemovable ? (
+                            <div className="relative" data-leveling-sub-actions>
                               <button
                                 type="button"
-                                onClick={() => handleRemoveSubcontractorColumn(col.id)}
-                                className="inline-flex size-8 items-center justify-center rounded-md border border-rose-200 bg-white text-rose-700 hover:bg-rose-50"
-                                aria-label="Delete subcontractor column"
-                                title="Delete column"
+                                onClick={() =>
+                                  setOpenActionsColumnId((prev) => (prev === col.id ? null : col.id))
+                                }
+                                className="inline-flex size-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                                aria-label="Open subcontractor actions"
+                                title="Actions"
                               >
                                 <svg viewBox="0 0 20 20" fill="currentColor" className="size-4" aria-hidden="true">
-                                  <path
-                                    fillRule="evenodd"
-                                    d="M7 2.75A1.75 1.75 0 0 0 5.25 4.5v.25H3.5a.75.75 0 0 0 0 1.5h.568l.65 9.11A2.25 2.25 0 0 0 6.962 17.5h6.076a2.25 2.25 0 0 0 2.244-2.14l.65-9.11h.568a.75.75 0 0 0 0-1.5h-1.75V4.5A1.75 1.75 0 0 0 13 2.75H7Zm6.25 2V4.5A.25.25 0 0 0 13 4.25H7a.25.25 0 0 0-.25.25v.25h6.5Zm-4 3a.75.75 0 0 1 .75.75v5a.75.75 0 0 1-1.5 0v-5a.75.75 0 0 1 .75-.75Zm-3 0a.75.75 0 0 1 .75.75v5a.75.75 0 0 1-1.5 0v-5a.75.75 0 0 1 .75-.75Zm6 0a.75.75 0 0 1 .75.75v5a.75.75 0 0 1-1.5 0v-5a.75.75 0 0 1 .75-.75Z"
-                                    clipRule="evenodd"
-                                  />
+                                  <path d="M10 4.25a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5ZM10 11.25a1.25 1.25 0 1 0 0-2.5 1.25 1.25 0 0 0 0 2.5ZM11.25 17.5a1.25 1.25 0 1 1-2.5 0 1.25 1.25 0 0 1 2.5 0Z" />
                                 </svg>
                               </button>
-                            ) : null}
+                              {openActionsColumnId === col.id ? (
+                                <div className="absolute right-0 top-full z-20 mt-2 w-44 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUseInEstimate(col)}
+                                    className="flex w-full rounded-md px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50"
+                                  >
+                                    Use in Estimate
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveSubcontractorColumn(col.id)}
+                                    className="flex w-full rounded-md px-3 py-2 text-left text-sm font-medium text-rose-700 hover:bg-rose-50"
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              ) : null}
+                            </div>
                           </div>
                         </>
                       )}
