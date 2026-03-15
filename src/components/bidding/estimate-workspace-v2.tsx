@@ -1108,6 +1108,7 @@ export default function EstimateWorkspaceV2() {
   >({});
   const [worksheetLoading, setWorksheetLoading] = useState<boolean>(false);
   const [worksheetError, setWorksheetError] = useState<string | null>(null);
+  const [worksheetGcMarkupMessage, setWorksheetGcMarkupMessage] = useState<string | null>(null);
   const prelimResizeRef = useRef<{
     columnIndex: number;
     startX: number;
@@ -1560,6 +1561,11 @@ export default function EstimateWorkspaceV2() {
       prev.map((field) => (field.id === fieldId ? { ...field, value } : field))
     );
   };
+  const showWorksheetGcMarkupMessage = () => {
+    setWorksheetGcMarkupMessage(
+      "Enter a $/Unit amount for this line item before applying GC markup."
+    );
+  };
   const updateGeneralConditionsCell = (
     rowId: string,
     key: keyof GeneralConditionsRow,
@@ -1867,6 +1873,12 @@ export default function EstimateWorkspaceV2() {
       };
     });
   }, [worksheetDivisionGroups, coverProjectSquareFeet, preliminarySubtotal]);
+
+  useEffect(() => {
+    if (!worksheetGcMarkupMessage) return;
+    const timer = window.setTimeout(() => setWorksheetGcMarkupMessage(null), 3000);
+    return () => window.clearTimeout(timer);
+  }, [worksheetGcMarkupMessage]);
 
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -2905,6 +2917,11 @@ export default function EstimateWorkspaceV2() {
             </div>
           ) : preliminaryWorksheetView ? (
             <div className="p-3">
+              {worksheetGcMarkupMessage ? (
+                <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+                  {worksheetGcMarkupMessage}
+                </div>
+              ) : null}
               <div className="max-h-[75vh] overflow-auto rounded-lg border border-slate-300 bg-white">
                 <table
                   className="w-full border-separate border-spacing-0 text-sm text-slate-800"
@@ -3080,6 +3097,9 @@ export default function EstimateWorkspaceV2() {
                                     const unitPrice = parseNumericInput(lineItem.unitPrice);
                                     const gcMarkup = parseNumericInput(lineItem.gcMarkup);
                                     const lineTotal = quantity * unitPrice + gcMarkup;
+                                    const parsedUnitPrice = parseDerivedNumericInput(lineItem.unitPrice);
+                                    const canEditGcMarkup =
+                                      parsedUnitPrice !== null && parsedUnitPrice > 0;
                                     return (
                                       <tr key={lineItem.id} className="bg-white">
                                         <td className="border-b border-r border-slate-300 p-0 align-top">
@@ -3262,23 +3282,41 @@ export default function EstimateWorkspaceV2() {
                                             <input
                                               value={lineItem.gcMarkup}
                                               onChange={(event) =>
-                                                updateWorksheetLineItemCell(
-                                                  costCodeGroup.id,
-                                                  lineItem.id,
-                                                  "gcMarkup",
-                                                  event.target.value
-                                                )
+                                                canEditGcMarkup
+                                                  ? updateWorksheetLineItemCell(
+                                                      costCodeGroup.id,
+                                                      lineItem.id,
+                                                      "gcMarkup",
+                                                      event.target.value
+                                                    )
+                                                  : undefined
                                               }
-                                              onBlur={(event) =>
+                                              onBlur={(event) => {
+                                                if (!canEditGcMarkup) return;
                                                 updateWorksheetLineItemCell(
                                                   costCodeGroup.id,
                                                   lineItem.id,
                                                   "gcMarkup",
                                                   formatToTwoDecimals(event.target.value)
-                                                )
-                                              }
+                                                );
+                                              }}
+                                              onMouseDown={(event) => {
+                                                if (canEditGcMarkup) return;
+                                                event.preventDefault();
+                                                showWorksheetGcMarkupMessage();
+                                              }}
+                                              onFocus={(event) => {
+                                                if (canEditGcMarkup) return;
+                                                event.currentTarget.blur();
+                                                showWorksheetGcMarkupMessage();
+                                              }}
+                                              readOnly={!canEditGcMarkup}
                                               placeholder="0.00"
-                                              className="h-full w-full border-0 bg-transparent text-right text-sm text-slate-700 focus:bg-[#faedca] focus:outline-none"
+                                              className={`h-full w-full border-0 bg-transparent text-right text-sm text-slate-700 focus:outline-none ${
+                                                canEditGcMarkup
+                                                  ? "focus:bg-[#faedca]"
+                                                  : "cursor-not-allowed"
+                                              }`}
                                             />
                                           </div>
                                         </td>
