@@ -59,6 +59,13 @@ type BidPackageDraft = {
   site_walkthrough_hour: string;
   site_walkthrough_minute: string;
   site_walkthrough_period: string;
+  project_size_sqft: string;
+  project_site_size_sqft: string;
+  construction_start_date: string;
+  construction_completion_date: string;
+  closeout_completion_date: string;
+  construction_duration_weeks: string;
+  project_duration_weeks: string;
   anticipated_award_date: string;
   countdown_emails: boolean;
   accept_submissions_past_due: boolean;
@@ -194,6 +201,38 @@ function toIsoDate(value: Date): string {
   return `${year}-${month}-${day}`;
 }
 
+function addDaysToIsoDate(isoDate: string, days: number) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return null;
+  const [year, month, day] = isoDate.split("-").map((part) => Number.parseInt(part, 10));
+  if (!year || !month || !day) return null;
+  const nextDate = new Date(Date.UTC(year, month - 1, day));
+  if (Number.isNaN(nextDate.getTime())) return null;
+  nextDate.setUTCDate(nextDate.getUTCDate() + days);
+  const nextYear = nextDate.getUTCFullYear();
+  const nextMonth = String(nextDate.getUTCMonth() + 1).padStart(2, "0");
+  const nextDay = String(nextDate.getUTCDate()).padStart(2, "0");
+  return `${nextYear}-${nextMonth}-${nextDay}`;
+}
+
+function calculateDurationWeeks(startIsoDate: string, endIsoDate: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startIsoDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endIsoDate)) {
+    return null;
+  }
+  const [startYear, startMonth, startDay] = startIsoDate
+    .split("-")
+    .map((part) => Number.parseInt(part, 10));
+  const [endYear, endMonth, endDay] = endIsoDate
+    .split("-")
+    .map((part) => Number.parseInt(part, 10));
+  if (!startYear || !startMonth || !startDay || !endYear || !endMonth || !endDay) return null;
+  const startDate = new Date(Date.UTC(startYear, startMonth - 1, startDay));
+  const endDate = new Date(Date.UTC(endYear, endMonth - 1, endDay));
+  const diffMs = endDate.getTime() - startDate.getTime();
+  if (Number.isNaN(diffMs) || diffMs < 0) return null;
+  const days = diffMs / (1000 * 60 * 60 * 24);
+  return Math.ceil(days / 7);
+}
+
 function formatTradeLabel(trade: { code: string; description: string | null }) {
   return `${trade.code}${trade.description ? ` ${trade.description}` : ""}`.trim();
 }
@@ -289,6 +328,13 @@ function createDefaultDraft(): BidPackageDraft {
     site_walkthrough_hour: "12",
     site_walkthrough_minute: "00",
     site_walkthrough_period: "am",
+    project_size_sqft: "",
+    project_site_size_sqft: "",
+    construction_start_date: "",
+    construction_completion_date: "",
+    closeout_completion_date: "",
+    construction_duration_weeks: "",
+    project_duration_weeks: "",
     anticipated_award_date: "",
     countdown_emails: false,
     accept_submissions_past_due: false,
@@ -317,7 +363,17 @@ type BidProjectGeneralInfoCacheRow = {
   clientPhone: string;
   clientEmail: string;
   primaryBiddingContact: string;
+  projectSizeSqft: string;
+  projectSiteSizeSqft: string;
+  constructionStartDate: string;
+  constructionCompletionDate: string;
+  constructionDurationWeeks: string;
+  projectDurationWeeks: string;
 };
+
+function getBidPackageAutosaveStorageKey(projectId?: string | null): string {
+  return projectId ? `${BID_PACKAGE_AUTOSAVE_STORAGE_KEY}:${projectId}` : BID_PACKAGE_AUTOSAVE_STORAGE_KEY;
+}
 
 function readBidProjectGeneralInfoMap(): Record<string, BidProjectGeneralInfoCacheRow> {
   if (typeof window === "undefined") return {};
@@ -341,6 +397,17 @@ function readBidProjectGeneralInfoMap(): Record<string, BidProjectGeneralInfoCac
         clientEmail: typeof row.clientEmail === "string" ? row.clientEmail : "",
         primaryBiddingContact:
           typeof row.primaryBiddingContact === "string" ? row.primaryBiddingContact : "",
+        projectSizeSqft: typeof row.projectSizeSqft === "string" ? row.projectSizeSqft : "",
+        projectSiteSizeSqft:
+          typeof row.projectSiteSizeSqft === "string" ? row.projectSiteSizeSqft : "",
+        constructionStartDate:
+          typeof row.constructionStartDate === "string" ? row.constructionStartDate : "",
+        constructionCompletionDate:
+          typeof row.constructionCompletionDate === "string" ? row.constructionCompletionDate : "",
+        constructionDurationWeeks:
+          typeof row.constructionDurationWeeks === "string" ? row.constructionDurationWeeks : "",
+        projectDurationWeeks:
+          typeof row.projectDurationWeeks === "string" ? row.projectDurationWeeks : "",
       };
     }
     return next;
@@ -366,6 +433,12 @@ function writeBidProjectGeneralInfo(projectId: string, draft: BidPackageDraft) {
     clientPhone: (draft.client_phone ?? "").trim(),
     clientEmail: (draft.client_email ?? "").trim(),
     primaryBiddingContact: (draft.primary_bidding_contact ?? "").trim(),
+    projectSizeSqft: (draft.project_size_sqft ?? "").trim(),
+    projectSiteSizeSqft: (draft.project_site_size_sqft ?? "").trim(),
+    constructionStartDate: (draft.construction_start_date ?? "").trim(),
+    constructionCompletionDate: (draft.construction_completion_date ?? "").trim(),
+    constructionDurationWeeks: (draft.construction_duration_weeks ?? "").trim(),
+    projectDurationWeeks: (draft.project_duration_weeks ?? "").trim(),
   };
   writeBidProjectGeneralInfoMap(current);
 }
@@ -628,6 +701,41 @@ export default function NewBidPackagePage() {
         return;
       }
       const cachedGeneralInfo = readBidProjectGeneralInfoMap()[projectId];
+      let autosaveDraft: Partial<BidPackageDraft> | null = null;
+      let autosaveSelectedTrades: SelectedTrade[] | null = null;
+      let autosaveAssignedSubsByTradeId: Record<string, AssignedSub[]> | null = null;
+      let autosaveInviteQueryByTradeId: Record<string, string> | null = null;
+      let autosaveActivePanel:
+        | "general"
+        | "files"
+        | "trade-coverage"
+        | "invite-subs"
+        | "bid-email"
+        | null = null;
+      let autosaveActiveFileSection: FileSectionKey | null = null;
+      let autosaveCostCodeQuery: string | null = null;
+      try {
+        const raw = localStorage.getItem(getBidPackageAutosaveStorageKey(projectId));
+        if (raw) {
+          const parsed = JSON.parse(raw) as Partial<BidPackageAutosavePayload>;
+          autosaveDraft = parsed.draft && typeof parsed.draft === "object" ? parsed.draft : null;
+          autosaveSelectedTrades = Array.isArray(parsed.selectedTrades) ? parsed.selectedTrades : null;
+          autosaveAssignedSubsByTradeId =
+            parsed.assignedSubsByTradeId && typeof parsed.assignedSubsByTradeId === "object"
+              ? parsed.assignedSubsByTradeId
+              : null;
+          autosaveInviteQueryByTradeId =
+            parsed.inviteQueryByTradeId && typeof parsed.inviteQueryByTradeId === "object"
+              ? parsed.inviteQueryByTradeId
+              : null;
+          autosaveActivePanel = parsed.activePanel ?? null;
+          autosaveActiveFileSection = parsed.activeFileSection ?? null;
+          autosaveCostCodeQuery =
+            typeof parsed.costCodeQuery === "string" ? parsed.costCodeQuery : null;
+        }
+      } catch {
+        // Ignore malformed autosave payloads.
+      }
       setDraft((prev) => ({
         ...prev,
         project_name: detail.project.project_name ?? "",
@@ -639,15 +747,23 @@ export default function NewBidPackagePage() {
         client_phone: cachedGeneralInfo?.clientPhone ?? "",
         client_email: cachedGeneralInfo?.clientEmail ?? "",
         location: detail.project.location ?? "",
+        project_size_sqft: cachedGeneralInfo?.projectSizeSqft ?? "",
+        project_site_size_sqft: cachedGeneralInfo?.projectSiteSizeSqft ?? "",
+        construction_start_date: cachedGeneralInfo?.constructionStartDate ?? "",
+        construction_completion_date: cachedGeneralInfo?.constructionCompletionDate ?? "",
+        construction_duration_weeks: cachedGeneralInfo?.constructionDurationWeeks ?? "",
+        project_duration_weeks: cachedGeneralInfo?.projectDurationWeeks ?? "",
         budget:
           detail.project.budget !== null && detail.project.budget !== undefined
             ? String(detail.project.budget)
             : "",
         due_date: detail.project.due_date ?? "",
         tbd_due_date: !detail.project.due_date,
+        ...(autosaveDraft ?? {}),
       }));
       setSelectedTrades(
-        detail.trades.map((trade) => ({
+        autosaveSelectedTrades ??
+          detail.trades.map((trade) => ({
           id: trade.id,
           code: trade.trade_name ?? "",
           description: null,
@@ -673,8 +789,21 @@ export default function NewBidPackagePage() {
         });
         assignedByTrade[bid.trade_id] = current;
       });
-      setAssignedSubsByTradeId(assignedByTrade);
+      setAssignedSubsByTradeId(autosaveAssignedSubsByTradeId ?? assignedByTrade);
+      if (autosaveInviteQueryByTradeId) {
+        setInviteQueryByTradeId(autosaveInviteQueryByTradeId);
+      }
+      if (autosaveActivePanel) {
+        setActivePanel(autosaveActivePanel);
+      }
+      if (autosaveActiveFileSection) {
+        setActiveFileSection(autosaveActiveFileSection);
+      }
+      if (autosaveCostCodeQuery !== null) {
+        setCostCodeQuery(autosaveCostCodeQuery);
+      }
       setLoadingExistingProject(false);
+      setBidPackageAutosaveHydrated(true);
     }
     loadExistingProject();
     return () => {
@@ -729,13 +858,39 @@ export default function NewBidPackagePage() {
   }, [companyUserOptions, selectedPrimaryBiddingUser?.id]);
 
   useEffect(() => {
-    if (editingProjectId) {
-      setBidPackageAutosaveHydrated(true);
-      return;
-    }
+    const nextCloseoutDate = addDaysToIsoDate(draft.construction_completion_date, 7) ?? "";
+    const constructionWeeks = calculateDurationWeeks(
+      draft.construction_start_date,
+      draft.construction_completion_date
+    );
+    const projectWeeks = nextCloseoutDate
+      ? calculateDurationWeeks(draft.construction_start_date, nextCloseoutDate)
+      : null;
+
+    setDraft((prev) => {
+      const nextConstructionDuration = constructionWeeks === null ? "" : String(constructionWeeks);
+      const nextProjectDuration = projectWeeks === null ? "" : String(projectWeeks);
+      if (
+        prev.closeout_completion_date === nextCloseoutDate &&
+        prev.construction_duration_weeks === nextConstructionDuration &&
+        prev.project_duration_weeks === nextProjectDuration
+      ) {
+        return prev;
+      }
+      return {
+        ...prev,
+        closeout_completion_date: nextCloseoutDate,
+        construction_duration_weeks: nextConstructionDuration,
+        project_duration_weeks: nextProjectDuration,
+      };
+    });
+  }, [draft.construction_completion_date, draft.construction_start_date]);
+
+  useEffect(() => {
+    if (editingProjectId) return;
 
     try {
-      const raw = localStorage.getItem(BID_PACKAGE_AUTOSAVE_STORAGE_KEY);
+      const raw = localStorage.getItem(getBidPackageAutosaveStorageKey(null));
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<BidPackageAutosavePayload>;
         if (parsed.draft) {
@@ -768,7 +923,7 @@ export default function NewBidPackagePage() {
   }, [editingProjectId]);
 
   useEffect(() => {
-    if (!bidPackageAutosaveHydrated || editingProjectId) return;
+    if (!bidPackageAutosaveHydrated) return;
     const timer = window.setTimeout(() => {
       const payload: BidPackageAutosavePayload = {
         draft,
@@ -780,7 +935,10 @@ export default function NewBidPackagePage() {
         inviteQueryByTradeId,
       };
       try {
-        localStorage.setItem(BID_PACKAGE_AUTOSAVE_STORAGE_KEY, JSON.stringify(payload));
+        localStorage.setItem(
+          getBidPackageAutosaveStorageKey(editingProjectId),
+          JSON.stringify(payload)
+        );
       } catch {
         // Ignore storage quota/private mode issues.
       }
@@ -793,7 +951,6 @@ export default function NewBidPackagePage() {
     bidPackageAutosaveHydrated,
     costCodeQuery,
     draft,
-    editingProjectId,
     inviteQueryByTradeId,
     selectedTrades,
   ]);
@@ -1218,6 +1375,7 @@ export default function NewBidPackagePage() {
               return;
             }
             writeBidProjectGeneralInfo(editingProjectId, draft);
+            localStorage.removeItem(getBidPackageAutosaveStorageKey(editingProjectId));
 
             router.push(`/bidding?project=${editingProjectId}`);
             router.refresh();
@@ -1254,7 +1412,7 @@ export default function NewBidPackagePage() {
           writeBidProjectGeneralInfo(created.id, draft);
 
           setDraft(createDefaultDraft());
-          localStorage.removeItem(BID_PACKAGE_AUTOSAVE_STORAGE_KEY);
+          localStorage.removeItem(getBidPackageAutosaveStorageKey(null));
           router.push(`/bidding?project=${created.id}`);
           router.refresh();
         }}
@@ -1692,6 +1850,69 @@ export default function NewBidPackagePage() {
                   <span className="text-sm text-slate-600">America/Adak</span>
                 </div>
               ) : null}
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                Project Size (SQ FT)
+                <input
+                  value={draft.project_size_sqft}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, project_size_sqft: event.target.value }))}
+                  className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="3249"
+                />
+              </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                Project Site Size (SQ FT)
+                <input
+                  value={draft.project_site_size_sqft}
+                  onChange={(event) =>
+                    setDraft((prev) => ({ ...prev, project_site_size_sqft: event.target.value }))
+                  }
+                  className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="3249"
+                />
+              </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                Construction Start Date
+                <DatePickerField
+                  value={draft.construction_start_date}
+                  onChange={(next) => setDraft((prev) => ({ ...prev, construction_start_date: next }))}
+                  className="w-full"
+                />
+              </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                Construction Completion Date
+                <DatePickerField
+                  value={draft.construction_completion_date}
+                  onChange={(next) =>
+                    setDraft((prev) => ({ ...prev, construction_completion_date: next }))
+                  }
+                  className="w-full"
+                />
+              </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                Construction Duration (Weeks)
+                <input
+                  value={draft.construction_duration_weeks}
+                  onChange={(event) =>
+                    setDraft((prev) => ({ ...prev, construction_duration_weeks: event.target.value }))
+                  }
+                  className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="13"
+                />
+              </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                Project Duration (Weeks / Includes Close-out)
+                <input
+                  value={draft.project_duration_weeks}
+                  onChange={(event) =>
+                    setDraft((prev) => ({ ...prev, project_duration_weeks: event.target.value }))
+                  }
+                  className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                  placeholder="14"
+                />
+              </label>
             </div>
           </div>
         </section>

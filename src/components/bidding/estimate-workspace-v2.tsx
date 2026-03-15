@@ -864,6 +864,12 @@ type BidProjectGeneralInfoCacheRow = {
   clientPhone: string;
   clientEmail: string;
   primaryBiddingContact: string;
+  projectSizeSqft: string;
+  projectSiteSizeSqft: string;
+  constructionStartDate: string;
+  constructionCompletionDate: string;
+  constructionDurationWeeks: string;
+  projectDurationWeeks: string;
 };
 
 type CompanyUserOption = {
@@ -973,6 +979,17 @@ function readBidProjectGeneralInfoMap(): Record<string, BidProjectGeneralInfoCac
         clientEmail: typeof row.clientEmail === "string" ? row.clientEmail : "",
         primaryBiddingContact:
           typeof row.primaryBiddingContact === "string" ? row.primaryBiddingContact : "",
+        projectSizeSqft: typeof row.projectSizeSqft === "string" ? row.projectSizeSqft : "",
+        projectSiteSizeSqft:
+          typeof row.projectSiteSizeSqft === "string" ? row.projectSiteSizeSqft : "",
+        constructionStartDate:
+          typeof row.constructionStartDate === "string" ? row.constructionStartDate : "",
+        constructionCompletionDate:
+          typeof row.constructionCompletionDate === "string" ? row.constructionCompletionDate : "",
+        constructionDurationWeeks:
+          typeof row.constructionDurationWeeks === "string" ? row.constructionDurationWeeks : "",
+        projectDurationWeeks:
+          typeof row.projectDurationWeeks === "string" ? row.projectDurationWeeks : "",
       };
     }
     return next;
@@ -1291,6 +1308,29 @@ export default function EstimateWorkspaceV2() {
             };
           }
           return field;
+        })
+      );
+      setProjectPlanningRows((prev) =>
+        prev.map((row) => {
+          if (row.id === "pp-project-size") {
+            return { ...row, value: cachedInfo?.projectSizeSqft ?? row.value };
+          }
+          if (row.id === "pp-site-size") {
+            return { ...row, value: cachedInfo?.projectSiteSizeSqft ?? row.value };
+          }
+          if (row.id === "pp-start-date") {
+            return { ...row, value: cachedInfo?.constructionStartDate ?? row.value };
+          }
+          if (row.id === "pp-completion-date") {
+            return { ...row, value: cachedInfo?.constructionCompletionDate ?? row.value };
+          }
+          if (row.id === "pp-construction-duration") {
+            return { ...row, value: cachedInfo?.constructionDurationWeeks ?? row.value };
+          }
+          if (row.id === "pp-project-duration") {
+            return { ...row, value: cachedInfo?.projectDurationWeeks ?? row.value };
+          }
+          return row;
         })
       );
     }
