@@ -66,6 +66,7 @@ type BidPackageDraft = {
   closeout_completion_date: string;
   construction_duration_weeks: string;
   project_duration_weeks: string;
+  tax_city_number: string;
   anticipated_award_date: string;
   countdown_emails: boolean;
   accept_submissions_past_due: boolean;
@@ -145,6 +146,12 @@ type BidPackageAutosavePayload = {
   inviteQueryByTradeId: Record<string, string>;
 };
 
+type ProjectTaxCityOption = {
+  city: string;
+  number: string;
+  taxRate: string;
+};
+
 const INVITATION_EMAIL_DRAFT_STORAGE_KEY = "bidding-all-new-invitation-email-draft";
 const BID_PACKAGE_AUTOSAVE_STORAGE_KEY = "bidding-all-new-package-autosave-v1";
 const BID_PROJECT_GENERAL_INFO_STORAGE_KEY = "bidding-project-general-info-v1";
@@ -175,6 +182,24 @@ const DEFAULT_INVITATION_MESSAGE = [
   "Thank you,",
   "{contact_name}",
 ].join("\n");
+
+const PROJECT_TAX_CITY_OPTIONS: ProjectTaxCityOption[] = [
+  { city: "Avondale", number: "14", taxRate: "8.8000" },
+  { city: "Buckeye", number: "12", taxRate: "9.3000" },
+  { city: "Cave Creek", number: "6", taxRate: "9.3000" },
+  { city: "Chandler", number: "11", taxRate: "7.8000" },
+  { city: "Flagstaff", number: "4", taxRate: "9.1800" },
+  { city: "Gilbert", number: "7", taxRate: "8.3000" },
+  { city: "Glendale", number: "8", taxRate: "9.2000" },
+  { city: "Mesa", number: "3", taxRate: "8.3000" },
+  { city: "Paradise Valley", number: "5", taxRate: "8.8000" },
+  { city: "Peoria", number: "10", taxRate: "8.1000" },
+  { city: "Phoenix", number: "2", taxRate: "8.6000" },
+  { city: "Scottsdale", number: "1", taxRate: "8.0500" },
+  { city: "Surprise", number: "13", taxRate: "10.0000" },
+  { city: "Tempe", number: "9", taxRate: "8.1000" },
+  { city: "Unknown", number: "15", taxRate: "7.9500" },
+];
 
 const DATE_DISPLAY_FORMATTER = new Intl.DateTimeFormat("en-US", {
   month: "2-digit",
@@ -335,6 +360,7 @@ function createDefaultDraft(): BidPackageDraft {
     closeout_completion_date: "",
     construction_duration_weeks: "",
     project_duration_weeks: "",
+    tax_city_number: "",
     anticipated_award_date: "",
     countdown_emails: false,
     accept_submissions_past_due: false,
@@ -369,6 +395,7 @@ type BidProjectGeneralInfoCacheRow = {
   constructionCompletionDate: string;
   constructionDurationWeeks: string;
   projectDurationWeeks: string;
+  taxCityNumber: string;
 };
 
 function getBidPackageAutosaveStorageKey(projectId?: string | null): string {
@@ -408,6 +435,7 @@ function readBidProjectGeneralInfoMap(): Record<string, BidProjectGeneralInfoCac
           typeof row.constructionDurationWeeks === "string" ? row.constructionDurationWeeks : "",
         projectDurationWeeks:
           typeof row.projectDurationWeeks === "string" ? row.projectDurationWeeks : "",
+        taxCityNumber: typeof row.taxCityNumber === "string" ? row.taxCityNumber : "",
       };
     }
     return next;
@@ -439,6 +467,7 @@ function writeBidProjectGeneralInfo(projectId: string, draft: BidPackageDraft) {
     constructionCompletionDate: (draft.construction_completion_date ?? "").trim(),
     constructionDurationWeeks: (draft.construction_duration_weeks ?? "").trim(),
     projectDurationWeeks: (draft.project_duration_weeks ?? "").trim(),
+    taxCityNumber: (draft.tax_city_number ?? "").trim(),
   };
   writeBidProjectGeneralInfoMap(current);
 }
@@ -753,6 +782,7 @@ export default function NewBidPackagePage() {
         construction_completion_date: cachedGeneralInfo?.constructionCompletionDate ?? "",
         construction_duration_weeks: cachedGeneralInfo?.constructionDurationWeeks ?? "",
         project_duration_weeks: cachedGeneralInfo?.projectDurationWeeks ?? "",
+        tax_city_number: cachedGeneralInfo?.taxCityNumber ?? "",
         budget:
           detail.project.budget !== null && detail.project.budget !== undefined
             ? String(detail.project.budget)
@@ -964,6 +994,9 @@ export default function NewBidPackagePage() {
       return `${code.code} ${code.description ?? ""}`.toLowerCase().includes(query);
     });
   }, [costCodeQuery, costCodes, selectedTrades]);
+
+  const selectedProjectTaxCity =
+    PROJECT_TAX_CITY_OPTIONS.find((option) => option.number === draft.tax_city_number) ?? null;
 
   const addTradeFromCostCode = (costCode: CostCodeOption) => {
     setSelectedTrades((prev) => {
@@ -1872,6 +1905,36 @@ export default function NewBidPackagePage() {
                   className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
                   placeholder="3249"
                 />
+              </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                City
+                <Select
+                  value={draft.tax_city_number}
+                  onValueChange={(value) =>
+                    setDraft((prev) => ({
+                      ...prev,
+                      tax_city_number: value === "__none" ? "" : value,
+                    }))
+                  }
+                >
+                  <SelectTrigger className="rounded-md border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm">
+                    <SelectValue placeholder="Select City" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none">Select City</SelectItem>
+                    {PROJECT_TAX_CITY_OPTIONS.map((option) => (
+                      <SelectItem key={`project-tax-city-${option.number}`} value={option.number}>
+                        {option.city}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                Tax Rate
+                <div className="rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 shadow-sm">
+                  {selectedProjectTaxCity ? `${selectedProjectTaxCity.taxRate}%` : "-"}
+                </div>
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Construction Start Date
