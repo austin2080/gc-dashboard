@@ -293,6 +293,9 @@ export default function LevelingPageV2({
   const [additionalInfoDraftByCell, setAdditionalInfoDraftByCell] = useState<Record<string, string>>({});
   const [addedColumnsByTradeId, setAddedColumnsByTradeId] = useState<Record<string, AddedSubcontractorColumn[]>>({});
   const [hiddenSubIdsByTradeId, setHiddenSubIdsByTradeId] = useState<Record<string, string[]>>({});
+  const [estimateImportsByProject, setEstimateImportsByProject] = useState<Record<string, ImportedEstimateUnitPrice[]>>(
+    () => readEstimateUnitPriceImportsMap()
+  );
   const [subcontractorSearch, setSubcontractorSearch] = useState("");
   const [subcontractorSearchOpen, setSubcontractorSearchOpen] = useState(false);
   const [activeSearchAnchorId, setActiveSearchAnchorId] = useState<string | null>(null);
@@ -431,6 +434,15 @@ export default function LevelingPageV2({
 
   useEffect(() => {
     const handleStorage = (event: StorageEvent) => {
+      if (event.key && event.key !== ESTIMATE_UNIT_PRICE_IMPORTS_STORAGE_KEY) return;
+      setEstimateImportsByProject(readEstimateUnitPriceImportsMap());
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
       if (
         event.key &&
         event.key !== QUOTE_LINE_ITEMS_STORAGE_KEY &&
@@ -473,8 +485,11 @@ export default function LevelingPageV2({
       data.projectSubs.map((sub) => [sub.id, sub.subcontractor?.company_name ?? "Subcontractor"])
     );
     return data.bids
-      .filter((bid) => bid.trade_id === selectedTrade.id && bid.status !== "submitted" && !visibleSubIds.has(bid.sub_id))
+      .filter((bid) => bid.trade_id === selectedTrade.id && !visibleSubIds.has(bid.sub_id))
       .sort((a, b) => {
+        const aHidden = hiddenSubIdsForTrade.has(a.sub_id) ? 0 : 1;
+        const bHidden = hiddenSubIdsForTrade.has(b.sub_id) ? 0 : 1;
+        if (aHidden !== bHidden) return aHidden - bHidden;
         const aName = subNameById.get(a.sub_id) ?? "";
         const bName = subNameById.get(b.sub_id) ?? "";
         return aName.localeCompare(bName);
@@ -485,7 +500,7 @@ export default function LevelingPageV2({
         subName: subNameById.get(bid.sub_id) ?? "Subcontractor",
         status: bid.status,
       }));
-  }, [data, selectedTrade, visibleSubIds]);
+  }, [data, hiddenSubIdsForTrade, selectedTrade, visibleSubIds]);
   const directoryMatches = useMemo(() => {
     const query = subcontractorSearch.trim().toLowerCase();
     if (!query || !directoryData) return [];
@@ -686,12 +701,37 @@ export default function LevelingPageV2({
       unitPrice: formatCurrencyInput(String(totalByColumn)),
       subcontractorName: column.subName,
     });
-    writeEstimateUnitPriceImportsMap({
+    const nextMap = {
       ...imports,
       [projectKey]: nextRows,
-    });
+    };
+    writeEstimateUnitPriceImportsMap(nextMap);
+    setEstimateImportsByProject(nextMap);
     setOpenActionsColumnId(null);
   };
+
+  const handleRemoveFromEstimate = () => {
+    if (!selectedTrade || !data) return;
+    const projectKey = data.project.id;
+    const tradeCostCode = extractTradeCostCode(selectedTrade.trade_name ?? "");
+    const imports = readEstimateUnitPriceImportsMap();
+    const nextRows = (imports[projectKey] ?? []).filter(
+      (row) => normalizeCostCodeCode(row.costCodeCode) !== normalizeCostCodeCode(tradeCostCode)
+    );
+    const nextMap = {
+      ...imports,
+      [projectKey]: nextRows,
+    };
+    writeEstimateUnitPriceImportsMap(nextMap);
+    setEstimateImportsByProject(nextMap);
+    setOpenActionsColumnId(null);
+  };
+
+  const usedInEstimateSubNameByTradeCode = useMemo(() => {
+    if (!data) return new Map<string, string>();
+    const rows = estimateImportsByProject[data.project.id] ?? [];
+    return new Map(rows.map((row) => [normalizeCostCodeCode(row.costCodeCode), row.subcontractorName]));
+  }, [data, estimateImportsByProject]);
 
   const renderSubcontractorSearchDropdown = () =>
     subcontractorSearchOpen ? (
@@ -869,6 +909,16 @@ export default function LevelingPageV2({
                               <div className="whitespace-normal break-words text-2xl font-semibold text-slate-900">
                                 {col.subName}
                               </div>
+                              {selectedTrade &&
+                              usedInEstimateSubNameByTradeCode.get(
+                                normalizeCostCodeCode(extractTradeCostCode(selectedTrade.trade_name ?? ""))
+                              ) === col.subName ? (
+                                <div className="mt-2">
+                                  <span className="inline-flex rounded-md bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-800">
+                                    Used In Estimate
+                                  </span>
+                                </div>
+                              ) : null}
                             </div>
                             <div className="relative" data-leveling-sub-actions>
                               <button
@@ -886,13 +936,26 @@ export default function LevelingPageV2({
                               </button>
                               {openActionsColumnId === col.id ? (
                                 <div className="absolute right-0 top-full z-20 mt-2 w-44 rounded-lg border border-slate-200 bg-white p-1 shadow-lg">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleUseInEstimate(col)}
-                                    className="flex w-full rounded-md px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50"
-                                  >
-                                    Use in Estimate
-                                  </button>
+                                  {selectedTrade &&
+                                  usedInEstimateSubNameByTradeCode.get(
+                                    normalizeCostCodeCode(extractTradeCostCode(selectedTrade.trade_name ?? ""))
+                                  ) === col.subName ? (
+                                    <button
+                                      type="button"
+                                      onClick={handleRemoveFromEstimate}
+                                      className="flex w-full rounded-md px-3 py-2 text-left text-sm font-medium text-rose-700 hover:bg-rose-50"
+                                    >
+                                      Remove From Estimate Page
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleUseInEstimate(col)}
+                                      className="flex w-full rounded-md px-3 py-2 text-left text-sm font-medium text-slate-700 hover:bg-slate-50"
+                                    >
+                                      Use in Estimate
+                                    </button>
+                                  )}
                                   <button
                                     type="button"
                                     onClick={() => handleRemoveSubcontractorColumn(col.id)}
