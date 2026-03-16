@@ -3,6 +3,7 @@ export type BidTradeStatus = "submitted" | "bidding" | "declined" | "ghosted" | 
 export type BidProjectSummary = {
   id: string;
   project_name: string;
+  package_number: string | null;
   owner: string | null;
   location: string | null;
   budget: number | null;

@@ -19,6 +19,7 @@ END$$;
 create table if not exists bid_projects (
   id uuid primary key default gen_random_uuid(),
   project_name text not null,
+  package_number text,
   owner text,
   location text,
   budget numeric,
@@ -27,6 +28,8 @@ create table if not exists bid_projects (
   updated_at timestamptz not null default now(),
   archived_at timestamptz
 );
+
+alter table bid_projects add column if not exists package_number text;
 
 create table if not exists bid_trades (
   id uuid primary key default gen_random_uuid(),

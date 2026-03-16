@@ -43,6 +43,32 @@ export type ProjectTrade = ProjectTradeRow & {
   company_cost_code: CompanyCostCode | null;
 };
 
+type BidProjectRowWithOptionalPackageNumber = Omit<BidProjectRow, "package_number"> & {
+  package_number?: string | null;
+};
+
+function isMissingPackageNumberColumn(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const details = [error]
+    .flatMap((item) =>
+      typeof item === "object" && item !== null
+        ? [Reflect.get(item, "message"), Reflect.get(item, "details"), Reflect.get(item, "hint"), Reflect.get(item, "code")]
+        : []
+    )
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+
+  return details.includes("package_number");
+}
+
+function normalizeBidProjectRow(row: BidProjectRowWithOptionalPackageNumber): BidProjectRow {
+  return {
+    ...row,
+    package_number: row.package_number ?? null,
+  };
+}
+
 function normalizeSubcontractor(
   value:
     | BidProjectSubRow["subcontractor"]
@@ -231,60 +257,122 @@ export async function listBidProjects(): Promise<BidProjectSummary[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("bid_projects")
-    .select("id, project_name, owner, location, budget, due_date")
+    .select("id, project_name, package_number, owner, location, budget, due_date")
     .is("archived_at", null)
     .order("due_date", { ascending: true });
+
+  if (!error && data) {
+    return (data as BidProjectRowWithOptionalPackageNumber[]).map(normalizeBidProjectRow);
+  }
+
+  if (isMissingPackageNumberColumn(error)) {
+    const { data: fallbackData, error: fallbackError } = await supabase
+      .from("bid_projects")
+      .select("id, project_name, owner, location, budget, due_date")
+      .is("archived_at", null)
+      .order("due_date", { ascending: true });
+
+    if (fallbackError || !fallbackData) {
+      console.error("Failed to load bid projects", fallbackError);
+      return [];
+    }
+
+    return (fallbackData as BidProjectRowWithOptionalPackageNumber[]).map(normalizeBidProjectRow);
+  }
 
   if (error || !data) {
     console.error("Failed to load bid projects", error);
     return [];
   }
 
-  return data as BidProjectRow[];
+  return (data as BidProjectRowWithOptionalPackageNumber[]).map(normalizeBidProjectRow);
 }
 
 export async function listArchivedBidProjects(): Promise<BidProjectSummary[]> {
   const supabase = createClient();
   const { data, error } = await supabase
     .from("bid_projects")
-    .select("id, project_name, owner, location, budget, due_date")
+    .select("id, project_name, package_number, owner, location, budget, due_date")
     .not("archived_at", "is", null)
     .order("updated_at", { ascending: false });
+
+  if (!error && data) {
+    return (data as BidProjectRowWithOptionalPackageNumber[]).map(normalizeBidProjectRow);
+  }
+
+  if (isMissingPackageNumberColumn(error)) {
+    const { data: fallbackData, error: fallbackError } = await supabase
+      .from("bid_projects")
+      .select("id, project_name, owner, location, budget, due_date")
+      .not("archived_at", "is", null)
+      .order("updated_at", { ascending: false });
+
+    if (fallbackError || !fallbackData) {
+      console.error("Failed to load archived bid projects", fallbackError);
+      return [];
+    }
+
+    return (fallbackData as BidProjectRowWithOptionalPackageNumber[]).map(normalizeBidProjectRow);
+  }
 
   if (error || !data) {
     console.error("Failed to load archived bid projects", error);
     return [];
   }
 
-  return data as BidProjectRow[];
+  return (data as BidProjectRowWithOptionalPackageNumber[]).map(normalizeBidProjectRow);
 }
 
 export async function createBidProject(payload: {
   project_name: string;
+  package_number?: string | null;
   owner?: string | null;
   location?: string | null;
   budget?: number | null;
   due_date?: string | null;
 }): Promise<BidProjectSummary | null> {
   const supabase = createClient();
+  const insertPayload = {
+    project_name: payload.project_name.trim(),
+    package_number: payload.package_number?.trim() || null,
+    owner: payload.owner ?? null,
+    location: payload.location ?? null,
+    budget: payload.budget ?? null,
+    due_date: payload.due_date ?? null,
+  };
   const { data, error } = await supabase
     .from("bid_projects")
-    .insert({
-      project_name: payload.project_name.trim(),
-      owner: payload.owner ?? null,
-      location: payload.location ?? null,
-      budget: payload.budget ?? null,
-      due_date: payload.due_date ?? null,
-    })
-    .select("id, project_name, owner, location, budget, due_date")
+    .insert(insertPayload)
+    .select("id, project_name, package_number, owner, location, budget, due_date")
     .single();
+
+  if (!error && data) {
+    return normalizeBidProjectRow(data as BidProjectRowWithOptionalPackageNumber);
+  }
+
+  if (isMissingPackageNumberColumn(error)) {
+    const fallbackInsertPayload = { ...insertPayload };
+    delete fallbackInsertPayload.package_number;
+    const { data: fallbackData, error: fallbackError } = await supabase
+      .from("bid_projects")
+      .insert(fallbackInsertPayload)
+      .select("id, project_name, owner, location, budget, due_date")
+      .single();
+
+    if (fallbackError || !fallbackData) {
+      console.error("Failed to create bid project", fallbackError);
+      return null;
+    }
+
+    return normalizeBidProjectRow(fallbackData as BidProjectRowWithOptionalPackageNumber);
+  }
 
   if (error || !data) {
     console.error("Failed to create bid project", error);
     return null;
   }
 
-  return data as BidProjectRow;
+  return normalizeBidProjectRow(data as BidProjectRowWithOptionalPackageNumber);
 }
 
 export async function createBidTrades(
@@ -341,6 +429,7 @@ export async function updateBidProject(
   projectId: string,
   payload: {
     project_name: string;
+    package_number?: string | null;
     owner?: string | null;
     location?: string | null;
     budget?: number | null;
@@ -348,25 +437,76 @@ export async function updateBidProject(
   }
 ): Promise<BidProjectSummary | null> {
   const supabase = createClient();
+  const updatePayload = {
+    project_name: payload.project_name.trim(),
+    package_number: payload.package_number?.trim() || null,
+    owner: payload.owner ?? null,
+    location: payload.location ?? null,
+    budget: payload.budget ?? null,
+    due_date: payload.due_date ?? null,
+  };
   const { data, error } = await supabase
     .from("bid_projects")
-    .update({
-      project_name: payload.project_name.trim(),
-      owner: payload.owner ?? null,
-      location: payload.location ?? null,
-      budget: payload.budget ?? null,
-      due_date: payload.due_date ?? null,
-    })
+    .update(updatePayload)
     .eq("id", projectId)
-    .select("id, project_name, owner, location, budget, due_date")
+    .select("id, project_name, package_number, owner, location, budget, due_date")
     .single();
+
+  if (!error && data) {
+    return normalizeBidProjectRow(data as BidProjectRowWithOptionalPackageNumber);
+  }
+
+  if (isMissingPackageNumberColumn(error)) {
+    const fallbackUpdatePayload = { ...updatePayload };
+    delete fallbackUpdatePayload.package_number;
+    const { data: fallbackData, error: fallbackError } = await supabase
+      .from("bid_projects")
+      .update(fallbackUpdatePayload)
+      .eq("id", projectId)
+      .select("id, project_name, owner, location, budget, due_date")
+      .single();
+
+    if (fallbackError || !fallbackData) {
+      console.error("Failed to update bid project", fallbackError);
+      return null;
+    }
+
+    return normalizeBidProjectRow(fallbackData as BidProjectRowWithOptionalPackageNumber);
+  }
 
   if (error || !data) {
     console.error("Failed to update bid project", error);
     return null;
   }
 
-  return data as BidProjectRow;
+  return normalizeBidProjectRow(data as BidProjectRowWithOptionalPackageNumber);
+}
+
+export async function getNextBidProjectPackageNumber(referenceDate = new Date()): Promise<string | null> {
+  const supabase = createClient();
+  const yearPrefix = String(referenceDate.getFullYear() % 100).padStart(2, "0");
+  const { data, error } = await supabase.from("bid_projects").select("package_number");
+
+  if (isMissingPackageNumberColumn(error)) {
+    return `${yearPrefix}001`;
+  }
+
+  if (error || !data) {
+    console.error("Failed to load bid project package numbers", error);
+    return null;
+  }
+
+  let maxSequence = 0;
+  for (const row of data as Array<{ package_number?: string | null }>) {
+    const value = row.package_number?.trim() ?? "";
+    if (!new RegExp(`^${yearPrefix}\\d{3}$`).test(value)) continue;
+    const sequence = Number.parseInt(value.slice(2), 10);
+    if (Number.isFinite(sequence)) {
+      maxSequence = Math.max(maxSequence, sequence);
+    }
+  }
+
+  return `${yearPrefix}${String(maxSequence + 1).padStart(3, "0")}`;
 }
 
 export async function archiveBidProject(projectId: string): Promise<boolean> {
@@ -592,9 +732,68 @@ export async function getBidProjectDetail(projectId: string): Promise<BidProject
 
   const { data: project, error: projectError } = await supabase
     .from("bid_projects")
-    .select("id, project_name, owner, location, budget, due_date")
+    .select("id, project_name, package_number, owner, location, budget, due_date")
     .eq("id", projectId)
     .maybeSingle();
+
+  if (projectError && isMissingPackageNumberColumn(projectError)) {
+    const { data: fallbackProject, error: fallbackProjectError } = await supabase
+      .from("bid_projects")
+      .select("id, project_name, owner, location, budget, due_date")
+      .eq("id", projectId)
+      .maybeSingle();
+
+    if (fallbackProjectError) {
+      console.error("Failed to load bid project", fallbackProjectError);
+      return null;
+    }
+    if (!fallbackProject) return null;
+
+    const { data: trades, error: tradesError } = await supabase
+      .from("bid_trades")
+      .select("id, project_id, trade_name, sort_order")
+      .eq("project_id", projectId)
+      .order("sort_order", { ascending: true })
+      .order("trade_name", { ascending: true });
+
+    if (tradesError) {
+      console.error("Failed to load bid trades", tradesError);
+    }
+
+    const { data: projectSubs, error: subsError } = await supabase
+      .from("bid_project_subs")
+      .select(
+        "id, project_id, subcontractor_id, sort_order, invited_at, subcontractor:bid_subcontractors(id, company_name, primary_contact, email, phone)"
+      )
+      .eq("project_id", projectId)
+      .order("sort_order", { ascending: true })
+      .order("invited_at", { ascending: true });
+
+    if (subsError) {
+      console.error("Failed to load project subs", subsError);
+    }
+
+    const { data: tradeBids, error: bidsError } = await supabase
+      .from("bid_trade_bids")
+      .select("id, project_id, trade_id, project_sub_id, status, bid_amount, contact_name, notes")
+      .eq("project_id", projectId);
+
+    if (bidsError) {
+      console.error("Failed to load trade bids", bidsError);
+    }
+
+    return {
+      project: normalizeBidProjectRow(fallbackProject as BidProjectRowWithOptionalPackageNumber),
+      trades: (trades ?? []) as BidTradeRow[],
+      projectSubs: (projectSubs ?? []).map((row) => ({
+        ...(row as Omit<BidProjectSubRow, "subcontractor">),
+        subcontractor: normalizeSubcontractor(
+          (row as BidProjectSubRow & { subcontractor: BidProjectSubRow["subcontractor"][] | null }).subcontractor
+        ),
+      })),
+      tradeBids: (tradeBids ?? []) as BidTradeBidRow[],
+    };
+  }
 
   if (projectError) {
     console.error("Failed to load bid project", projectError);
@@ -636,7 +835,7 @@ export async function getBidProjectDetail(projectId: string): Promise<BidProject
   }
 
   return {
-    project: project as BidProjectRow,
+    project: normalizeBidProjectRow(project as BidProjectRowWithOptionalPackageNumber),
     trades: (trades ?? []) as BidTradeRow[],
     projectSubs: (projectSubs ?? []).map((row) => ({
       ...(row as Omit<BidProjectSubRow, "subcontractor">),

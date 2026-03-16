@@ -8,6 +8,7 @@ import {
   createBidSubcontractor,
   createBidTrades,
   createTradeBid,
+  getNextBidProjectPackageNumber,
   getBidProjectDetail,
   inviteSubToProject,
   listBidSubcontractors,
@@ -40,6 +41,10 @@ type BidPackageDraft = {
   client_phone: string;
   client_email: string;
   location: string;
+  project_address: string;
+  project_city: string;
+  project_state: string;
+  project_zip: string;
   budget: string;
   due_date: string;
   due_hour: string;
@@ -334,6 +339,10 @@ function createDefaultDraft(): BidPackageDraft {
     client_phone: "",
     client_email: "",
     location: "",
+    project_address: "",
+    project_city: "",
+    project_state: "",
+    project_zip: "",
     budget: "",
     due_date: "",
     due_hour: "12",
@@ -375,6 +384,69 @@ function buildTradeLabel(trade: { code: string; description: string | null }): s
   return `${trade.code}${trade.description ? ` ${trade.description}` : ""}`.trim();
 }
 
+function formatProjectLocation(parts: {
+  project_address: string;
+  project_city: string;
+  project_state: string;
+  project_zip: string;
+}): string {
+  const address = parts.project_address.trim();
+  const city = parts.project_city.trim();
+  const state = parts.project_state.trim();
+  const zip = parts.project_zip.trim();
+  const locality = [city, state].filter(Boolean).join(", ");
+  const trailing = [locality, zip].filter(Boolean).join(" ");
+  return [address, trailing].filter(Boolean).join(", ");
+}
+
+function parseProjectLocation(value: string): Pick<
+  BidPackageDraft,
+  "project_address" | "project_city" | "project_state" | "project_zip"
+> {
+  const raw = value.trim();
+  if (!raw) {
+    return {
+      project_address: "",
+      project_city: "",
+      project_state: "",
+      project_zip: "",
+    };
+  }
+
+  const parts = raw.split(",").map((part) => part.trim()).filter(Boolean);
+  if (parts.length >= 3) {
+    const address = parts.slice(0, -2).join(", ");
+    const city = parts[parts.length - 2] ?? "";
+    const stateZip = parts[parts.length - 1] ?? "";
+    const stateZipMatch = stateZip.match(/^([A-Za-z]{2})(?:\s+(.+))?$/);
+    return {
+      project_address: address,
+      project_city: city,
+      project_state: stateZipMatch?.[1] ?? stateZip,
+      project_zip: stateZipMatch?.[2] ?? "",
+    };
+  }
+
+  if (parts.length === 2) {
+    const stateZipMatch = parts[1].match(/^(.*?)(?:,\s*)?([A-Za-z]{2})(?:\s+(.+))?$/);
+    if (stateZipMatch) {
+      return {
+        project_address: parts[0],
+        project_city: stateZipMatch[1].trim(),
+        project_state: stateZipMatch[2] ?? "",
+        project_zip: stateZipMatch[3] ?? "",
+      };
+    }
+  }
+
+  return {
+    project_address: raw,
+    project_city: "",
+    project_state: "",
+    project_zip: "",
+  };
+}
+
 function normalizeContactName(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
@@ -384,6 +456,9 @@ type BidProjectGeneralInfoCacheRow = {
   projectNumber: string;
   clientName: string;
   projectAddress: string;
+  projectCity: string;
+  projectState: string;
+  projectZip: string;
   architect: string;
   bidSetDate: string;
   clientPhone: string;
@@ -418,6 +493,9 @@ function readBidProjectGeneralInfoMap(): Record<string, BidProjectGeneralInfoCac
         projectNumber: typeof row.projectNumber === "string" ? row.projectNumber : "",
         clientName: typeof row.clientName === "string" ? row.clientName : "",
         projectAddress: typeof row.projectAddress === "string" ? row.projectAddress : "",
+        projectCity: typeof row.projectCity === "string" ? row.projectCity : "",
+        projectState: typeof row.projectState === "string" ? row.projectState : "",
+        projectZip: typeof row.projectZip === "string" ? row.projectZip : "",
         architect: typeof row.architect === "string" ? row.architect : "",
         bidSetDate: typeof row.bidSetDate === "string" ? row.bidSetDate : "",
         clientPhone: typeof row.clientPhone === "string" ? row.clientPhone : "",
@@ -455,7 +533,10 @@ function writeBidProjectGeneralInfo(projectId: string, draft: BidPackageDraft) {
     projectName: (draft.project_name ?? "").trim(),
     projectNumber: (draft.package_number ?? "").trim(),
     clientName: (draft.owner ?? "").trim(),
-    projectAddress: (draft.location ?? "").trim(),
+    projectAddress: (draft.project_address ?? "").trim(),
+    projectCity: (draft.project_city ?? "").trim(),
+    projectState: (draft.project_state ?? "").trim(),
+    projectZip: (draft.project_zip ?? "").trim(),
     architect: (draft.architect ?? "").trim(),
     bidSetDate: (draft.bid_set_date ?? "").trim(),
     clientPhone: (draft.client_phone ?? "").trim(),
@@ -529,6 +610,10 @@ export default function NewBidPackagePage() {
   const [draft, setDraft] = useState<BidPackageDraft>(createDefaultDraft());
   const subjectInputRef = useRef<HTMLInputElement | null>(null);
   const messageTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const autosaveStorageKey = useMemo(
+    () => getBidPackageAutosaveStorageKey(editingProjectId),
+    [editingProjectId]
+  );
   const filesInActiveSection = useMemo(
     () => uploadedFiles.filter((file) => file.section === activeFileSection),
     [activeFileSection, uploadedFiles]
@@ -765,32 +850,40 @@ export default function NewBidPackagePage() {
       } catch {
         // Ignore malformed autosave payloads.
       }
-      setDraft((prev) => ({
-        ...prev,
-        project_name: detail.project.project_name ?? "",
-        package_number: cachedGeneralInfo?.projectNumber ?? prev.package_number,
-        status: prev.status,
-        architect: cachedGeneralInfo?.architect ?? "",
-        bid_set_date: cachedGeneralInfo?.bidSetDate ?? "",
-        owner: detail.project.owner ?? "",
-        client_phone: cachedGeneralInfo?.clientPhone ?? "",
-        client_email: cachedGeneralInfo?.clientEmail ?? "",
-        location: detail.project.location ?? "",
-        project_size_sqft: cachedGeneralInfo?.projectSizeSqft ?? "",
-        project_site_size_sqft: cachedGeneralInfo?.projectSiteSizeSqft ?? "",
-        construction_start_date: cachedGeneralInfo?.constructionStartDate ?? "",
-        construction_completion_date: cachedGeneralInfo?.constructionCompletionDate ?? "",
-        construction_duration_weeks: cachedGeneralInfo?.constructionDurationWeeks ?? "",
-        project_duration_weeks: cachedGeneralInfo?.projectDurationWeeks ?? "",
-        tax_city_number: cachedGeneralInfo?.taxCityNumber ?? "",
-        budget:
-          detail.project.budget !== null && detail.project.budget !== undefined
-            ? String(detail.project.budget)
-            : "",
-        due_date: detail.project.due_date ?? "",
-        tbd_due_date: !detail.project.due_date,
-        ...(autosaveDraft ?? {}),
-      }));
+      setDraft((prev) => {
+        const parsedLocation = parseProjectLocation(detail.project.location ?? "");
+        return {
+          ...prev,
+          project_name: detail.project.project_name ?? "",
+          package_number:
+            cachedGeneralInfo?.projectNumber ?? detail.project.package_number ?? prev.package_number,
+          status: prev.status,
+          architect: cachedGeneralInfo?.architect ?? "",
+          bid_set_date: cachedGeneralInfo?.bidSetDate ?? "",
+          owner: detail.project.owner ?? "",
+          client_phone: cachedGeneralInfo?.clientPhone ?? "",
+          client_email: cachedGeneralInfo?.clientEmail ?? "",
+          location: detail.project.location ?? "",
+          project_address: cachedGeneralInfo?.projectAddress ?? parsedLocation.project_address,
+          project_city: cachedGeneralInfo?.projectCity ?? parsedLocation.project_city,
+          project_state: cachedGeneralInfo?.projectState ?? parsedLocation.project_state,
+          project_zip: cachedGeneralInfo?.projectZip ?? parsedLocation.project_zip,
+          project_size_sqft: cachedGeneralInfo?.projectSizeSqft ?? "",
+          project_site_size_sqft: cachedGeneralInfo?.projectSiteSizeSqft ?? "",
+          construction_start_date: cachedGeneralInfo?.constructionStartDate ?? "",
+          construction_completion_date: cachedGeneralInfo?.constructionCompletionDate ?? "",
+          construction_duration_weeks: cachedGeneralInfo?.constructionDurationWeeks ?? "",
+          project_duration_weeks: cachedGeneralInfo?.projectDurationWeeks ?? "",
+          tax_city_number: cachedGeneralInfo?.taxCityNumber ?? "",
+          budget:
+            detail.project.budget !== null && detail.project.budget !== undefined
+              ? String(detail.project.budget)
+              : "",
+          due_date: detail.project.due_date ?? "",
+          tbd_due_date: !detail.project.due_date,
+          ...(autosaveDraft ?? {}),
+        };
+      });
       setSelectedTrades(
         autosaveSelectedTrades ??
           detail.trades.map((trade) => ({
@@ -953,6 +1046,25 @@ export default function NewBidPackagePage() {
   }, [editingProjectId]);
 
   useEffect(() => {
+    if (isEditMode || !bidPackageAutosaveHydrated) return;
+
+    let active = true;
+    async function loadNextPackageNumber() {
+      const nextPackageNumber = await getNextBidProjectPackageNumber();
+      if (!active || !nextPackageNumber) return;
+      setDraft((prev) => {
+        if ((prev.package_number ?? "").trim()) return prev;
+        return { ...prev, package_number: nextPackageNumber };
+      });
+    }
+
+    void loadNextPackageNumber();
+    return () => {
+      active = false;
+    };
+  }, [bidPackageAutosaveHydrated, isEditMode]);
+
+  useEffect(() => {
     if (!bidPackageAutosaveHydrated) return;
     const timer = window.setTimeout(() => {
       const payload: BidPackageAutosavePayload = {
@@ -965,10 +1077,7 @@ export default function NewBidPackagePage() {
         inviteQueryByTradeId,
       };
       try {
-        localStorage.setItem(
-          getBidPackageAutosaveStorageKey(editingProjectId),
-          JSON.stringify(payload)
-        );
+        localStorage.setItem(autosaveStorageKey, JSON.stringify(payload));
       } catch {
         // Ignore storage quota/private mode issues.
       }
@@ -978,6 +1087,7 @@ export default function NewBidPackagePage() {
     activeFileSection,
     activePanel,
     assignedSubsByTradeId,
+    autosaveStorageKey,
     bidPackageAutosaveHydrated,
     costCodeQuery,
     draft,
@@ -1354,6 +1464,7 @@ export default function NewBidPackagePage() {
           setError(null);
 
           const budgetValue = draft.budget.trim() ? Number(draft.budget) : null;
+          const locationValue = formatProjectLocation(draft);
           const tradePayload = selectedTrades.map((trade, index) => ({
             trade_name: buildTradeLabel(trade),
             sort_order: index + 1,
@@ -1362,8 +1473,9 @@ export default function NewBidPackagePage() {
           if (editingProjectId) {
             const updated = await updateBidProject(editingProjectId, {
               project_name: draft.project_name.trim(),
+              package_number: draft.package_number.trim() || null,
               owner: draft.owner.trim() || null,
-              location: draft.location.trim() || null,
+              location: locationValue || null,
               budget: Number.isFinite(budgetValue) ? budgetValue : null,
               due_date: draft.tbd_due_date ? null : draft.due_date.trim() || null,
             });
@@ -1417,8 +1529,9 @@ export default function NewBidPackagePage() {
 
           const created = await createBidProject({
             project_name: draft.project_name.trim(),
+            package_number: draft.package_number.trim() || null,
             owner: draft.owner.trim() || null,
-            location: draft.location.trim() || null,
+            location: locationValue || null,
             budget: Number.isFinite(budgetValue) ? budgetValue : null,
             due_date: draft.tbd_due_date ? null : draft.due_date.trim() || null,
           });
@@ -1474,7 +1587,7 @@ export default function NewBidPackagePage() {
                 value={draft.package_number}
                 onChange={(event) => setDraft((prev) => ({ ...prev, package_number: event.target.value }))}
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
-                placeholder="8"
+                placeholder="26001"
               />
             </label>
             <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-2">
@@ -1506,12 +1619,46 @@ export default function NewBidPackagePage() {
             <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-3">
               Project Address
               <input
-                value={draft.location}
+                value={draft.project_address}
                 onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, location: event.target.value }))
+                  setDraft((prev) => ({ ...prev, project_address: event.target.value }))
                 }
                 className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
-                placeholder="Project address"
+                placeholder="123 Main St"
+              />
+            </label>
+            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-2">
+              City
+              <input
+                value={draft.project_city}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, project_city: event.target.value }))
+                }
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                placeholder="Phoenix"
+              />
+            </label>
+            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-1">
+              State
+              <input
+                value={draft.project_state}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, project_state: event.target.value.toUpperCase() }))
+                }
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                placeholder="AZ"
+                maxLength={2}
+              />
+            </label>
+            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-1">
+              Zip
+              <input
+                value={draft.project_zip}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, project_zip: event.target.value }))
+                }
+                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                placeholder="85004"
               />
             </label>
             <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-3">
