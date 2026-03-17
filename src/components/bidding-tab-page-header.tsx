@@ -4,14 +4,20 @@ import BidManagementViewToggle from "@/components/bid-management-view-toggle";
 import BiddingBreadcrumb from "@/components/bidding-breadcrumb";
 import BiddingProjectHeading from "@/components/bidding-project-heading";
 
-export default function BiddingTabPageHeader({ label }: { label: string }) {
+export default function BiddingTabPageHeader({
+  label,
+  showExport = false,
+}: {
+  label: string;
+  showExport?: boolean;
+}) {
   return (
     <header className="-mx-4 border-b border-slate-200 bg-white sm:-mx-6">
       <div className="px-6 pt-3 pb-1">
         <BiddingBreadcrumb label={label} />
       </div>
       <div className="px-6 pb-[2px]">
-        <BiddingProjectHeading />
+        <BiddingProjectHeading showExport={showExport} />
       </div>
       <div className="px-6">
         <BidManagementViewToggle />

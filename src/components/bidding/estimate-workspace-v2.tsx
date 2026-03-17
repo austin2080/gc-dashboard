@@ -12,6 +12,12 @@ import {
 import { useSearchParams } from "next/navigation";
 import { getBidProjectDetail } from "@/lib/bidding/store";
 import { getBidProjectIdForProject } from "@/lib/bidding/project-links";
+import {
+  ESTIMATE_EXPORT_REQUEST_EVENT,
+  writeEstimateExportSnapshot,
+  type EstimateExportSnapshot,
+  type EstimateExportSnapshotDivision,
+} from "@/lib/bidding/estimate-export";
 
 const NAV_ITEMS = [
   "Data, Factors & Rates",
@@ -1898,6 +1904,92 @@ export default function EstimateWorkspaceV2() {
       };
     });
   }, [worksheetDivisionGroups, coverProjectSquareFeet, preliminarySubtotal]);
+  const exportProjectId = useMemo(
+    () => getBidProjectIdForProject(queryProjectId ?? "") ?? queryProjectId ?? "",
+    [queryProjectId]
+  );
+  const estimateExportSnapshot = useMemo<EstimateExportSnapshot | null>(() => {
+    if (!exportProjectId) return null;
+    const divisions: EstimateExportSnapshotDivision[] = worksheetDivisionGroups.map((group) => ({
+      divisionCode: group.divisionCode,
+      divisionTitle: group.divisionTitle,
+      subtotal: formatCurrency(group.subtotal),
+      lineItems: group.costCodeGroups.flatMap((costCodeGroup) => {
+        if (costCodeGroup.readOnlyRollup) {
+          return [
+            {
+              costCode: costCodeGroup.code,
+              description: costCodeGroup.title,
+              unit: "",
+              quantity: "",
+              unitPrice: "",
+              gcMarkup: "",
+              total: formatCurrency(costCodeGroup.total),
+            },
+          ];
+        }
+        return costCodeGroup.lineItems.map((lineItem) => {
+          const quantity = parseNumericInput(lineItem.quantity);
+          const unitPrice = parseNumericInput(lineItem.unitPrice);
+          const gcMarkup = parseNumericInput(lineItem.gcMarkup);
+          const total = quantity * unitPrice + gcMarkup;
+          return {
+            costCode: costCodeGroup.code,
+            description: lineItem.description || costCodeGroup.title,
+            unit: lineItem.unit || "",
+            quantity: lineItem.quantity || "",
+            unitPrice: lineItem.unitPrice || "",
+            gcMarkup: lineItem.gcMarkup || "",
+            total: total > 0 ? formatCurrency(total) : "-",
+          };
+        });
+      }),
+    }));
+
+    return {
+      projectId: exportProjectId,
+      projectName: getCoverPageFieldValue("cover-project-name") || "Untitled Project",
+      generatedAt: new Date().toISOString(),
+      coverFields: coverPageFields.reduce<Record<string, string>>((acc, field) => {
+        acc[field.id] = field.value ?? "";
+        return acc;
+      }, {}),
+      projectPlanning: projectPlanningRows.reduce<Record<string, string>>((acc, row) => {
+        acc[row.id] = row.value ?? "";
+        return acc;
+      }, {}),
+      divisions,
+      markupRows: preliminaryMarkupRows
+        .filter((row) => row.amount !== null && Number.isFinite(row.amount))
+        .map((row) => ({
+          label: row.label,
+          amount: formatCurrency(row.amount ?? 0),
+        })),
+      subtotal: formatCurrency(preliminarySubtotal),
+      markupTotal: formatCurrency(preliminaryMarkupTotal),
+      grandTotal: formatCurrency(preliminaryGrandTotal),
+    };
+  }, [
+    coverPageFields,
+    exportProjectId,
+    preliminaryGrandTotal,
+    preliminaryMarkupRows,
+    preliminaryMarkupTotal,
+    preliminarySubtotal,
+    projectPlanningRows,
+    worksheetDivisionGroups,
+  ]);
+
+  useEffect(() => {
+    const handleExportRequest = () => {
+      if (!estimateExportSnapshot) return;
+      writeEstimateExportSnapshot(estimateExportSnapshot);
+    };
+    window.addEventListener(ESTIMATE_EXPORT_REQUEST_EVENT, handleExportRequest);
+    return () => {
+      window.removeEventListener(ESTIMATE_EXPORT_REQUEST_EVENT, handleExportRequest);
+    };
+  }, [estimateExportSnapshot]);
 
   useEffect(() => {
     if (!worksheetGcMarkupMessage) return;
