@@ -149,6 +149,7 @@ type BidPackageAutosavePayload = {
   selectedTrades: SelectedTrade[];
   assignedSubsByTradeId: Record<string, AssignedSub[]>;
   inviteQueryByTradeId: Record<string, string>;
+  uploadedFiles: UploadedBidFile[];
 };
 
 type ProjectTaxCityOption = {
@@ -160,6 +161,7 @@ type ProjectTaxCityOption = {
 const INVITATION_EMAIL_DRAFT_STORAGE_KEY = "bidding-all-new-invitation-email-draft";
 const BID_PACKAGE_AUTOSAVE_STORAGE_KEY = "bidding-all-new-package-autosave-v1";
 const BID_PROJECT_GENERAL_INFO_STORAGE_KEY = "bidding-project-general-info-v1";
+const BID_PACKAGE_FILES_STORAGE_KEY = "bidding-package-files-v1";
 const TOKEN_LIST = [
   "{project_name}",
   "{bid_package_name}",
@@ -451,6 +453,56 @@ function normalizeContactName(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+function readBidPackageFilesMap(): Record<string, UploadedBidFile[]> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(BID_PACKAGE_FILES_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, UploadedBidFile[]> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!Array.isArray(value)) continue;
+      next[key] = value.flatMap((item) => {
+        if (!item || typeof item !== "object") return [];
+        const row = item as Partial<UploadedBidFile>;
+        if (
+          typeof row.id !== "string" ||
+          typeof row.name !== "string" ||
+          typeof row.size !== "number" ||
+          typeof row.uploadedAt !== "string" ||
+          typeof row.url !== "string" ||
+          (row.section !== "drawings" &&
+            row.section !== "documents" &&
+            row.section !== "specifications")
+        ) {
+          return [];
+        }
+        return [
+          {
+            id: row.id,
+            name: row.name,
+            size: row.size,
+            uploadedAt: row.uploadedAt,
+            section: row.section,
+            url: row.url,
+          },
+        ];
+      });
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function writeBidPackageFiles(projectId: string, files: UploadedBidFile[]) {
+  if (typeof window === "undefined") return;
+  const current = readBidPackageFilesMap();
+  current[projectId] = files;
+  localStorage.setItem(BID_PACKAGE_FILES_STORAGE_KEY, JSON.stringify(current));
+}
+
 type BidProjectGeneralInfoCacheRow = {
   projectName: string;
   projectNumber: string;
@@ -656,7 +708,7 @@ export default function NewBidPackagePage() {
     return matchingUser?.email || "test@builderos.com";
   }, [companyUserOptions, draft.primary_bidding_contact]);
 
-  const handleUploadFiles = (files: FileList | null) => {
+  const handleUploadFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setActiveFileSection("documents");
     const next = Array.from(files);
@@ -666,14 +718,34 @@ export default function NewBidPackagePage() {
     }
     setFileError(null);
     const now = new Date().toISOString();
-    const mapped = next.map((file) => ({
-      id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      name: file.name,
-      size: file.size,
-      uploadedAt: now,
-      section: "documents" as FileSectionKey,
-      url: URL.createObjectURL(file),
-    }));
+    const mapped = await Promise.all(
+      next.map(
+        (file) =>
+          new Promise<UploadedBidFile>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              if (typeof reader.result !== "string") {
+                reject(new Error("Unable to read file."));
+                return;
+              }
+              resolve({
+                id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+                name: file.name,
+                size: file.size,
+                uploadedAt: now,
+                section: "documents" as FileSectionKey,
+                url: reader.result,
+              });
+            };
+            reader.onerror = () => reject(new Error("Unable to read file."));
+            reader.readAsDataURL(file);
+          })
+      )
+    ).catch(() => {
+      setFileError("Unable to upload one or more files.");
+      return null;
+    });
+    if (!mapped) return;
     setUploadedFiles((prev) => [...mapped, ...prev]);
   };
 
@@ -913,6 +985,7 @@ export default function NewBidPackagePage() {
         assignedByTrade[bid.trade_id] = current;
       });
       setAssignedSubsByTradeId(autosaveAssignedSubsByTradeId ?? assignedByTrade);
+      setUploadedFiles(readBidPackageFilesMap()[projectId] ?? []);
       if (autosaveInviteQueryByTradeId) {
         setInviteQueryByTradeId(autosaveInviteQueryByTradeId);
       }
@@ -1037,6 +1110,9 @@ export default function NewBidPackagePage() {
         if (parsed.inviteQueryByTradeId && typeof parsed.inviteQueryByTradeId === "object") {
           setInviteQueryByTradeId(parsed.inviteQueryByTradeId);
         }
+        if (Array.isArray(parsed.uploadedFiles)) {
+          setUploadedFiles(parsed.uploadedFiles);
+        }
       }
     } catch {
       // Ignore malformed autosave payloads.
@@ -1075,6 +1151,7 @@ export default function NewBidPackagePage() {
         selectedTrades,
         assignedSubsByTradeId,
         inviteQueryByTradeId,
+        uploadedFiles,
       };
       try {
         localStorage.setItem(autosaveStorageKey, JSON.stringify(payload));
@@ -1093,6 +1170,7 @@ export default function NewBidPackagePage() {
     draft,
     inviteQueryByTradeId,
     selectedTrades,
+    uploadedFiles,
   ]);
 
   const filteredCostCodes = useMemo(() => {
@@ -1529,6 +1607,7 @@ export default function NewBidPackagePage() {
               return;
             }
             writeBidProjectGeneralInfo(editingProjectId, draft);
+            writeBidPackageFiles(editingProjectId, uploadedFiles);
             localStorage.removeItem(getBidPackageAutosaveStorageKey(editingProjectId));
 
             router.push(`/bidding?project=${editingProjectId}`);
@@ -1565,6 +1644,7 @@ export default function NewBidPackagePage() {
             return;
           }
           writeBidProjectGeneralInfo(created.id, draft);
+          writeBidPackageFiles(created.id, uploadedFiles);
 
           setDraft(createDefaultDraft());
           localStorage.removeItem(getBidPackageAutosaveStorageKey(null));
