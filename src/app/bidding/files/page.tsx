@@ -34,16 +34,10 @@ type PackageChange = {
   id: string;
   label: string;
   tone: "neutral" | "danger";
+  detail?: string;
 };
 
 const BID_PACKAGE_FILES_STORAGE_KEY = "bidding-package-files-v1";
-
-const PACKAGE_CHANGES: PackageChange[] = [
-  { id: "change-1", label: "Replaced: A2.1 Foundation Details.pdf", tone: "neutral" },
-  { id: "change-2", label: "Added: Addendum #1.pdf", tone: "neutral" },
-  { id: "change-3", label: "Removed: Old Waterproofing Spec", tone: "danger" },
-  { id: "change-4", label: "Sent update to all bidders", tone: "neutral" },
-];
 
 function readBidPackageFilesMap(): Record<string, UploadedBidFile[]> {
   if (typeof window === "undefined") return {};
@@ -208,6 +202,22 @@ export default function BiddingFilesPage() {
       })),
     [filteredFiles]
   );
+  const recentPackageChanges = useMemo<PackageChange[]>(
+    () =>
+      [...packageFiles]
+        .sort(
+          (a, b) =>
+            new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime()
+        )
+        .slice(0, 8)
+        .map((file) => ({
+          id: `added-${file.id}`,
+          label: `Added: ${file.name}`,
+          tone: "neutral",
+          detail: `${getSectionLabel(file.section)} · ${new Date(file.uploadedAt).toLocaleString()}`,
+        })),
+    [packageFiles]
+  );
 
   const hasSelection = selectedIds.length > 0;
 
@@ -320,17 +330,28 @@ export default function BiddingFilesPage() {
               <h3 className="text-[18px] font-semibold text-slate-900">Recent Package Changes</h3>
             </div>
             <div className="px-6 py-4">
-              <div className="space-y-1">
-                {PACKAGE_CHANGES.map((change) => (
-                  <div
-                    key={change.id}
-                    className="flex items-start gap-3 border-b border-slate-100 py-4 last:border-b-0"
-                  >
-                    <div className="pt-0.5">{getChangeIcon(change.tone)}</div>
-                    <p className="text-sm font-medium text-slate-700">{change.label}</p>
-                  </div>
-                ))}
-              </div>
+              {recentPackageChanges.length ? (
+                <div className="space-y-1">
+                  {recentPackageChanges.map((change) => (
+                    <div
+                      key={change.id}
+                      className="flex items-start gap-3 border-b border-slate-100 py-4 last:border-b-0"
+                    >
+                      <div className="pt-0.5">{getChangeIcon(change.tone)}</div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-700">{change.label}</p>
+                        {change.detail ? (
+                          <p className="mt-1 text-xs text-slate-500">{change.detail}</p>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-2 text-sm text-slate-500">
+                  No package changes yet.
+                </div>
+              )}
             </div>
           </div>
 
