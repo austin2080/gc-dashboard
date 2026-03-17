@@ -1298,6 +1298,15 @@ export default function NewBidPackagePage() {
       setToast({ type: "error", message: "Unable to save draft." });
     }
   };
+  const discardBidPackageDraft = () => {
+    try {
+      localStorage.removeItem(getBidPackageAutosaveStorageKey(editingProjectId));
+      localStorage.removeItem(INVITATION_EMAIL_DRAFT_STORAGE_KEY);
+    } catch {
+      // Ignore storage cleanup failures.
+    }
+    router.push("/bidding/all");
+  };
   const activeDrawerTrade = newSubDrawerTradeId
     ? selectedTrades.find((trade) => trade.id === newSubDrawerTradeId) ?? null
     : null;
@@ -2190,12 +2199,13 @@ export default function NewBidPackagePage() {
         {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
         <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85 sm:px-6 lg:px-12">
-          <Link
-            href="/bidding/all"
+          <button
+            type="button"
+            onClick={discardBidPackageDraft}
             className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
           >
             Cancel
-          </Link>
+          </button>
           <button
             type="button"
             onClick={() => setActivePanel("files")}
@@ -2334,12 +2344,13 @@ export default function NewBidPackagePage() {
               >
                 Back
               </button>
-              <Link
-                href="/bidding/all"
+              <button
+                type="button"
+                onClick={discardBidPackageDraft}
                 className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Cancel
-              </Link>
+              </button>
               <button
                 type="button"
                 onClick={() => setActivePanel("trade-coverage")}
@@ -2558,12 +2569,13 @@ export default function NewBidPackagePage() {
               >
                 Back
               </button>
-              <Link
-                href="/bidding/all"
+              <button
+                type="button"
+                onClick={discardBidPackageDraft}
                 className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Cancel
-              </Link>
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -2788,12 +2800,13 @@ export default function NewBidPackagePage() {
               >
                 Back
               </button>
-              <Link
-                href="/bidding/all"
+              <button
+                type="button"
+                onClick={discardBidPackageDraft}
                 className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Cancel
-              </Link>
+              </button>
               <button
                 type="button"
                 onClick={() => setActivePanel("bid-email")}
@@ -3001,12 +3014,13 @@ export default function NewBidPackagePage() {
               >
                 Back
               </button>
-              <Link
-                href="/bidding/all"
+              <button
+                type="button"
+                onClick={discardBidPackageDraft}
                 className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
               >
                 Cancel
-              </Link>
+              </button>
               <button
                 type="submit"
                 disabled={submitting}

@@ -351,8 +351,7 @@ export async function createBidProject(payload: {
   }
 
   if (isMissingPackageNumberColumn(error)) {
-    const fallbackInsertPayload = { ...insertPayload };
-    delete fallbackInsertPayload.package_number;
+    const { package_number: _packageNumber, ...fallbackInsertPayload } = insertPayload;
     const { data: fallbackData, error: fallbackError } = await supabase
       .from("bid_projects")
       .insert(fallbackInsertPayload)
@@ -457,8 +456,7 @@ export async function updateBidProject(
   }
 
   if (isMissingPackageNumberColumn(error)) {
-    const fallbackUpdatePayload = { ...updatePayload };
-    delete fallbackUpdatePayload.package_number;
+    const { package_number: _packageNumber, ...fallbackUpdatePayload } = updatePayload;
     const { data: fallbackData, error: fallbackError } = await supabase
       .from("bid_projects")
       .update(fallbackUpdatePayload)

@@ -16,8 +16,8 @@ import { getBidProjectIdForProject } from "@/lib/bidding/project-links";
 const NAV_ITEMS = [
   "Data, Factors & Rates",
   "General Conditions",
-  "Preliminary Estimate Cover Page",
   "Preliminary Estimate Worksheet",
+  "Preliminary Estimate Cover Page",
 ] as const;
 
 type FactorType = "Percent" | "Fixed";
@@ -86,6 +86,11 @@ type ImportedEstimateUnitPrice = {
   costCodeCode: string;
   unitPrice: string;
   subcontractorName: string;
+};
+type WorksheetLineItemPendingDelete = {
+  costCodeId: string;
+  lineItemId: string;
+  label: string;
 };
 type WorksheetRenderedCostCodeGroup = WorksheetCostCodeGroup & {
   total: number;
@@ -1109,6 +1114,8 @@ export default function EstimateWorkspaceV2() {
   const [worksheetLoading, setWorksheetLoading] = useState<boolean>(false);
   const [worksheetError, setWorksheetError] = useState<string | null>(null);
   const [worksheetGcMarkupMessage, setWorksheetGcMarkupMessage] = useState<string | null>(null);
+  const [worksheetLineItemPendingDelete, setWorksheetLineItemPendingDelete] =
+    useState<WorksheetLineItemPendingDelete | null>(null);
   const prelimResizeRef = useRef<{
     columnIndex: number;
     startX: number;
@@ -1503,6 +1510,24 @@ export default function EstimateWorkspaceV2() {
         };
       })
     );
+  };
+  const removeWorksheetLineItem = (costCodeId: string, lineItemId: string) => {
+    setWorksheetCostCodeGroups((prev) =>
+      prev.map((group) => {
+        if (group.id !== costCodeId) return group;
+        return {
+          ...group,
+          lineItems: group.lineItems.filter((line) => line.id !== lineItemId),
+        };
+      })
+    );
+    const cellKey = worksheetUnitPriceCellKey(costCodeId, lineItemId);
+    setWorksheetUnitPriceFormulas((prev) => {
+      const next = { ...prev };
+      delete next[cellKey];
+      return next;
+    });
+    setActiveWorksheetUnitPriceCell((prev) => (prev === cellKey ? null : prev));
   };
   const worksheetUnitPriceCellKey = (costCodeId: string, lineItemId: string) =>
     `${costCodeId}:${lineItemId}`;
@@ -3092,7 +3117,7 @@ export default function EstimateWorkspaceV2() {
                               </tr>
                               {!costCodeGroup.readOnlyRollup &&
                               expandedWorksheetCostCodeIds[costCodeGroup.id]
-                                ? costCodeGroup.lineItems.map((lineItem) => {
+                                ? costCodeGroup.lineItems.map((lineItem, lineIndex) => {
                                     const quantity = parseNumericInput(lineItem.quantity);
                                     const unitPrice = parseNumericInput(lineItem.unitPrice);
                                     const gcMarkup = parseNumericInput(lineItem.gcMarkup);
@@ -3100,6 +3125,7 @@ export default function EstimateWorkspaceV2() {
                                     const parsedUnitPrice = parseDerivedNumericInput(lineItem.unitPrice);
                                     const canEditGcMarkup =
                                       parsedUnitPrice !== null && parsedUnitPrice > 0;
+                                    const canRemoveLineItem = lineIndex > 0;
                                     return (
                                       <tr key={lineItem.id} className="bg-white">
                                         <td className="border-b border-r border-slate-300 p-0 align-top">
@@ -3107,21 +3133,44 @@ export default function EstimateWorkspaceV2() {
                                             {costCodeGroup.code}
                                           </div>
                                         </td>
-                                        <td className="border-b border-r border-slate-300 p-0 align-top">
-                                          <textarea
-                                            value={lineItem.description}
-                                            onChange={(event) =>
-                                              updateWorksheetLineItemCell(
-                                                costCodeGroup.id,
-                                                lineItem.id,
-                                                "description",
-                                                event.target.value
-                                              )
-                                            }
-                                            onInput={autoResizeWorksheetTextarea}
-                                            rows={1}
-                                            className="min-h-8 w-full resize-none border-0 bg-transparent px-6 py-1 text-sm font-semibold leading-5 text-slate-700 focus:bg-white focus:outline-none"
-                                          />
+                                        <td className="group/worksheet-line border-b border-r border-slate-300 p-0 align-top">
+                                          <div className="relative">
+                                            {canRemoveLineItem ? (
+                                              <button
+                                                type="button"
+                                                onClick={() =>
+                                                  setWorksheetLineItemPendingDelete({
+                                                    costCodeId: costCodeGroup.id,
+                                                    lineItemId: lineItem.id,
+                                                    label: lineItem.description.trim(),
+                                                  })
+                                                }
+                                                className="absolute left-1 top-1 z-10 inline-flex h-6 w-6 items-center justify-center rounded text-sm font-semibold text-slate-500 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-900 group-hover/worksheet-line:opacity-100"
+                                                aria-label="Remove line item"
+                                                title="Remove line item"
+                                              >
+                                                ×
+                                              </button>
+                                            ) : null}
+                                            <textarea
+                                              value={lineItem.description}
+                                              onChange={(event) =>
+                                                updateWorksheetLineItemCell(
+                                                  costCodeGroup.id,
+                                                  lineItem.id,
+                                                  "description",
+                                                  event.target.value
+                                                )
+                                              }
+                                              onInput={autoResizeWorksheetTextarea}
+                                              rows={1}
+                                              className={`min-h-8 w-full resize-none border-0 bg-transparent py-1 pr-2 text-sm font-semibold leading-5 text-slate-700 focus:bg-white focus:outline-none ${
+                                                canRemoveLineItem
+                                                  ? "pl-6 transition-[padding] group-hover/worksheet-line:pl-9"
+                                                  : "px-6"
+                                              }`}
+                                            />
+                                          </div>
                                         </td>
                                         <td className="border-b border-r border-slate-300 bg-[#efdfd4] p-0 align-top">
                                           <select
@@ -3451,6 +3500,42 @@ export default function EstimateWorkspaceV2() {
           )}
         </div>
       </div>
+      {worksheetLineItemPendingDelete ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <h3 className="text-lg font-semibold text-slate-900">Delete line item?</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              Remove{" "}
+              <span className="font-semibold text-slate-900">
+                {worksheetLineItemPendingDelete.label || "this line item"}
+              </span>{" "}
+              from the preliminary estimate worksheet?
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setWorksheetLineItemPendingDelete(null)}
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  removeWorksheetLineItem(
+                    worksheetLineItemPendingDelete.costCodeId,
+                    worksheetLineItemPendingDelete.lineItemId
+                  );
+                  setWorksheetLineItemPendingDelete(null);
+                }}
+                className="rounded-md bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
