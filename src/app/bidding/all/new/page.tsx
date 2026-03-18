@@ -135,6 +135,19 @@ type ToastState = {
   message: string;
 };
 
+type MailboxConnectionStatus = "active" | "inactive" | "error";
+
+type MailboxConnectionSummary = {
+  id: string;
+  provider: "microsoft_365";
+  status: MailboxConnectionStatus;
+  email: string;
+  displayName: string;
+  connectedAt: string | null;
+  updatedAt: string | null;
+  tokenExpiresAt: string | null;
+};
+
 type NewSubTradeSelection = {
   id: string;
   code: string;
@@ -384,6 +397,54 @@ function createDefaultDraft(): BidPackageDraft {
 
 function buildTradeLabel(trade: { code: string; description: string | null }): string {
   return `${trade.code}${trade.description ? ` ${trade.description}` : ""}`.trim();
+}
+
+function buildInviteRecipientsPayload(
+  assignedSubsByTradeId: Record<string, AssignedSub[]>,
+  selectedTrades: SelectedTrade[]
+) {
+  const tradeLabelById = new Map(selectedTrades.map((trade) => [trade.id, buildTradeLabel(trade)]));
+  const recipients = new Map<
+    string,
+    {
+      contactName: string;
+      companyName: string;
+      email: string;
+      tradeNames: Set<string>;
+    }
+  >();
+
+  for (const [tradeId, assignedSubs] of Object.entries(assignedSubsByTradeId)) {
+    const tradeName = tradeLabelById.get(tradeId);
+    if (!tradeName) continue;
+
+    for (const sub of assignedSubs) {
+      const email = (sub.bidInviteEmail || sub.email || "").trim().toLowerCase();
+      const companyName = sub.company.trim();
+      if (!email || !companyName) continue;
+
+      const recipientKey = `${companyName.toLowerCase()}::${email}`;
+      const existing = recipients.get(recipientKey);
+      if (!existing) {
+        recipients.set(recipientKey, {
+          contactName: companyName,
+          companyName,
+          email,
+          tradeNames: new Set([tradeName]),
+        });
+        continue;
+      }
+
+      existing.tradeNames.add(tradeName);
+    }
+  }
+
+  return Array.from(recipients.values()).map((recipient) => ({
+    contactName: recipient.contactName,
+    companyName: recipient.companyName,
+    email: recipient.email,
+    tradeNames: Array.from(recipient.tradeNames),
+  }));
 }
 
 function formatProjectLocation(parts: {
@@ -657,6 +718,8 @@ export default function NewBidPackagePage() {
   const [testSendEmail, setTestSendEmail] = useState("");
   const [testSendLoading, setTestSendLoading] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [mailboxConnection, setMailboxConnection] = useState<MailboxConnectionSummary | null>(null);
+  const [loadingMailboxConnection, setLoadingMailboxConnection] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedBidFile[]>([]);
   const [draft, setDraft] = useState<BidPackageDraft>(createDefaultDraft());
@@ -831,6 +894,41 @@ export default function NewBidPackagePage() {
       }
     }
     void loadCompanyUsers();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadMailboxConnection() {
+      setLoadingMailboxConnection(true);
+      try {
+        const response = await fetch("/api/integrations/microsoft/connection", {
+          cache: "no-store",
+        });
+        const payload = (await response.json().catch(() => null)) as
+          | { connection?: MailboxConnectionSummary | null }
+          | null;
+        if (!active) return;
+        if (!response.ok) {
+          setMailboxConnection(null);
+          return;
+        }
+        setMailboxConnection(payload?.connection ?? null);
+      } catch {
+        if (!active) return;
+        setMailboxConnection(null);
+      } finally {
+        if (active) {
+          setLoadingMailboxConnection(false);
+        }
+      }
+    }
+
+    void loadMailboxConnection();
+
     return () => {
       active = false;
     };
@@ -1305,6 +1403,47 @@ export default function NewBidPackagePage() {
     [assignedSubsByTradeId]
   );
 
+  const uniqueInviteRecipients = useMemo(
+    () => buildInviteRecipientsPayload(assignedSubsByTradeId, selectedTrades),
+    [assignedSubsByTradeId, selectedTrades]
+  );
+
+  const mailboxBadge = useMemo(() => {
+    if (loadingMailboxConnection) {
+      return {
+        label: "Loading",
+        className: "bg-slate-200 text-slate-700",
+      };
+    }
+
+    if (!mailboxConnection || mailboxConnection.status === "inactive") {
+      return {
+        label: "Not Connected",
+        className: "bg-slate-200 text-slate-700",
+      };
+    }
+
+    const expiresAt = mailboxConnection.tokenExpiresAt
+      ? new Date(mailboxConnection.tokenExpiresAt).getTime()
+      : 0;
+    if (mailboxConnection.status === "error" || (!!expiresAt && expiresAt <= Date.now())) {
+      return {
+        label: "Expired",
+        className: "bg-amber-100 text-amber-700",
+      };
+    }
+
+    return {
+      label: "Connected",
+      className: "bg-emerald-100 text-emerald-700",
+    };
+  }, [loadingMailboxConnection, mailboxConnection]);
+
+  const canSendInvites =
+    mailboxBadge.label === "Connected" &&
+    !submitting &&
+    uniqueInviteRecipients.length > 0;
+
   const tokenValues = useMemo(() => {
     const dueLabel = draft.due_date
       ? `${new Date(draft.due_date).toLocaleDateString()} ${draft.due_hour}:${draft.due_minute} ${draft.due_period.toUpperCase()}`
@@ -1529,6 +1668,15 @@ export default function NewBidPackagePage() {
         className=""
         onSubmit={async (event) => {
           event.preventDefault();
+          const submitter = (event.nativeEvent as SubmitEvent).submitter as
+            | HTMLButtonElement
+            | HTMLInputElement
+            | null;
+          const submitIntent = submitter?.value === "send" ? "send" : "skip";
+          if (submitIntent === "send" && mailboxBadge.label !== "Connected") {
+            setError("Connect Outlook to send from your mailbox.");
+            return;
+          }
           if (loadingExistingProject) return;
           if (activePanel !== "bid-email") {
             if (activePanel === "general") {
@@ -1606,6 +1754,46 @@ export default function NewBidPackagePage() {
               setSubmitting(false);
               return;
             }
+
+            if (submitIntent === "send") {
+              const inviteResponse = await fetch("/api/bidding/bid-invites/send", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  bidPackageId: editingProjectId,
+                  projectId: editingProjectId,
+                  subjectTemplate: invitationEmailDraft.subject,
+                  bodyTemplate: invitationEmailDraft.message,
+                  templateContext: {
+                    projectName: tokenValues["{project_name}"],
+                    bidPackageName: tokenValues["{bid_package_name}"],
+                    bidDueDate: tokenValues["{bid_due_date}"],
+                    prebidInfo: tokenValues["{prebid_info}"],
+                    contactName: tokenValues["{contact_name}"],
+                    contactEmail: tokenValues["{contact_email}"],
+                  },
+                  recipients: uniqueInviteRecipients,
+                }),
+              });
+              const invitePayload = (await inviteResponse.json().catch(() => null)) as
+                | { error?: string; results?: Array<{ ok: boolean; error?: string }> }
+                | null;
+              if (!inviteResponse.ok) {
+                setError(invitePayload?.error ?? "Bid package was saved, but invites could not be created.");
+                setSubmitting(false);
+                return;
+              }
+              const failedCount =
+                invitePayload?.results?.filter((item) => !item.ok).length ?? 0;
+              setToast({
+                type: failedCount ? "error" : "success",
+                message: failedCount
+                  ? `Invite records created, but ${failedCount} email send(s) failed pending Microsoft step 5.`
+                  : "Bid invites queued successfully.",
+              });
+            }
             writeBidProjectGeneralInfo(editingProjectId, draft);
             writeBidPackageFiles(editingProjectId, uploadedFiles);
             localStorage.removeItem(getBidPackageAutosaveStorageKey(editingProjectId));
@@ -1642,6 +1830,46 @@ export default function NewBidPackagePage() {
             setError("Bid package was created, but assigned subs could not be synced to trade rows.");
             setSubmitting(false);
             return;
+          }
+
+          if (submitIntent === "send") {
+            const inviteResponse = await fetch("/api/bidding/bid-invites/send", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                bidPackageId: created.id,
+                projectId: created.id,
+                subjectTemplate: invitationEmailDraft.subject,
+                bodyTemplate: invitationEmailDraft.message,
+                templateContext: {
+                  projectName: tokenValues["{project_name}"],
+                  bidPackageName: tokenValues["{bid_package_name}"],
+                  bidDueDate: tokenValues["{bid_due_date}"],
+                  prebidInfo: tokenValues["{prebid_info}"],
+                  contactName: tokenValues["{contact_name}"],
+                  contactEmail: tokenValues["{contact_email}"],
+                },
+                recipients: uniqueInviteRecipients,
+              }),
+            });
+            const invitePayload = (await inviteResponse.json().catch(() => null)) as
+              | { error?: string; results?: Array<{ ok: boolean; error?: string }> }
+              | null;
+            if (!inviteResponse.ok) {
+              setError(invitePayload?.error ?? "Bid package was created, but invites could not be created.");
+              setSubmitting(false);
+              return;
+            }
+            const failedCount =
+              invitePayload?.results?.filter((item) => !item.ok).length ?? 0;
+            setToast({
+              type: failedCount ? "error" : "success",
+              message: failedCount
+                ? `Invite records created, but ${failedCount} email send(s) failed pending Microsoft step 5.`
+                : "Bid invites queued successfully.",
+            });
           }
           writeBidProjectGeneralInfo(created.id, draft);
           writeBidPackageFiles(created.id, uploadedFiles);
@@ -3004,6 +3232,39 @@ export default function NewBidPackagePage() {
 
               <aside className="space-y-4 lg:sticky lg:top-24">
                 <article className="rounded-xl border border-slate-200 bg-white p-5">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="text-sm font-semibold text-slate-800">Sender Mailbox</h4>
+                      <p className="mt-1 text-xs text-slate-500">Send invites from the connected Outlook mailbox.</p>
+                    </div>
+                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${mailboxBadge.className}`}>
+                      {mailboxBadge.label}
+                    </span>
+                  </div>
+                  <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                    <div className="font-semibold text-slate-900">
+                      {mailboxConnection?.displayName || "No mailbox connected"}
+                    </div>
+                    <div className="mt-1">
+                      {mailboxConnection?.email || "Connect Outlook to send from your mailbox"}
+                    </div>
+                  </div>
+                  {mailboxBadge.label !== "Connected" ? (
+                    <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                      Connect Outlook to send from your mailbox.
+                    </div>
+                  ) : null}
+                  <div className="mt-3">
+                    <a
+                      href="/settings?section=email-sending"
+                      className="inline-flex rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Manage Connection
+                    </a>
+                  </div>
+                </article>
+
+                <article className="rounded-xl border border-slate-200 bg-white p-5">
                   <div className="mb-3 flex items-center justify-between">
                     <h4 className="text-sm font-semibold text-slate-800">Preview</h4>
                     <button
@@ -3026,10 +3287,14 @@ export default function NewBidPackagePage() {
                   ) : null}
                   <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                     <div>
-                      <span className="font-semibold">From:</span> Primary bidding contact
+                      <span className="font-semibold">From:</span>{" "}
+                      {mailboxConnection?.email || primaryBiddingContactEmail}
                     </div>
                     <div>
-                      <span className="font-semibold">To:</span> Selected subs across trades
+                      <span className="font-semibold">To:</span> {uniqueInviteRecipients.length} recipient{uniqueInviteRecipients.length === 1 ? "" : "s"}
+                    </div>
+                    <div>
+                      <span className="font-semibold">Due Date Preview:</span> {tokenValues["{bid_due_date}"] || "TBD"}
                     </div>
                     <div>
                       <span className="font-semibold">Subject:</span> {renderedSubject || "—"}
@@ -3038,6 +3303,26 @@ export default function NewBidPackagePage() {
                       <span className="font-semibold">Message:</span>
                       <p className="mt-1 whitespace-pre-wrap">{renderedMessage || "—"}</p>
                     </div>
+                  </div>
+                </article>
+
+                <article className="rounded-xl border border-slate-200 bg-white p-5">
+                  <h4 className="text-sm font-semibold text-slate-800">Recipients</h4>
+                  <div className="mt-3 overflow-hidden rounded-md border border-slate-200">
+                    {uniqueInviteRecipients.length ? (
+                      uniqueInviteRecipients.map((recipient) => (
+                        <div
+                          key={`${recipient.companyName}-${recipient.email}`}
+                          className="border-b border-slate-100 px-3 py-2 text-sm last:border-b-0"
+                        >
+                          <div className="font-semibold text-slate-900">{recipient.companyName}</div>
+                          <div className="text-slate-600">{recipient.email}</div>
+                          <div className="mt-1 text-xs text-slate-500">{recipient.tradeNames.join(", ")}</div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="px-3 py-4 text-sm text-slate-500">No recipients selected.</div>
+                    )}
                   </div>
                 </article>
 
@@ -3056,7 +3341,8 @@ export default function NewBidPackagePage() {
                         setTestDialogOpen(true);
                         setTestSendEmail("");
                       }}
-                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                      disabled={mailboxBadge.label !== "Connected"}
+                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       Send test to myself
                     </button>
@@ -3075,6 +3361,23 @@ export default function NewBidPackagePage() {
                         ? `Draft saved ${new Date(invitationSavedAt).toLocaleTimeString()}`
                         : "Draft not saved yet."}
                   </div>
+                  <div className="mt-4 flex items-center justify-end gap-2 border-t border-slate-200 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => setActivePanel("invite-subs")}
+                      className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      value="send"
+                      disabled={!canSendInvites}
+                      className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {submitting ? "Sending..." : "Send Invites"}
+                    </button>
+                  </div>
                 </article>
               </aside>
             </section>
@@ -3083,6 +3386,11 @@ export default function NewBidPackagePage() {
             {selectedSubsCount === 0 ? (
               <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
                 Select at least 1 subcontractor to invite, or choose Skip to create the bid package without invites.
+              </p>
+            ) : null}
+            {mailboxBadge.label !== "Connected" ? (
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+                Connect Outlook to send from your mailbox.
               </p>
             ) : null}
 
@@ -3103,6 +3411,7 @@ export default function NewBidPackagePage() {
               </button>
               <button
                 type="submit"
+                value="skip"
                 disabled={submitting}
                 className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -3110,10 +3419,11 @@ export default function NewBidPackagePage() {
               </button>
               <button
                 type="submit"
-                disabled={submitting || selectedSubsCount === 0}
+                value="send"
+                disabled={!canSendInvites}
                 className="rounded-md bg-orange-500 px-8 py-2 text-base font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {submitting ? "Creating..." : "Send Invites"}
+                {submitting ? "Sending..." : "Send Invites"}
               </button>
             </div>
           </>

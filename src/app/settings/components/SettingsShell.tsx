@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { EmailSendingSection } from "./EmailSendingSection";
 import { EmptyState } from "./EmptyState";
 import { SettingsCard } from "./SettingsCard";
 import { SettingsLayout } from "./SettingsLayout";
@@ -25,6 +26,12 @@ const settingsNavItems: SettingsNavItem[] = [
     label: "Company Cost Codes",
     description: "Cost codes and bid settings",
     icon: "📐",
+  },
+  {
+    id: "email-sending",
+    label: "Email Sending",
+    description: "Outlook and mailbox auth",
+    icon: "✉️",
   },
   { id: "integrations", label: "Integrations", description: "Connected apps", icon: "🔌" },
   {
@@ -1028,6 +1035,8 @@ export function SettingsShell() {
     </div>
   );
 
+  const renderEmailSending = () => <EmailSendingSection />;
+
   const renderIntegrations = () => (
     <div className="space-y-4">
       <SettingsSectionHeader title="Integrations" description="Connect BuilderOS to your critical systems." />
@@ -1212,6 +1221,7 @@ export function SettingsShell() {
     team: renderTeam(),
     roles: renderRoles(),
     "project-defaults": renderProjectDefaults(),
+    "email-sending": renderEmailSending(),
     integrations: renderIntegrations(),
     notifications: renderNotifications(),
     billing: renderBilling(),
