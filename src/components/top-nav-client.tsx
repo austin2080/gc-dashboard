@@ -21,6 +21,8 @@ const COMPANY_TOOL_ITEMS = [
   { label: "Settings", href: "/settings", description: "Configure account, team, and company options." },
 ];
 
+const BRAND_NAME = "BuildRight";
+
 function projectLabel(project: ProjectRow) {
   return project.project_number ? `${project.project_number} - ${project.name}` : project.name;
 }
@@ -118,6 +120,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
   const activeProjectIsRegular = activeProject ? projects.some((project) => project.id === activeProject.id) : false;
 
   const withMode = useCallback((href: string) => {
+    if (href.startsWith("/bidding")) return href;
     if (mode !== "waiverdesk") return href;
     if (href.startsWith("/waiverdesk")) return href;
     return `/waiverdesk${href}`;
@@ -127,7 +130,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
   const getProjectSwitchUrl = (projectId: string) => {
     const isRegularProject = projects.some((project) => project.id === projectId);
     if (isRegularProject) return withMode(`/projects/${projectId}`);
-    return appendProjectQuery(withMode("/bidding"), projectId);
+    return appendProjectQuery("/bidding", projectId);
   };
   const clearProjectContext = () => {
     localStorage.removeItem(ACTIVE_PROJECT_STORAGE_KEY);
@@ -267,10 +270,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
       <div className="px-4 py-3 md:px-6">
         <div className="flex flex-wrap items-center gap-2 md:flex-nowrap">
           <Link href={homeHref} className="min-w-fit rounded-lg px-2 py-1.5 hover:bg-white/10">
-            {mode === "waiverdesk" ? null : (
-              <span className="text-xs uppercase tracking-widest text-white/70">GC</span>
-            )}
-            <div className="text-base font-semibold">{mode === "waiverdesk" ? "BuilderOS" : "Dashboard"}</div>
+            <div className="text-base font-semibold">{BRAND_NAME}</div>
           </Link>
 
           <div className="relative min-w-[220px] flex-1 md:max-w-[360px]" ref={projectsRef}>

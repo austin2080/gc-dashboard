@@ -24,8 +24,8 @@ const spaceGrotesk = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "BuildOS",
-  description: "BuildOS",
+  title: "Bid Management Software",
+  description: "Bid Management Software",
 };
 
 export default async function RootLayout({
