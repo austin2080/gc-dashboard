@@ -37,11 +37,26 @@ export default async function RootLayout({
   const currentPath = headerList.get("x-pathname") ?? "/";
   const isWaiverPath = currentPath.startsWith("/waiverdesk");
   const isRequestAccess = currentPath.startsWith("/request-access");
+  const isAuthPage = currentPath === "/login" || currentPath === "/logout";
+
+  if (isAuthPage) {
+    return (
+      <html lang="en" className={cn("font-sans", geist.variable)}>
+        <body className={`${inter.variable} ${spaceGrotesk.variable} antialiased`}>
+          <div className="min-h-screen bg-white text-black">{children}</div>
+        </body>
+      </html>
+    );
+  }
 
   const supabase = await createClient();
   const { data } = await supabase.auth.getUser();
   const userId = data.user?.id ?? null;
   let activeMode: "waiverdesk" | "pm" = "waiverdesk";
+
+  if (!userId) {
+    redirect("/login");
+  }
 
   if (userId) {
     const { data: profile } = await supabase

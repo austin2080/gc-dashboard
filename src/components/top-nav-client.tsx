@@ -98,6 +98,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
     nextProjectId: string;
   } | null>(null);
   const hasUnreadNotifications = true;
+  const hideNav = pathname === "/login" || pathname === "/logout";
 
   const projectsRef = useRef<HTMLDivElement | null>(null);
   const toolsRef = useRef<HTMLDivElement | null>(null);
@@ -264,6 +265,10 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
     router.push(getProjectSwitchUrl(projectId));
     closeMenus();
   };
+
+  if (hideNav) {
+    return null;
+  }
 
   return (
     <header className="sticky top-0 z-20 w-full border-b border-white/10 bg-[color:var(--brand)] text-white">
