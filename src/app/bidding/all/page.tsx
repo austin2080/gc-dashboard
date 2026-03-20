@@ -733,7 +733,7 @@ export default function AllBidsPage() {
                       </svg>
                     </div>
                     <span className="text-sm font-normal text-slate-600">
-                      Emails will be sent from: test@builderos.com
+                      Emails will be sent from: test@buildrightos.com
                     </span>
                   </label>
 

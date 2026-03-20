@@ -1,7 +1,10 @@
 import { randomBytes } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getMailboxConnection } from "@/lib/email/connections";
-import { sendBidInviteViaMicrosoft } from "@/lib/email/sendBidInvite";
+import {
+  sendBidInviteViaMicrosoft,
+  sendBidInviteViaSendgrid,
+} from "@/lib/email/sendBidInvite";
 
 type BidInviteRecipientInput = {
   contactName: string;
@@ -73,7 +76,7 @@ export async function createAndSendBidInvites(payload: CreateBidInvitesPayload) 
   });
 
   if (!mailboxConnection || mailboxConnection.status !== "active") {
-    throw new Error("Connect an active Microsoft mailbox before sending bid invites.");
+    throw new Error("Configure an active email sender before sending bid invites.");
   }
 
   const uniqueRecipients = new Map<string, BidInviteRecipientInput>();
@@ -179,10 +182,13 @@ export async function createAndSendBidInvites(payload: CreateBidInvitesPayload) 
     await insertInviteEvent({
       bidInviteId: inviteRow.id,
       eventType: "send_requested",
-      metadata: { provider: "microsoft_365" },
+      metadata: { provider: mailboxConnection.provider },
     });
 
-    const sendResult = await sendBidInviteViaMicrosoft(inviteRow.id, payload.origin);
+    const sendResult =
+      mailboxConnection.provider === "sendgrid_app"
+        ? await sendBidInviteViaSendgrid(inviteRow.id)
+        : await sendBidInviteViaMicrosoft(inviteRow.id, payload.origin);
     results.push({
       inviteId: inviteRow.id,
       ok: sendResult.ok,

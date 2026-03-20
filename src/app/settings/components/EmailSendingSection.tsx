@@ -7,7 +7,7 @@ import { SettingsSectionHeader } from "./SettingsSectionHeader";
 
 type ConnectionPayload = {
   id: string;
-  provider: "microsoft_365";
+  provider: "microsoft_365" | "sendgrid_app";
   status: "active" | "inactive" | "error";
   email: string;
   displayName: string;
@@ -58,6 +58,9 @@ export function EmailSendingSection() {
   const [connection, setConnection] = useState<ConnectionPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectingProvider, setSelectingProvider] = useState<"sendgrid_app" | "microsoft_365" | null>(
+    null
+  );
   const [disconnecting, setDisconnecting] = useState(false);
 
   useEffect(() => {
@@ -68,7 +71,7 @@ export function EmailSendingSection() {
       setError(null);
 
       try {
-        const response = await fetch("/api/integrations/microsoft/connection", {
+        const response = await fetch("/api/settings/email-sending/connection", {
           cache: "no-store",
         });
         const payload = (await response.json().catch(() => null)) as
@@ -137,12 +140,41 @@ export function EmailSendingSection() {
   const badge = getMailboxBadge(connection, loading);
   const isConnected = badge.label === "Connected";
   const isExpired = badge.label === "Expired";
+  const usingSendgrid = connection?.provider === "sendgrid_app" && connection.status === "active";
+
+  async function selectProvider(provider: "sendgrid_app" | "microsoft_365") {
+    setSelectingProvider(provider);
+    setError(null);
+    try {
+      const response = await fetch("/api/settings/email-sending/connection", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ provider }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { connection?: ConnectionPayload | null; error?: string }
+        | null;
+
+      if (!response.ok) {
+        setError(payload?.error ?? "Unable to update email sending provider.");
+        return;
+      }
+
+      setConnection(payload?.connection ?? null);
+    } catch {
+      setError("Unable to update email sending provider.");
+    } finally {
+      setSelectingProvider(null);
+    }
+  }
 
   return (
     <div className="space-y-4">
       <SettingsSectionHeader
         title="Email Sending"
-        description="Connect Microsoft 365 so BuilderOS can send bid package invites through the signed-in user mailbox."
+        description="Choose whether bid invites are sent through the BuildRight app or the connected Outlook mailbox."
       />
 
       {microsoftStatus === "connected" ? (
@@ -164,8 +196,69 @@ export function EmailSendingSection() {
       ) : null}
 
       <SettingsCard
-        title="Connect Microsoft 365"
-        subtitle="Delegated Microsoft Graph auth with Mail.Send and offline_access. BuilderOS remains the system of record for invite workflows."
+        title="Sending Provider"
+        subtitle="Select the default sender for bid invite emails."
+      >
+        <div className="grid gap-3 md:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => selectProvider("sendgrid_app")}
+            disabled={selectingProvider !== null}
+            className={`rounded-xl border p-4 text-left transition ${
+              usingSendgrid
+                ? "border-emerald-300 bg-emerald-50"
+                : "border-slate-200 bg-white hover:bg-slate-50"
+            }`}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-semibold text-slate-900">Send from App</div>
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  usingSendgrid ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"
+                }`}
+              >
+                {usingSendgrid ? "Selected" : "Available"}
+              </span>
+            </div>
+            <div className="mt-2 text-sm text-slate-600">
+              Use BuildRight App with SendGrid to send invites from `{connection?.provider === "sendgrid_app" ? connection.email : "SENDGRID_VERIFIED_SENDER"}`.
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => selectProvider("microsoft_365")}
+            disabled={selectingProvider !== null}
+            className={`rounded-xl border p-4 text-left transition ${
+              connection?.provider === "microsoft_365" && connection.status === "active"
+                ? "border-emerald-300 bg-emerald-50"
+                : "border-slate-200 bg-white hover:bg-slate-50"
+            }`}
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-semibold text-slate-900">Send from Outlook</div>
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  connection?.provider === "microsoft_365" && connection.status === "active"
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-slate-100 text-slate-600"
+                }`}
+              >
+                {connection?.provider === "microsoft_365" && connection.status === "active"
+                  ? "Selected"
+                  : "Optional"}
+              </span>
+            </div>
+            <div className="mt-2 text-sm text-slate-600">
+              Use the connected delegated Microsoft 365 mailbox.
+            </div>
+          </button>
+        </div>
+      </SettingsCard>
+
+      <SettingsCard
+        title="Connection Details"
+        subtitle="Current sender status and mailbox information."
       >
         <div className="space-y-4">
           <div className="grid gap-3 md:grid-cols-2">
@@ -183,6 +276,8 @@ export function EmailSendingSection() {
               <div className="mt-3 text-sm text-slate-600">
                 {loading
                   ? "Checking Microsoft 365 connection..."
+                  : usingSendgrid
+                    ? "BuildRight App will send bid invite emails through SendGrid."
                   : isExpired
                     ? "Reconnect Microsoft 365 to refresh delegated sending access."
                     : "Send mail as the signed-in user via Microsoft Graph."}
@@ -194,10 +289,10 @@ export function EmailSendingSection() {
                 Connected Mailbox
               </div>
               <div className="mt-2 text-sm font-medium text-slate-900">
-                {connection?.displayName || "No mailbox connected"}
+                {connection?.displayName || "No sender configured"}
               </div>
               <div className="mt-1 text-sm text-slate-600">
-                {connection?.email || "Connect Outlook to send from the user mailbox."}
+                {connection?.email || "Set SENDGRID_VERIFIED_SENDER or connect Outlook."}
               </div>
               <div className="mt-3 text-xs text-slate-500">
                 Connected {formatConnectionDate(connection?.connectedAt ?? null)}
@@ -211,16 +306,19 @@ export function EmailSendingSection() {
           </div>
 
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-            BuilderOS requests `openid`, `profile`, `email`, `offline_access`, and Microsoft Graph `Mail.Send`.
-            Tokens are handled server-side only. Mail is not sent from the browser.
+            {usingSendgrid
+              ? "SendGrid runs server-side through the BuildRight app. API keys remain in environment variables only."
+              : "BuilderOS requests `openid`, `profile`, `email`, `offline_access`, and Microsoft Graph `Mail.Send`. Tokens are handled server-side only."}
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-sm text-slate-600">
-              Outlook-first sending is scoped to the user&apos;s delegated mailbox connection.
+              {usingSendgrid
+                ? "App sending is the default provider for bid invites."
+                : "Outlook sending is scoped to the user&apos;s delegated mailbox connection."}
             </div>
             <div className="flex items-center gap-2">
-              {isConnected ? (
+              {isConnected && connection?.provider === "microsoft_365" ? (
                 <button
                   type="button"
                   onClick={disconnectMailbox}

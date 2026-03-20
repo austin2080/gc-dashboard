@@ -139,7 +139,7 @@ type MailboxConnectionStatus = "active" | "inactive" | "error";
 
 type MailboxConnectionSummary = {
   id: string;
-  provider: "microsoft_365";
+  provider: "microsoft_365" | "sendgrid_app";
   status: MailboxConnectionStatus;
   email: string;
   displayName: string;
@@ -905,7 +905,7 @@ export default function NewBidPackagePage() {
     async function loadMailboxConnection() {
       setLoadingMailboxConnection(true);
       try {
-        const response = await fetch("/api/integrations/microsoft/connection", {
+        const response = await fetch("/api/settings/email-sending/connection", {
           cache: "no-store",
         });
         const payload = (await response.json().catch(() => null)) as
@@ -1674,7 +1674,7 @@ export default function NewBidPackagePage() {
             | null;
           const submitIntent = submitter?.value === "send" ? "send" : "skip";
           if (submitIntent === "send" && mailboxBadge.label !== "Connected") {
-            setError("Connect Outlook to send from your mailbox.");
+            setError("Configure an active email sender before sending invites.");
             return;
           }
           if (loadingExistingProject) return;
@@ -1790,7 +1790,7 @@ export default function NewBidPackagePage() {
               setToast({
                 type: failedCount ? "error" : "success",
                 message: failedCount
-                  ? `Invite records created, but ${failedCount} email send(s) failed pending Microsoft step 5.`
+                  ? `Invite records created, but ${failedCount} email send(s) failed.`
                   : "Bid invites queued successfully.",
               });
             }
@@ -1867,7 +1867,7 @@ export default function NewBidPackagePage() {
             setToast({
               type: failedCount ? "error" : "success",
               message: failedCount
-                ? `Invite records created, but ${failedCount} email send(s) failed pending Microsoft step 5.`
+                ? `Invite records created, but ${failedCount} email send(s) failed.`
                 : "Bid invites queued successfully.",
             });
           }
@@ -3235,23 +3235,23 @@ export default function NewBidPackagePage() {
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
                       <h4 className="text-sm font-semibold text-slate-800">Sender Mailbox</h4>
-                      <p className="mt-1 text-xs text-slate-500">Send invites from the connected Outlook mailbox.</p>
+                      <p className="mt-1 text-xs text-slate-500">Send invites from the active email sender.</p>
                     </div>
                     <span className={`rounded-full px-3 py-1 text-xs font-semibold ${mailboxBadge.className}`}>
                       {mailboxBadge.label}
                     </span>
                   </div>
-                  <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                    <div className="font-semibold text-slate-900">
-                      {mailboxConnection?.displayName || "No mailbox connected"}
+                    <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                      <div className="font-semibold text-slate-900">
+                      {mailboxConnection?.displayName || "No sender configured"}
+                      </div>
+                      <div className="mt-1">
+                      {mailboxConnection?.email || "Configure Send from App or connect Outlook"}
+                      </div>
                     </div>
-                    <div className="mt-1">
-                      {mailboxConnection?.email || "Connect Outlook to send from your mailbox"}
-                    </div>
-                  </div>
                   {mailboxBadge.label !== "Connected" ? (
                     <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                      Connect Outlook to send from your mailbox.
+                      Configure an active email sender before sending invites.
                     </div>
                   ) : null}
                   <div className="mt-3">
@@ -3390,7 +3390,7 @@ export default function NewBidPackagePage() {
             ) : null}
             {mailboxBadge.label !== "Connected" ? (
               <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
-                Connect Outlook to send from your mailbox.
+                Configure an active email sender before sending invites.
               </p>
             ) : null}
 

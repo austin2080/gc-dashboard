@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { sendSendgridMail } from "@/lib/email/providers/sendgrid";
 import {
   getMicrosoftMailboxCredential,
   updateMicrosoftMailboxTokens,
@@ -165,6 +166,90 @@ export async function sendBidInviteViaMicrosoft(inviteId: string, origin: string
       eventType: "failed",
       metadata: {
         provider: "microsoft_365",
+        reason: message,
+      },
+    });
+
+    return {
+      ok: false as const,
+      error: message,
+    };
+  }
+}
+
+function buildInviteHtml(bodySnapshot: string) {
+  return bodySnapshot
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br />");
+}
+
+export async function sendBidInviteViaSendgrid(inviteId: string) {
+  const admin = createAdminClient();
+  const { data: invite, error: inviteError } = await admin
+    .from("bid_invites")
+    .select("id,mailbox_connection_id,email,contact_name,subject,body_snapshot")
+    .eq("id", inviteId)
+    .maybeSingle<StoredInviteRecord>();
+
+  if (inviteError || !invite) {
+    throw inviteError ?? new Error("Invite not found.");
+  }
+
+  try {
+    const sendResult = await sendSendgridMail({
+      to: [
+        {
+          email: invite.email,
+          name: invite.contact_name || null,
+        },
+      ],
+      subject: invite.subject,
+      textBody: invite.body_snapshot,
+      htmlBody: buildInviteHtml(invite.body_snapshot),
+    });
+
+    await admin
+      .from("bid_invites")
+      .update({
+        status: "sent",
+        sent_at: new Date().toISOString(),
+        failed_at: null,
+        failure_reason: null,
+        provider_message_id: sendResult.providerMessageId,
+      })
+      .eq("id", inviteId);
+
+    await insertInviteEvent({
+      bidInviteId: inviteId,
+      eventType: "sent",
+      metadata: {
+        provider: "sendgrid_app",
+        statusCode: sendResult.statusCode,
+      },
+    });
+
+    return {
+      ok: true as const,
+      providerMessageId: sendResult.providerMessageId,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to send SendGrid invite.";
+    await admin
+      .from("bid_invites")
+      .update({
+        status: "failed",
+        failed_at: new Date().toISOString(),
+        failure_reason: message,
+      })
+      .eq("id", inviteId);
+
+    await insertInviteEvent({
+      bidInviteId: inviteId,
+      eventType: "failed",
+      metadata: {
+        provider: "sendgrid_app",
         reason: message,
       },
     });
