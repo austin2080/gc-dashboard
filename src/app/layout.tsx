@@ -37,7 +37,8 @@ export default async function RootLayout({
   const currentPath = headerList.get("x-pathname") ?? "/";
   const isWaiverPath = currentPath.startsWith("/waiverdesk");
   const isRequestAccess = currentPath.startsWith("/request-access");
-  const isAuthPage = currentPath === "/login" || currentPath === "/logout";
+  const isAuthPage =
+    currentPath === "/login" || currentPath === "/logout" || currentPath === "/reset-password";
 
   if (isAuthPage) {
     return (

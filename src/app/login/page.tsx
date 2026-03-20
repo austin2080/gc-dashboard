@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { useRouter } from "next/navigation";
 
@@ -12,9 +12,10 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resettingPassword, setResettingPassword] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  async function signIn(e: React.FormEvent) {
+  async function signIn(e: FormEvent) {
     e.preventDefault();
     setLoading(true);
     setMsg(null);
@@ -30,6 +31,34 @@ export default function LoginPage() {
 
     router.push("/bidding/all");
     router.refresh();
+  }
+
+  async function handleForgotPassword() {
+    const normalizedEmail = email.trim();
+    if (!normalizedEmail) {
+      setMsg("Enter your email address first, then click Forgot password.");
+      return;
+    }
+
+    setResettingPassword(true);
+    setMsg(null);
+
+    const redirectTo =
+      typeof window !== "undefined"
+        ? `${window.location.origin}/reset-password`
+        : undefined;
+    const { error } = await supabase.auth.resetPasswordForEmail(normalizedEmail, {
+      ...(redirectTo ? { redirectTo } : {}),
+    });
+
+    setResettingPassword(false);
+
+    if (error) {
+      setMsg(error.message);
+      return;
+    }
+
+    setMsg("Password reset email sent. Check your inbox for the reset link.");
   }
 
   return (
@@ -90,10 +119,10 @@ export default function LoginPage() {
               <div className="flex justify-end">
                 <button
                   type="button"
-                  onClick={() => setMsg("Forgot password flow will be added later.")}
+                  onClick={handleForgotPassword}
                   className="text-base font-medium text-[#c6c0b7] transition hover:text-white sm:text-lg"
                 >
-                  Forgot password?
+                  {resettingPassword ? "Sending..." : "Forgot password?"}
                 </button>
               </div>
             </div>

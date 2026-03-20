@@ -98,7 +98,7 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
     nextProjectId: string;
   } | null>(null);
   const hasUnreadNotifications = true;
-  const hideNav = pathname === "/login" || pathname === "/logout";
+  const hideNav = pathname === "/login" || pathname === "/logout" || pathname === "/reset-password";
 
   const projectsRef = useRef<HTMLDivElement | null>(null);
   const toolsRef = useRef<HTMLDivElement | null>(null);
