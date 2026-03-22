@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { addDays } from "date-fns";
 import {
   createBidProject,
   createBidSubcontractor,
@@ -72,6 +73,8 @@ type BidPackageDraft = {
   construction_duration_weeks: string;
   project_duration_weeks: string;
   tax_city_number: string;
+  tax_city_name: string;
+  tax_rate: string;
   anticipated_award_date: string;
   countdown_emails: boolean;
   accept_submissions_past_due: boolean;
@@ -171,6 +174,11 @@ type ProjectTaxCityOption = {
   taxRate: string;
 };
 
+type DatePickerPreset = {
+  label: string;
+  daysFromToday: number;
+};
+
 const INVITATION_EMAIL_DRAFT_STORAGE_KEY = "bidding-all-new-invitation-email-draft";
 const BID_PACKAGE_AUTOSAVE_STORAGE_KEY = "bidding-all-new-package-autosave-v1";
 const BID_PROJECT_GENERAL_INFO_STORAGE_KEY = "bidding-project-general-info-v1";
@@ -259,6 +267,26 @@ function addDaysToIsoDate(isoDate: string, days: number) {
   return `${nextYear}-${nextMonth}-${nextDay}`;
 }
 
+function sanitizeTaxRateInput(value: string): string {
+  return value.replace(/[^0-9.]/g, "");
+}
+
+function formatTaxRateDisplay(value: string): string {
+  const sanitized = sanitizeTaxRateInput(value).trim();
+  if (!sanitized) return "";
+  const numeric = Number(sanitized);
+  if (!Number.isFinite(numeric)) return "";
+  return `${numeric.toFixed(2)}%`;
+}
+
+function normalizeTaxRateValue(value: string): string {
+  const sanitized = sanitizeTaxRateInput(value).trim();
+  if (!sanitized) return "";
+  const numeric = Number(sanitized);
+  if (!Number.isFinite(numeric)) return "";
+  return numeric.toFixed(2);
+}
+
 function calculateDurationWeeks(startIsoDate: string, endIsoDate: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startIsoDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endIsoDate)) {
     return null;
@@ -287,17 +315,35 @@ function DatePickerField({
   onChange,
   disabled,
   className,
+  presets,
 }: {
   value: string;
   onChange: (next: string) => void;
   disabled?: boolean;
   className?: string;
+  presets?: DatePickerPreset[];
 }) {
   const [open, setOpen] = useState(false);
   const selectedDate = parseIsoDate(value);
+  const [currentMonth, setCurrentMonth] = useState<Date>(
+    selectedDate ?? new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+  );
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) {
+          if (selectedDate) {
+            setCurrentMonth(new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1));
+          } else {
+            const today = new Date();
+            setCurrentMonth(new Date(today.getFullYear(), today.getMonth(), 1));
+          }
+        }
+        setOpen(nextOpen);
+      }}
+    >
       <PopoverTrigger asChild>
         <Button
           type="button"
@@ -309,19 +355,52 @@ function DatePickerField({
           {selectedDate ? DATE_DISPLAY_FORMATTER.format(selectedDate) : "Select date"}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
+      <PopoverContent className="h-auto w-[340px] min-w-[340px] p-0" align="start">
         <Calendar
           mode="single"
           selected={selectedDate}
+          month={currentMonth}
+          onMonthChange={setCurrentMonth}
           captionLayout="dropdown"
           fromYear={2000}
           toYear={2100}
+          fixedWeeks
+          className="w-full bg-transparent p-2 pb-1 [--cell-size:--spacing(10)]"
+          classNames={{
+            dropdowns: "flex h-(--cell-size) w-full items-center justify-center gap-2 text-base font-medium",
+            caption_label: "text-base font-medium",
+            weekday: "flex-1 rounded-(--cell-radius) text-sm font-medium text-muted-foreground select-none",
+          }}
           onSelect={(date) => {
+            if (date) {
+              setCurrentMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+            }
             onChange(date ? toIsoDate(date) : "");
             setOpen(false);
           }}
         />
-        <div className="border-t p-2">
+        {presets?.length ? (
+          <div className="grid grid-cols-2 gap-2 border-t px-3 py-2">
+            {presets.map((preset, index) => (
+              <Button
+                key={preset.label}
+                type="button"
+                variant="outline"
+                size="sm"
+                className={index === presets.length - 1 && presets.length % 2 === 1 ? "col-span-2" : "w-full"}
+                onClick={() => {
+                  const nextDate = addDays(new Date(), preset.daysFromToday);
+                  setCurrentMonth(new Date(nextDate.getFullYear(), nextDate.getMonth(), 1));
+                  onChange(toIsoDate(nextDate));
+                  setOpen(false);
+                }}
+              >
+                {preset.label}
+              </Button>
+            ))}
+          </div>
+        ) : null}
+        <div className="border-t px-3 py-2">
           <Button
             type="button"
             variant="outline"
@@ -385,6 +464,8 @@ function createDefaultDraft(): BidPackageDraft {
     construction_duration_weeks: "",
     project_duration_weeks: "",
     tax_city_number: "",
+    tax_city_name: "",
+    tax_rate: "",
     anticipated_award_date: "",
     countdown_emails: false,
     accept_submissions_past_due: false,
@@ -584,7 +665,11 @@ type BidProjectGeneralInfoCacheRow = {
   constructionDurationWeeks: string;
   projectDurationWeeks: string;
   taxCityNumber: string;
+  taxCityName: string;
+  taxRate: string;
 };
+
+const MANUAL_TAX_CITY_VALUE = "__manual";
 
 function getBidPackageAutosaveStorageKey(projectId?: string | null): string {
   return projectId ? `${BID_PACKAGE_AUTOSAVE_STORAGE_KEY}:${projectId}` : BID_PACKAGE_AUTOSAVE_STORAGE_KEY;
@@ -627,6 +712,8 @@ function readBidProjectGeneralInfoMap(): Record<string, BidProjectGeneralInfoCac
         projectDurationWeeks:
           typeof row.projectDurationWeeks === "string" ? row.projectDurationWeeks : "",
         taxCityNumber: typeof row.taxCityNumber === "string" ? row.taxCityNumber : "",
+        taxCityName: typeof row.taxCityName === "string" ? row.taxCityName : "",
+        taxRate: typeof row.taxRate === "string" ? row.taxRate : "",
       };
     }
     return next;
@@ -662,6 +749,8 @@ function writeBidProjectGeneralInfo(projectId: string, draft: BidPackageDraft) {
     constructionDurationWeeks: (draft.construction_duration_weeks ?? "").trim(),
     projectDurationWeeks: (draft.project_duration_weeks ?? "").trim(),
     taxCityNumber: (draft.tax_city_number ?? "").trim(),
+    taxCityName: (draft.tax_city_name ?? "").trim(),
+    taxRate: (draft.tax_rate ?? "").trim(),
   };
   writeBidProjectGeneralInfoMap(current);
 }
@@ -770,6 +859,7 @@ export default function NewBidPackagePage() {
     );
     return matchingUser?.email || "test@builderos.com";
   }, [companyUserOptions, draft.primary_bidding_contact]);
+  const activeSenderEmail = mailboxConnection?.email || primaryBiddingContactEmail;
 
   const handleUploadFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -1045,6 +1135,8 @@ export default function NewBidPackagePage() {
           construction_duration_weeks: cachedGeneralInfo?.constructionDurationWeeks ?? "",
           project_duration_weeks: cachedGeneralInfo?.projectDurationWeeks ?? "",
           tax_city_number: cachedGeneralInfo?.taxCityNumber ?? "",
+          tax_city_name: cachedGeneralInfo?.taxCityName ?? "",
+          tax_rate: cachedGeneralInfo?.taxRate ?? "",
           budget:
             detail.project.budget !== null && detail.project.budget !== undefined
               ? String(detail.project.budget)
@@ -1283,6 +1375,11 @@ export default function NewBidPackagePage() {
 
   const selectedProjectTaxCity =
     PROJECT_TAX_CITY_OPTIONS.find((option) => option.number === draft.tax_city_number) ?? null;
+  const isManualTaxRate = draft.tax_city_number === MANUAL_TAX_CITY_VALUE;
+  const manualTaxCityName = (draft.tax_city_name ?? "").trim();
+  const displayedProjectTaxRate = isManualTaxRate
+    ? formatTaxRateDisplay(draft.tax_rate ?? "")
+    : formatTaxRateDisplay(selectedProjectTaxCity?.taxRate ?? "");
 
   const addTradeFromCostCode = (costCode: CostCodeOption) => {
     setSelectedTrades((prev) => {
@@ -2055,7 +2152,7 @@ export default function NewBidPackagePage() {
                 </SelectContent>
               </Select>
               <span className="text-sm font-normal text-slate-600">
-                Emails will be sent from: {primaryBiddingContactEmail}
+                Emails will be sent from: {activeSenderEmail}
               </span>
             </label>
 
@@ -2137,6 +2234,12 @@ export default function NewBidPackagePage() {
                   value={draft.due_date}
                   onChange={(next) => setDraft((prev) => ({ ...prev, due_date: next }))}
                   disabled={draft.tbd_due_date}
+                  presets={[
+                    { label: "Today", daysFromToday: 0 },
+                    { label: "Tomorrow", daysFromToday: 1 },
+                    { label: "In a week", daysFromToday: 7 },
+                    { label: "In 2 weeks", daysFromToday: 14 },
+                  ]}
                 />
                 <Select
                   value={draft.due_hour}
@@ -2378,6 +2481,14 @@ export default function NewBidPackagePage() {
                     setDraft((prev) => ({
                       ...prev,
                       tax_city_number: value === "__none" ? "" : value,
+                      tax_city_name:
+                        value === MANUAL_TAX_CITY_VALUE
+                          ? prev.tax_city_name ?? ""
+                          : PROJECT_TAX_CITY_OPTIONS.find((option) => option.number === value)?.city ?? "",
+                      tax_rate:
+                        value === MANUAL_TAX_CITY_VALUE
+                          ? prev.tax_rate
+                          : PROJECT_TAX_CITY_OPTIONS.find((option) => option.number === value)?.taxRate ?? "",
                     }))
                   }
                 >
@@ -2391,14 +2502,38 @@ export default function NewBidPackagePage() {
                         {option.city}
                       </SelectItem>
                     ))}
+                    <SelectItem value={MANUAL_TAX_CITY_VALUE}>
+                      {manualTaxCityName || "Manual"}
+                    </SelectItem>
                   </SelectContent>
                 </Select>
+                {isManualTaxRate ? (
+                  <input
+                    value={draft.tax_city_name ?? ""}
+                    onChange={(event) =>
+                      setDraft((prev) => ({ ...prev, tax_city_name: event.target.value }))
+                    }
+                    className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                    placeholder="Enter city"
+                  />
+                ) : null}
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Tax Rate
-                <div className="rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-900 shadow-sm">
-                  {selectedProjectTaxCity ? `${selectedProjectTaxCity.taxRate}%` : "-"}
-                </div>
+                <input
+                  value={displayedProjectTaxRate}
+                  onChange={(event) =>
+                    setDraft((prev) => ({ ...prev, tax_rate: sanitizeTaxRateInput(event.target.value) }))
+                  }
+                  onBlur={() =>
+                    setDraft((prev) => ({ ...prev, tax_rate: normalizeTaxRateValue(prev.tax_rate ?? "") }))
+                  }
+                  disabled={!isManualTaxRate}
+                  className={`rounded-md border px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none ${
+                    isManualTaxRate ? "border-slate-300 bg-white" : "border-slate-300 bg-slate-50 text-slate-500"
+                  }`}
+                  placeholder={isManualTaxRate ? "Enter tax percentage" : "-"}
+                />
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Construction Start Date
@@ -2998,7 +3133,7 @@ export default function NewBidPackagePage() {
                                           <button
                                             type="button"
                                             onClick={() => addSubToTrade(trade.id, sub)}
-                                            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+                                            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100"
                                           >
                                             + Add
                                           </button>
@@ -3288,7 +3423,7 @@ export default function NewBidPackagePage() {
                   <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                     <div>
                       <span className="font-semibold">From:</span>{" "}
-                      {mailboxConnection?.email || primaryBiddingContactEmail}
+                      {activeSenderEmail}
                     </div>
                     <div>
                       <span className="font-semibold">To:</span> {uniqueInviteRecipients.length} recipient{uniqueInviteRecipients.length === 1 ? "" : "s"}
