@@ -342,6 +342,10 @@ export function SettingsShell() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [selectedRole, setSelectedRole] = useState(roles[0].id);
+  const [inviteEmailDraft, setInviteEmailDraft] = useState("");
+  const [inviteRoleDraft, setInviteRoleDraft] = useState(roles[0].name);
+  const [invitingUser, setInvitingUser] = useState(false);
+  const [inviteUserError, setInviteUserError] = useState<string | null>(null);
   const [costCodeRows, setCostCodeRows] = useState(
     defaultCompanyCostCodes.map((item, index) => ({
       id: `cc-${index + 1}`,
@@ -393,6 +397,54 @@ export function SettingsShell() {
   }, [roleFilter, search, statusFilter, teamUsers]);
 
   const markUnsaved = () => setSaveStatus("unsaved");
+
+  const closeInviteModal = () => {
+    setShowInviteModal(false);
+    setInviteEmailDraft("");
+    setInviteRoleDraft(roles[0].name);
+    setInvitingUser(false);
+    setInviteUserError(null);
+  };
+
+  const submitInviteUser = async () => {
+    const normalizedEmail = inviteEmailDraft.trim().toLowerCase();
+    if (!normalizedEmail) {
+      setInviteUserError("Enter an email address.");
+      return;
+    }
+
+    setInvitingUser(true);
+    setInviteUserError(null);
+    try {
+      const response = await fetch("/api/settings/team-users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: normalizedEmail,
+          role: inviteRoleDraft,
+        }),
+      });
+      const payload = (await response.json().catch(() => null)) as
+        | { user?: TeamUser; error?: string }
+        | null;
+
+      if (!response.ok || !payload?.user) {
+        setInviteUserError(payload?.error ?? "Unable to invite user.");
+        setInvitingUser(false);
+        return;
+      }
+
+      setTeamUsers((prev) => {
+        const withoutExisting = prev.filter((user) => user.id !== payload.user?.id);
+        return [payload.user as TeamUser, ...withoutExisting];
+      });
+      setSaveStatus("unsaved");
+      closeInviteModal();
+    } catch {
+      setInviteUserError("Unable to invite user.");
+      setInvitingUser(false);
+    }
+  };
 
   const openEditUserModal = (user: TeamUser) => {
     const parsed = splitFullName(user.name ?? "");
@@ -584,7 +636,12 @@ export function SettingsShell() {
         action={
           <button
             type="button"
-            onClick={() => setShowInviteModal(true)}
+            onClick={() => {
+              setInviteEmailDraft("");
+              setInviteRoleDraft(roles[0].name);
+              setInviteUserError(null);
+              setShowInviteModal(true);
+            }}
             className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700"
           >
             Invite user
@@ -706,35 +763,50 @@ export function SettingsShell() {
             <div className="mt-4 space-y-3">
               <label className="space-y-1 text-sm">
                 <span className="font-medium text-slate-700">Email</span>
-                <input className="w-full rounded-lg border border-slate-300 p-2" placeholder="name@company.com" />
+                <input
+                  className="w-full rounded-lg border border-slate-300 p-2"
+                  placeholder="name@company.com"
+                  value={inviteEmailDraft}
+                  onChange={(event) => setInviteEmailDraft(event.target.value)}
+                  type="email"
+                />
               </label>
               <label className="space-y-1 text-sm">
                 <span className="font-medium text-slate-700">Role</span>
-                <select className="w-full rounded-lg border border-slate-300 p-2">
+                <select
+                  className="w-full rounded-lg border border-slate-300 p-2"
+                  value={inviteRoleDraft}
+                  onChange={(event) => setInviteRoleDraft(event.target.value)}
+                >
                   {roles.map((role) => (
-                    <option key={role.id}>{role.name}</option>
+                    <option key={role.id} value={role.name}>
+                      {role.name}
+                    </option>
                   ))}
                 </select>
               </label>
+              {inviteUserError ? (
+                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {inviteUserError}
+                </div>
+              ) : null}
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <button
                 type="button"
                 className="rounded-lg border border-slate-300 px-4 py-2 text-sm"
-                onClick={() => setShowInviteModal(false)}
+                onClick={closeInviteModal}
+                disabled={invitingUser}
               >
                 Cancel
               </button>
               <button
                 type="button"
                 className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white"
-                onClick={() => {
-                  // TODO: Supabase invite-user API call will be wired here.
-                  setShowInviteModal(false);
-                  setSaveStatus("unsaved");
-                }}
+                onClick={() => void submitInviteUser()}
+                disabled={invitingUser}
               >
-                Send invite
+                {invitingUser ? "Sending..." : "Send invite"}
               </button>
             </div>
           </div>

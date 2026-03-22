@@ -40,6 +40,7 @@ export default async function RootLayout({
   const isAuthPage =
     currentPath === "/login" ||
     currentPath === "/logout" ||
+    currentPath === "/create-account" ||
     currentPath === "/reset-password" ||
     currentPath === "/test-login";
 

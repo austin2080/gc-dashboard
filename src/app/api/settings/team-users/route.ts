@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+type InviteUserPayload = {
+  email?: string;
+  role?: string;
+};
+
 function toTitleCase(value: string): string {
   return value
     .toLowerCase()
@@ -72,6 +77,10 @@ function formatLastActive(value: string | null | undefined): string {
   return parsed.toLocaleDateString();
 }
 
+function normalizeRole(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, "_");
+}
+
 export async function GET() {
   try {
     const supabase = await createClient();
@@ -134,6 +143,7 @@ export async function GET() {
         address: string;
         phone: string;
         cityStateZip: string;
+        isInvited: boolean;
       }
     >();
     await Promise.all(
@@ -166,6 +176,7 @@ export async function GET() {
           address: addressRaw,
           phone: phoneRaw.trim(),
           cityStateZip: cityStateZipWithZip.trim(),
+          isInvited: Boolean(authUser?.invited_at) && !authUser?.last_sign_in_at,
         });
       })
     );
@@ -186,12 +197,18 @@ export async function GET() {
           ? formatNameFromEmailLocal(nameFromEmailLocal)
           : "");
       const parsedName = splitDisplayName(readableName);
+      const status =
+        row.is_active
+          ? authUser?.isInvited
+            ? "Invited"
+            : "Active"
+          : "Deactivated";
       return {
         id: row.user_id,
         name: readableName || (row.user_id === userId ? "You" : `User ${String(row.user_id).slice(0, 8)}`),
         email,
         role: roleRaw ? toTitleCase(roleRaw) : "Member",
-        status: row.is_active ? "Active" : "Deactivated",
+        status,
         lastActive: formatLastActive(row.created_at ?? null),
         company: authUser?.company || "Your Company",
         firstName: authUser?.firstName || parsedName.firstName,
@@ -205,6 +222,144 @@ export async function GET() {
     return NextResponse.json({ users });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load users";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function POST(request: Request) {
+  try {
+    const supabase = await createClient();
+    const { data: authData, error: authError } = await supabase.auth.getUser();
+    if (authError || !authData.user) {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
+    const payload = (await request.json().catch(() => null)) as InviteUserPayload | null;
+    const email = typeof payload?.email === "string" ? payload.email.trim().toLowerCase() : "";
+    const role = typeof payload?.role === "string" ? payload.role.trim() : "";
+
+    if (!email) {
+      return NextResponse.json({ error: "Email is required." }, { status: 400 });
+    }
+
+    if (!role) {
+      return NextResponse.json({ error: "Role is required." }, { status: 400 });
+    }
+
+    const admin = createAdminClient();
+    const inviterId = authData.user.id;
+    const inviterEmail = authData.user.email ?? "";
+    const inviterMetadata = (authData.user.user_metadata ?? {}) as Record<string, unknown>;
+    const inviterName = extractNameFromMetadata(inviterMetadata) || inviterEmail;
+
+    const { data: activeMember } = await admin
+      .from("company_members")
+      .select("company_id")
+      .eq("user_id", inviterId)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const { data: fallbackMember } = activeMember?.company_id
+      ? { data: null }
+      : await admin
+          .from("company_members")
+          .select("company_id")
+          .eq("user_id", inviterId)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+    const companyId =
+      (activeMember?.company_id as string | null | undefined) ??
+      (fallbackMember?.company_id as string | null | undefined);
+
+    if (!companyId) {
+      return NextResponse.json({ error: "No company membership" }, { status: 403 });
+    }
+
+    const companyLookup = await admin
+      .from("companies")
+      .select("name")
+      .eq("id", companyId)
+      .limit(1)
+      .maybeSingle();
+    const companyName =
+      (typeof companyLookup.data?.name === "string" && companyLookup.data.name.trim()) || "";
+
+    const normalizedRole = normalizeRole(role);
+    const redirectTo = new URL("/create-account", request.url).toString();
+
+    const inviteResult = await admin.auth.admin.inviteUserByEmail(email, {
+      redirectTo,
+      data: {
+        company: companyName,
+        invited_company_id: companyId,
+        invited_role: normalizedRole,
+        invited_by_email: inviterEmail,
+        invited_by_name: inviterName,
+      },
+    });
+
+    if (inviteResult.error || !inviteResult.data.user) {
+      const message = inviteResult.error?.message ?? "Unable to invite user.";
+      return NextResponse.json({ error: message }, { status: 500 });
+    }
+
+    const invitedUser = inviteResult.data.user;
+    const existingMembership = await admin
+      .from("company_members")
+      .select("user_id")
+      .eq("company_id", companyId)
+      .eq("user_id", invitedUser.id)
+      .limit(1)
+      .maybeSingle();
+
+    if (!existingMembership.data?.user_id) {
+      const { error: membershipInsertError } = await admin.from("company_members").insert({
+        company_id: companyId,
+        user_id: invitedUser.id,
+        role: normalizedRole,
+        is_active: true,
+      });
+
+      if (membershipInsertError) {
+        return NextResponse.json({ error: membershipInsertError.message }, { status: 500 });
+      }
+    } else {
+      const { error: membershipUpdateError } = await admin
+        .from("company_members")
+        .update({
+          role: normalizedRole,
+          is_active: true,
+        })
+        .eq("company_id", companyId)
+        .eq("user_id", invitedUser.id);
+
+      if (membershipUpdateError) {
+        return NextResponse.json({ error: membershipUpdateError.message }, { status: 500 });
+      }
+    }
+
+    return NextResponse.json({
+      user: {
+        id: invitedUser.id,
+        name: extractNameFromMetadata((invitedUser.user_metadata ?? {}) as Record<string, unknown>) || email.split("@")[0],
+        email,
+        role: toTitleCase(normalizedRole),
+        status: "Invited",
+        lastActive: "Never",
+        company: companyName || "Your Company",
+        firstName: "",
+        lastName: "",
+        address: "",
+        cityStateZip: "",
+        phone: "",
+      },
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Failed to invite user";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
