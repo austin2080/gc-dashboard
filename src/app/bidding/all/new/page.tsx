@@ -3072,9 +3072,11 @@ export default function NewBidPackagePage() {
                                   ✓
                                 </span>
                               ) : null}
-                              <div className="text-2xl font-semibold text-slate-900">
-                                {trade.code}
-                                {trade.description ? <span className="ml-2 text-lg font-medium text-slate-600">{trade.description}</span> : null}
+                              <div className="flex flex-wrap items-baseline gap-x-2 text-slate-900">
+                                <span className="text-xl font-semibold">{trade.code}</span>
+                                {trade.description ? (
+                                  <span className="text-2xl font-medium text-slate-600">{trade.description}</span>
+                                ) : null}
                               </div>
                               <span
                                 className={`rounded px-2 py-0.5 text-xs font-semibold ${
