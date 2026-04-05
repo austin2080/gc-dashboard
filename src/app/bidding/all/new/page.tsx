@@ -771,12 +771,9 @@ export default function NewBidPackagePage() {
   const [costCodeLoadError, setCostCodeLoadError] = useState<string | null>(null);
   const [costCodeQuery, setCostCodeQuery] = useState("");
   const [selectedTrades, setSelectedTrades] = useState<SelectedTrade[]>([]);
-  const [expandedTradeId, setExpandedTradeId] = useState<string | null>(null);
   const [subOptions, setSubOptions] = useState<SubOption[]>([]);
   const [loadingSubOptions, setLoadingSubOptions] = useState(false);
   const [companyUserOptions, setCompanyUserOptions] = useState<CompanyUserOption[]>([]);
-  const [manageQueryByTradeId, setManageQueryByTradeId] = useState<Record<string, string>>({});
-  const [manageSearchActiveByTradeId, setManageSearchActiveByTradeId] = useState<Record<string, boolean>>({});
   const [assignedSubsByTradeId, setAssignedSubsByTradeId] = useState<Record<string, AssignedSub[]>>({});
   const [inviteQueryByTradeId, setInviteQueryByTradeId] = useState<Record<string, string>>({});
   const [expandedInviteTradeId, setExpandedInviteTradeId] = useState<string | null>(null);
@@ -1390,17 +1387,6 @@ export default function NewBidPackagePage() {
 
   const removeTrade = (tradeId: string) => {
     setSelectedTrades((prev) => prev.filter((trade) => trade.id !== tradeId));
-    setExpandedTradeId((prev) => (prev === tradeId ? null : prev));
-    setManageQueryByTradeId((prev) => {
-      const next = { ...prev };
-      delete next[tradeId];
-      return next;
-    });
-    setManageSearchActiveByTradeId((prev) => {
-      const next = { ...prev };
-      delete next[tradeId];
-      return next;
-    });
     setAssignedSubsByTradeId((prev) => {
       const next = { ...prev };
       delete next[tradeId];
@@ -2809,195 +2795,68 @@ export default function NewBidPackagePage() {
             <section className="rounded-xl border border-slate-200 bg-white p-5">
               <h3 className="text-[18px] font-semibold text-slate-900">Trade Coverage</h3>
               <p className="mt-2 text-sm text-slate-600">
-                Configure trade-level bid coverage for this package.
+                Select the trades you need covered for this package. Subcontractor assignment happens in the next step.
               </p>
 
-              <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
-                <div className="text-sm font-semibold text-slate-800">Add Trades By Cost Code</div>
-                <input
-                  value={costCodeQuery}
-                  onChange={(event) => setCostCodeQuery(event.target.value)}
-                  placeholder="Search cost codes"
-                  className="mt-3 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
-                />
-                <div className="mt-3 max-h-52 overflow-auto rounded-md border border-slate-200 bg-white">
-                  {loadingCostCodes ? (
-                    <div className="px-3 py-3 text-sm text-slate-500">Loading cost codes...</div>
-                  ) : filteredCostCodes.length ? (
-                    filteredCostCodes.map((code) => (
-                      <div key={code.id} className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 last:border-b-0">
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold text-slate-800">{code.code}</div>
-                          <div className="truncate text-xs text-slate-500">{code.description ?? "No description"}</div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => addTradeFromCostCode(code)}
-                          className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                        >
-                          Add
-                        </button>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="px-3 py-3 text-sm text-slate-500">{costCodeLoadError ?? "No cost codes found."}</div>
-                  )}
-                </div>
-              </div>
-
-              <div className="mt-5 overflow-hidden rounded-lg border border-slate-200">
-                <div className="grid grid-cols-[minmax(0,1fr)_120px_120px_132px] bg-slate-50 text-sm font-semibold text-slate-700">
-                  <div className="border-r border-slate-200 px-4 py-3">Trade</div>
-                  <div className="border-r border-slate-200 px-4 py-3 text-center">Invited</div>
-                  <div className="border-r border-slate-200 px-4 py-3 text-center">Will Bid</div>
-                  <div className="px-4 py-3 text-center">Actions</div>
-                </div>
-                <div className="divide-y divide-slate-200">
-                  {selectedTrades.length ? (
-                    selectedTrades.map((trade) => (
-                      <div key={trade.id}>
-                        <div className="grid grid-cols-[minmax(0,1fr)_120px_120px_132px] text-sm text-slate-700">
-                          <div className="border-r border-slate-200 px-4 py-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="min-w-0">
-                                <div className="truncate font-medium text-slate-800">{trade.code}</div>
-                                <div className="truncate text-xs text-slate-500">{trade.description ?? "No description"}</div>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => removeTrade(trade.id)}
-                                className="rounded border border-slate-300 px-1.5 py-0.5 text-[11px] font-semibold text-slate-500 hover:bg-slate-100"
-                              >
-                                Remove
-                              </button>
-                            </div>
+              <div className="mt-5 grid items-stretch gap-5 xl:h-[calc(100vh-18rem)] xl:grid-cols-2">
+                <div className="flex min-h-[28rem] flex-col rounded-[12px] border-[0.5px] border-[#D3D1C7] bg-[#F8F8F7] p-4 xl:min-h-0 xl:h-full">
+                  <div className="text-sm font-semibold text-slate-800">Add Trades By Cost Code</div>
+                  <input
+                    value={costCodeQuery}
+                    onChange={(event) => setCostCodeQuery(event.target.value)}
+                    placeholder="Search cost codes"
+                    className="mt-3 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
+                  />
+                  <div className="mt-3 min-h-0 flex-1 overflow-auto rounded-md border border-slate-200 bg-white">
+                    {loadingCostCodes ? (
+                      <div className="px-3 py-3 text-sm text-slate-500">Loading cost codes...</div>
+                    ) : filteredCostCodes.length ? (
+                      filteredCostCodes.map((code) => (
+                        <div key={code.id} className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 last:border-b-0">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-slate-800">{code.code}</div>
+                            <div className="truncate text-xs text-slate-500">{code.description ?? "No description"}</div>
                           </div>
-                          <div className="border-r border-slate-200 px-4 py-3 text-center">0</div>
-                          <div className="border-r border-slate-200 px-4 py-3 text-center">0</div>
-                          <div className="px-3 py-2">
+                          <button
+                            type="button"
+                            onClick={() => addTradeFromCostCode(code)}
+                            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            Add
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="px-3 py-3 text-sm text-slate-500">{costCodeLoadError ?? "No cost codes found."}</div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex min-h-[28rem] flex-col overflow-hidden rounded-[12px] border-[0.5px] border-[#B5D4F4] bg-[#E6F1FB] text-[#185FA5] xl:min-h-0 xl:h-full">
+                  <div className="bg-[#E6F1FB] px-4 py-3 text-sm font-semibold text-[#0C447C]">Selected Trades</div>
+                  <div className="min-h-0 flex-1 overflow-auto divide-y divide-[#B5D4F4]">
+                    {selectedTrades.length ? (
+                      selectedTrades.map((trade) => (
+                        <div key={trade.id} className="px-4 py-3 text-sm text-[#185FA5]">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="truncate font-medium text-[#0C447C]">{trade.code}</div>
+                              <div className="truncate text-xs text-[#185FA5]">{trade.description ?? "No description"}</div>
+                            </div>
                             <button
                               type="button"
-                              onClick={() => setExpandedTradeId((prev) => (prev === trade.id ? null : trade.id))}
-                              className="inline-flex w-full items-center justify-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                              onClick={() => removeTrade(trade.id)}
+                              className="rounded border-[0.5px] border-[#B5D4F4] bg-transparent px-1.5 py-0.5 text-[11px] font-semibold text-[#185FA5] hover:bg-transparent"
                             >
-                              Manage
-                              <span className={`transition-transform ${expandedTradeId === trade.id ? "rotate-180" : ""}`}>▾</span>
+                              Remove
                             </button>
                           </div>
                         </div>
-                        {(assignedSubsByTradeId[trade.id] ?? []).map((sub) => (
-                          <div key={`${trade.id}-sub-row-${sub.id}`}>
-                            <div className="grid grid-cols-[minmax(0,1fr)_120px_120px_132px] border-t border-slate-200 bg-slate-50/40 text-sm text-slate-700">
-                              <div className="border-r border-slate-200 px-4 py-2">
-                                <span className="mr-2 text-slate-400">↳</span>
-                                {sub.company}
-                              </div>
-                              <div className="border-r border-slate-200 px-4 py-2 text-center">
-                                {sub.invited ? "Yes" : "No"}
-                              </div>
-                              <div className="border-r border-slate-200 px-4 py-2 text-center">
-                                {sub.willBid ? "Yes" : "No"}
-                              </div>
-                              <div className="px-2 py-1.5 text-center">
-                                <button
-                                  type="button"
-                                  onClick={() => removeSubFromTrade(trade.id, sub.id)}
-                                  className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-                                  aria-label={`Remove ${sub.company}`}
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            </div>
-                            <div className="grid grid-cols-[minmax(0,1fr)_120px_120px_132px] border-t border-slate-200 bg-white">
-                              <div className="col-span-4 px-4 py-2">
-                                <label className="flex items-center gap-3 text-sm text-slate-700">
-                                  <span className="font-medium text-slate-600">Bid Invite Email</span>
-                                  <input
-                                    type="email"
-                                    value={sub.bidInviteEmail}
-                                    onChange={(event) => setSubInviteEmail(trade.id, sub.id, event.target.value)}
-                                    placeholder="name@company.com"
-                                    className="w-full max-w-md rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
-                                  />
-                                </label>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                        {expandedTradeId === trade.id ? (
-                          <div className="border-t border-slate-200 bg-slate-50 px-4 py-3">
-                            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                              Add Subcontractors
-                            </div>
-                            <div className="mt-2 flex flex-wrap items-center gap-2">
-                              <input
-                                value={manageQueryByTradeId[trade.id] ?? ""}
-                                onChange={(event) =>
-                                  setManageQueryByTradeId((prev) => ({ ...prev, [trade.id]: event.target.value }))
-                                }
-                                onFocus={() =>
-                                  setManageSearchActiveByTradeId((prev) => ({ ...prev, [trade.id]: true }))
-                                }
-                                placeholder="Search subcontractors"
-                                className="w-full max-w-md flex-1 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setNewSubDrawerTradeId(trade.id);
-                                  setNewSubDraft({
-                                    company_name: "",
-                                    primary_contact: "",
-                                    email: "",
-                                    phone: "",
-                                  });
-                                  setNewSubError(null);
-                                }}
-                                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                              >
-                                + New Contractor
-                              </button>
-                            </div>
-                            <div className="mt-2 max-h-40 overflow-auto rounded-md border border-slate-200 bg-white">
-                              {manageSearchActiveByTradeId[trade.id]
-                                ? subOptions.filter((option) => {
-                                    const query = (manageQueryByTradeId[trade.id] ?? "").trim().toLowerCase();
-                                    const assignedIds = new Set((assignedSubsByTradeId[trade.id] ?? []).map((item) => item.id));
-                                    if (assignedIds.has(option.id)) return false;
-                                    if (!query) return true;
-                                    return option.company.toLowerCase().includes(query);
-                                  }).map((option) => (
-                                    <div
-                                      key={`${trade.id}-${option.id}`}
-                                      className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 last:border-b-0"
-                                    >
-                                      <div className="text-sm text-slate-700">{option.company}</div>
-                                      <button
-                                        type="button"
-                                        onClick={() => addSubToTrade(trade.id, option)}
-                                        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                                      >
-                                        Add
-                                      </button>
-                                    </div>
-                                  ))
-                                : (
-                                  <div className="px-3 py-3 text-sm text-slate-500">
-                                    Click the search bar to view and add subcontractors.
-                                  </div>
-                                )}
-                              {manageSearchActiveByTradeId[trade.id] && loadingSubOptions ? (
-                                <div className="border-t border-slate-100 px-3 py-2 text-sm text-slate-500">Loading subcontractors...</div>
-                              ) : null}
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                    ))
-                  ) : (
-                    <div className="px-4 py-4 text-sm text-slate-500">Select one or more trades above to build coverage rows.</div>
-                  )}
+                      ))
+                    ) : (
+                      <div className="px-4 py-4 text-sm text-[#185FA5]">Select one or more trades above to build coverage rows.</div>
+                    )}
+                  </div>
                 </div>
               </div>
             </section>
@@ -3843,8 +3702,6 @@ export default function NewBidPackagePage() {
                   if (packageTradeIds.has(trade.id)) tradeIdsToAssign.add(trade.id);
                 });
                 tradeIdsToAssign.forEach((id) => addSubToTrade(id, newOption));
-                setManageSearchActiveByTradeId((prev) => ({ ...prev, [tradeId]: true }));
-                setManageQueryByTradeId((prev) => ({ ...prev, [tradeId]: "" }));
                 setNewSubDrawerTradeId(null);
                 setNewSubSaving(false);
               }}
