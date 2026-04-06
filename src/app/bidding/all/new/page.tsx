@@ -226,7 +226,6 @@ const PROJECT_TAX_CITY_OPTIONS: ProjectTaxCityOption[] = [
   { city: "Scottsdale", number: "1", taxRate: "8.0500" },
   { city: "Surprise", number: "13", taxRate: "10.0000" },
   { city: "Tempe", number: "9", taxRate: "8.1000" },
-  { city: "Unknown", number: "15", taxRate: "7.9500" },
 ];
 
 const DATE_DISPLAY_FORMATTER = new Intl.DateTimeFormat("en-US", {
@@ -1373,7 +1372,6 @@ export default function NewBidPackagePage() {
   const selectedProjectTaxCity =
     PROJECT_TAX_CITY_OPTIONS.find((option) => option.number === draft.tax_city_number) ?? null;
   const isManualTaxRate = draft.tax_city_number === MANUAL_TAX_CITY_VALUE;
-  const manualTaxCityName = (draft.tax_city_name ?? "").trim();
   const displayedProjectTaxRate = isManualTaxRate
     ? formatTaxRateDisplay(draft.tax_rate ?? "")
     : formatTaxRateDisplay(selectedProjectTaxCity?.taxRate ?? "");
@@ -2483,14 +2481,12 @@ export default function NewBidPackagePage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none">Select City</SelectItem>
+                    <SelectItem value={MANUAL_TAX_CITY_VALUE}>Other</SelectItem>
                     {PROJECT_TAX_CITY_OPTIONS.map((option) => (
                       <SelectItem key={`project-tax-city-${option.number}`} value={option.number}>
                         {option.city}
                       </SelectItem>
                     ))}
-                    <SelectItem value={MANUAL_TAX_CITY_VALUE}>
-                      {manualTaxCityName || "Manual"}
-                    </SelectItem>
                   </SelectContent>
                 </Select>
                 {isManualTaxRate ? (
