@@ -305,6 +305,10 @@ function calculateDurationWeeks(startIsoDate: string, endIsoDate: string) {
   return Math.ceil(days / 7);
 }
 
+function sanitizeWholeNumberInput(value: string) {
+  return value.replace(/\D/g, "");
+}
+
 function formatTradeLabel(trade: { code: string; description: string | null }) {
   return `${trade.code}${trade.description ? ` ${trade.description}` : ""}`.trim();
 }
@@ -808,6 +812,9 @@ export default function NewBidPackagePage() {
   const [fileError, setFileError] = useState<string | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedBidFile[]>([]);
   const [draft, setDraft] = useState<BidPackageDraft>(createDefaultDraft());
+  const constructionScheduleSyncSourceRef = useRef<
+    "dates" | "construction-duration" | "project-duration" | null
+  >(null);
   const subjectInputRef = useRef<HTMLInputElement | null>(null);
   const messageTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const autosaveStorageKey = useMemo(
@@ -1240,6 +1247,79 @@ export default function NewBidPackagePage() {
   }, [companyUserOptions, selectedPrimaryBiddingUser?.id]);
 
   useEffect(() => {
+    if (constructionScheduleSyncSourceRef.current === "construction-duration") {
+      const nextConstructionDuration = sanitizeWholeNumberInput(
+        draft.construction_duration_weeks ?? ""
+      ).trim();
+      const durationWeeks = Number.parseInt(nextConstructionDuration, 10);
+      const nextCompletionDate =
+        draft.construction_start_date && Number.isFinite(durationWeeks) && durationWeeks >= 0
+          ? addDaysToIsoDate(draft.construction_start_date, durationWeeks * 7) ?? ""
+          : "";
+      const nextCloseoutDate = addDaysToIsoDate(nextCompletionDate, 7) ?? "";
+      const nextProjectDuration = nextCloseoutDate
+        ? calculateDurationWeeks(draft.construction_start_date, nextCloseoutDate)
+        : null;
+
+      setDraft((prev) => {
+        const nextProjectDurationValue =
+          nextProjectDuration === null ? "" : String(nextProjectDuration);
+        if (
+          prev.construction_duration_weeks === nextConstructionDuration &&
+          prev.construction_completion_date === nextCompletionDate &&
+          prev.closeout_completion_date === nextCloseoutDate &&
+          prev.project_duration_weeks === nextProjectDurationValue
+        ) {
+          return prev;
+        }
+        return {
+          ...prev,
+          construction_duration_weeks: nextConstructionDuration,
+          construction_completion_date: nextCompletionDate,
+          closeout_completion_date: nextCloseoutDate,
+          project_duration_weeks: nextProjectDurationValue,
+        };
+      });
+      return;
+    }
+
+    if (constructionScheduleSyncSourceRef.current === "project-duration") {
+      const nextProjectDuration = sanitizeWholeNumberInput(
+        draft.project_duration_weeks ?? ""
+      ).trim();
+      const projectDurationWeeks = Number.parseInt(nextProjectDuration, 10);
+      const nextCloseoutDate =
+        draft.construction_start_date && Number.isFinite(projectDurationWeeks) && projectDurationWeeks >= 0
+          ? addDaysToIsoDate(draft.construction_start_date, projectDurationWeeks * 7) ?? ""
+          : "";
+      const nextCompletionDate = addDaysToIsoDate(nextCloseoutDate, -7) ?? "";
+      const nextConstructionDuration = calculateDurationWeeks(
+        draft.construction_start_date,
+        nextCompletionDate
+      );
+
+      setDraft((prev) => {
+        const nextConstructionDurationValue =
+          nextConstructionDuration === null ? "" : String(nextConstructionDuration);
+        if (
+          prev.project_duration_weeks === nextProjectDuration &&
+          prev.construction_completion_date === nextCompletionDate &&
+          prev.closeout_completion_date === nextCloseoutDate &&
+          prev.construction_duration_weeks === nextConstructionDurationValue
+        ) {
+          return prev;
+        }
+        return {
+          ...prev,
+          project_duration_weeks: nextProjectDuration,
+          construction_completion_date: nextCompletionDate,
+          closeout_completion_date: nextCloseoutDate,
+          construction_duration_weeks: nextConstructionDurationValue,
+        };
+      });
+      return;
+    }
+
     const nextCloseoutDate = addDaysToIsoDate(draft.construction_completion_date, 7) ?? "";
     const constructionWeeks = calculateDurationWeeks(
       draft.construction_start_date,
@@ -1266,7 +1346,49 @@ export default function NewBidPackagePage() {
         project_duration_weeks: nextProjectDuration,
       };
     });
-  }, [draft.construction_completion_date, draft.construction_start_date]);
+  }, [
+    draft.construction_completion_date,
+    draft.construction_duration_weeks,
+    draft.project_duration_weeks,
+    draft.construction_start_date,
+  ]);
+
+  const handleConstructionStartDateChange = (next: string) => {
+    const hasProjectDurationValue =
+      sanitizeWholeNumberInput(draft.project_duration_weeks ?? "").trim().length > 0;
+    const hasConstructionDurationValue =
+      sanitizeWholeNumberInput(draft.construction_duration_weeks ?? "").trim().length > 0;
+    constructionScheduleSyncSourceRef.current =
+      constructionScheduleSyncSourceRef.current === "project-duration" ||
+      (!draft.construction_completion_date && hasProjectDurationValue)
+        ? "project-duration"
+        : constructionScheduleSyncSourceRef.current === "construction-duration" ||
+            (!draft.construction_completion_date && hasConstructionDurationValue)
+          ? "construction-duration"
+          : "dates";
+    setDraft((prev) => ({ ...prev, construction_start_date: next }));
+  };
+
+  const handleConstructionCompletionDateChange = (next: string) => {
+    constructionScheduleSyncSourceRef.current = "dates";
+    setDraft((prev) => ({ ...prev, construction_completion_date: next }));
+  };
+
+  const handleConstructionDurationChange = (value: string) => {
+    constructionScheduleSyncSourceRef.current = "construction-duration";
+    setDraft((prev) => ({
+      ...prev,
+      construction_duration_weeks: sanitizeWholeNumberInput(value),
+    }));
+  };
+
+  const handleProjectDurationChange = (value: string) => {
+    constructionScheduleSyncSourceRef.current = "project-duration";
+    setDraft((prev) => ({
+      ...prev,
+      project_duration_weeks: sanitizeWholeNumberInput(value),
+    }));
+  };
 
   useEffect(() => {
     if (editingProjectId) return;
@@ -2521,7 +2643,7 @@ export default function NewBidPackagePage() {
                 Construction Start Date
                 <DatePickerField
                   value={draft.construction_start_date}
-                  onChange={(next) => setDraft((prev) => ({ ...prev, construction_start_date: next }))}
+                  onChange={handleConstructionStartDateChange}
                   className="w-full"
                 />
               </label>
@@ -2529,9 +2651,7 @@ export default function NewBidPackagePage() {
                 Construction Completion Date
                 <DatePickerField
                   value={draft.construction_completion_date}
-                  onChange={(next) =>
-                    setDraft((prev) => ({ ...prev, construction_completion_date: next }))
-                  }
+                  onChange={handleConstructionCompletionDateChange}
                   className="w-full"
                 />
               </label>
@@ -2539,9 +2659,7 @@ export default function NewBidPackagePage() {
                 Construction Duration (Weeks)
                 <input
                   value={draft.construction_duration_weeks}
-                  onChange={(event) =>
-                    setDraft((prev) => ({ ...prev, construction_duration_weeks: event.target.value }))
-                  }
+                  onChange={(event) => handleConstructionDurationChange(event.target.value)}
                   className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
                   placeholder="13"
                 />
@@ -2550,9 +2668,7 @@ export default function NewBidPackagePage() {
                 Project Duration (Weeks / Includes Close-out)
                 <input
                   value={draft.project_duration_weeks}
-                  onChange={(event) =>
-                    setDraft((prev) => ({ ...prev, project_duration_weeks: event.target.value }))
-                  }
+                  onChange={(event) => handleProjectDurationChange(event.target.value)}
                   className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
                   placeholder="14"
                 />
