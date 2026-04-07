@@ -43,6 +43,17 @@ function formatDateTime(value: string | null): string {
   });
 }
 
+function formatDueDateLabel(value: string | null): string {
+  if (!value) return "TBD";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -66,6 +77,7 @@ function StatusPill({ status }: { status: BidTradeStatus }) {
 }
 
 type DrawerBidState = {
+  mode: "invite" | "followup" | "bid";
   bidId: string | null;
   tradeId: string;
   tradeName: string;
@@ -341,6 +353,34 @@ function createQuoteLineItemDraft(label = "", amount = ""): QuoteLineItemDraft {
   };
 }
 
+function buildFollowUpSubject(projectName: string, tradeName: string) {
+  return `${projectName} Bid Invite Follow Up`;
+}
+
+function buildFollowUpMessage({
+  contactName,
+  companyName,
+  projectName,
+}: {
+  contactName: string;
+  companyName: string;
+  projectName: string;
+}) {
+  return [
+    `Hi ${contactName || companyName},`,
+    "",
+    `I wanted to follow up on the bid invitation we sent for ${projectName}.`,
+    "",
+    "We're finalizing our subcontractor list and would love to know if your team plans to submit a bid. If you need any additional project information like drawings, specs, or site access, just let us know and we'll get it to you.",
+    "",
+    "Could you confirm your interest by end of week?",
+    "",
+    "Thanks,",
+    "[Your Name]",
+    "[Company] | [Phone]",
+  ].join("\n");
+}
+
 function parseQuoteAmount(value: string): number | null {
   const normalized = value.replace(/[$,\s]/g, "").trim();
   if (!normalized) return null;
@@ -418,6 +458,8 @@ export default function ItbsProjectBidTable() {
   const [inclusionsDraft, setInclusionsDraft] = useState("");
   const [exclusionsDraft, setExclusionsDraft] = useState("");
   const [notesDraft, setNotesDraft] = useState("");
+  const [followUpSubjectDraft, setFollowUpSubjectDraft] = useState("");
+  const [followUpMessageDraft, setFollowUpMessageDraft] = useState("");
   const [subSearch, setSubSearch] = useState("");
   const [selectedProjectSubId, setSelectedProjectSubId] = useState("");
   const [directoryByCompany, setDirectoryByCompany] = useState<Record<string, DirectoryCompanyMeta>>({});
@@ -628,6 +670,7 @@ export default function ItbsProjectBidTable() {
   const quoteLineItemsTotal = getQuoteLineItemsTotal(quoteLineItemsDraft);
 
   const openDrawer = (payload: {
+    mode?: "invite" | "followup" | "bid";
     tradeId: string;
     tradeName: string;
     projectSubId: string;
@@ -636,7 +679,12 @@ export default function ItbsProjectBidTable() {
     bid: (typeof detail.tradeBids)[number] | null;
     initializeEmpty?: boolean;
   }) => {
+    const mode = payload.mode ?? (payload.bid ? "bid" : "invite");
+    const drawerSub = subs.find((sub) => sub.id === payload.projectSubId) ?? null;
+    const drawerContact =
+      payload.subContact && payload.subContact !== "-" ? payload.subContact : drawerSub?.contact ?? "";
     setDrawerState({
+      mode,
       bidId: payload.bid?.id ?? null,
       tradeId: payload.tradeId,
       tradeName: payload.tradeName,
@@ -661,6 +709,16 @@ export default function ItbsProjectBidTable() {
     setContactDraft(shouldInitializeEmpty ? "" : payload.bid?.contact_name ?? payload.subContact ?? "");
     setEmailDraft(shouldInitializeEmpty ? "" : subs.find((sub) => sub.id === payload.projectSubId)?.email ?? "");
     setPhoneDraft(shouldInitializeEmpty ? "" : subs.find((sub) => sub.id === payload.projectSubId)?.phone ?? "");
+    setFollowUpSubjectDraft(
+      buildFollowUpSubject(detail.project.project_name || "Project", payload.tradeName || "Trade")
+    );
+    setFollowUpMessageDraft(
+      buildFollowUpMessage({
+        contactName: drawerContact,
+        companyName: payload.subCompany || drawerSub?.company || "Subcontractor",
+        projectName: detail.project.project_name || "Project",
+      })
+    );
     const proposalDueMap = readProposalDueMap();
     const proposalDueKey = `${detail.project.id}:${payload.tradeId}:${payload.projectSubId}`;
     setProposalDueDateDraft(proposalDueMap[proposalDueKey] ?? detail.project.due_date ?? "");
@@ -1157,6 +1215,7 @@ export default function ItbsProjectBidTable() {
                                   type="button"
                                   onClick={() =>
                                     openDrawer({
+                                      mode: "followup",
                                       tradeId: trade.id,
                                       tradeName: trade.trade_name,
                                       projectSubId: sub.id,
@@ -1173,6 +1232,7 @@ export default function ItbsProjectBidTable() {
                                   type="button"
                                   onClick={() =>
                                     openDrawer({
+                                      mode: "bid",
                                       tradeId: trade.id,
                                       tradeName: trade.trade_name,
                                       projectSubId: sub.id,
@@ -1197,6 +1257,7 @@ export default function ItbsProjectBidTable() {
                           type="button"
                           onClick={() =>
                             openDrawer({
+                              mode: "invite",
                               tradeId: trade.id,
                               tradeName: trade.trade_name ?? "Trade",
                               projectSubId: "",
@@ -1364,13 +1425,15 @@ export default function ItbsProjectBidTable() {
           <button type="button" className="absolute inset-0 bg-slate-950/40" onClick={closeDrawer} aria-label="Close bid details drawer" />
           <aside className="absolute right-0 top-0 h-full w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white shadow-2xl">
             {(() => {
-              const bidOnlyDrawer = Boolean(drawerState.bidId);
+              const bidOnlyDrawer = drawerState.mode === "bid";
+              const followUpDrawer = drawerState.mode === "followup";
+              const inviteDrawer = drawerState.mode === "invite";
               const drawerSubName = selectedSub?.company ?? drawerState.subCompany ?? "Subcontractor";
               return (
                 <>
             <div className="border-b border-slate-200 px-6 py-4">
               <h2 className="text-2xl font-semibold text-slate-900">
-                {bidOnlyDrawer ? `${drawerSubName} Bid` : "Invite Subcontractor"}
+                {followUpDrawer ? `Follow Up: ${drawerSubName}` : bidOnlyDrawer ? `${drawerSubName} Bid` : "Invite Subcontractor"}
               </h2>
             </div>
             <form
@@ -1379,6 +1442,60 @@ export default function ItbsProjectBidTable() {
                 event.preventDefault();
                 setSavingDrawer(true);
                 setDrawerError(null);
+                if (followUpDrawer) {
+                  if (!selectedProjectSubId) {
+                    setDrawerError("Select a subcontractor.");
+                    setSavingDrawer(false);
+                    return;
+                  }
+                  if (!emailDraft.trim()) {
+                    setDrawerError("Add an email address before sending a follow-up.");
+                    setSavingDrawer(false);
+                    return;
+                  }
+                  if (!followUpSubjectDraft.trim() || !followUpMessageDraft.trim()) {
+                    setDrawerError("Subject and message are required.");
+                    setSavingDrawer(false);
+                    return;
+                  }
+
+                  const timelineKey = `${detail.project.id}:${drawerState.tradeId}:${selectedProjectSubId}`;
+                  const response = await fetch("/api/bidding/bid-invites/send", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      bidPackageId: detail.project.id,
+                      projectId: detail.project.id,
+                      subjectTemplate: followUpSubjectDraft.trim(),
+                      bodyTemplate: followUpMessageDraft.trim(),
+                      templateContext: {
+                        projectName: detail.project.project_name?.trim() || "Project Name",
+                        bidPackageName: detail.project.project_name?.trim() || "Bid Package Name",
+                        bidDueDate: formatDueDateLabel(detail.project.due_date),
+                        prebidInfo: `Trade: ${drawerState.tradeName}`,
+                        contactName: contactDraft.trim() || drawerState.subContact || drawerSubName,
+                        contactEmail: emailDraft.trim(),
+                      },
+                      recipients: [
+                        {
+                          contactName: contactDraft.trim() || drawerState.subContact || drawerSubName,
+                          companyName: drawerSubName,
+                          email: emailDraft.trim(),
+                          tradeNames: [drawerState.tradeName],
+                        },
+                      ],
+                    }),
+                  });
+                  const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+                  if (!response.ok) {
+                    setDrawerError(payload?.error || "Unable to send follow-up email.");
+                    setSavingDrawer(false);
+                    return;
+                  }
+                  appendTimelineEntry(timelineKey, `Follow-up email sent to ${drawerSubName}.`);
+                  closeDrawer();
+                  return;
+                }
                 if (!selectedProjectSubId) {
                   setDrawerError("Select a subcontractor.");
                   setSavingDrawer(false);
@@ -1511,7 +1628,7 @@ export default function ItbsProjectBidTable() {
                 closeDrawer();
               }}
             >
-              {!bidOnlyDrawer ? (
+              {inviteDrawer ? (
               <div ref={subSearchRef} className="space-y-2">
                 <label className="text-sm font-medium text-slate-700">Subcontractor</label>
                 <input
@@ -1604,6 +1721,31 @@ export default function ItbsProjectBidTable() {
                   />
                 </label>
               </div>
+              ) : null}
+              {followUpDrawer ? (
+              <>
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+                <div><span className="font-semibold">Trade:</span> {drawerState.tradeName}</div>
+                <div className="mt-1"><span className="font-semibold">Bid due:</span> {formatDueDateLabel(detail.project.due_date)}</div>
+              </div>
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                Subject
+                <input
+                  value={followUpSubjectDraft}
+                  onChange={(event) => setFollowUpSubjectDraft(event.target.value)}
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                />
+              </label>
+              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
+                Message
+                <textarea
+                  value={followUpMessageDraft}
+                  onChange={(event) => setFollowUpMessageDraft(event.target.value)}
+                  rows={9}
+                  className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-slate-400 focus:outline-none"
+                />
+              </label>
+              </>
               ) : null}
               {bidOnlyDrawer ? (
               <>
@@ -1891,9 +2033,11 @@ export default function ItbsProjectBidTable() {
                 <button
                   type="submit"
                   disabled={savingDrawer}
-                  className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-70"
+                  className={`rounded-lg px-4 py-2 text-sm font-semibold text-white shadow-sm transition disabled:cursor-not-allowed disabled:opacity-70 ${
+                    followUpDrawer ? "bg-orange-500 hover:bg-orange-600" : "bg-slate-900 hover:bg-slate-800"
+                  }`}
                 >
-                  {savingDrawer ? "Saving..." : bidOnlyDrawer ? "Save Bid" : "Save"}
+                  {savingDrawer ? (followUpDrawer ? "Sending..." : "Saving...") : followUpDrawer ? "Send Follow-up" : bidOnlyDrawer ? "Save Bid" : "Save"}
                 </button>
               </div>
             </form>
