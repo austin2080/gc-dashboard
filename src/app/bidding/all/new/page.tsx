@@ -30,7 +30,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { CalendarIcon, Trash2Icon } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { CalendarIcon, Ellipsis, Trash2Icon } from "lucide-react";
 
 type BidPackageDraft = {
   project_name: string;
@@ -3143,21 +3149,24 @@ export default function NewBidPackagePage() {
                                   </div>
                                   <div className="overflow-hidden rounded-md border border-slate-200">
                                     <div className="overflow-x-auto">
-                                      <div className="min-w-[620px]">
-                                        <div className="grid grid-cols-[minmax(0,1fr)_130px_110px_90px] bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+                                      <div>
+                                        <div className="grid grid-cols-[minmax(0,1fr)_104px_88px_40px] bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
                                           <div>Company</div>
                                           <div>Invite Status</div>
                                           <div>Status</div>
-                                          <div className="text-right">Action</div>
+                                          <div aria-hidden="true" />
                                         </div>
                                         {assigned.length ? (
                                           assigned.map((sub) => (
-                                            <div key={`${trade.id}-assigned-${sub.id}`} className="grid grid-cols-[minmax(0,1fr)_130px_110px_90px] border-t border-slate-200 px-3 py-2">
+                                            <div
+                                              key={`${trade.id}-assigned-${sub.id}`}
+                                              className="grid grid-cols-[minmax(0,1fr)_104px_88px_40px] border-t border-slate-200 px-3 py-2"
+                                            >
                                               <div className="min-w-0">
                                                 <div className="truncate text-sm font-semibold text-slate-800">{sub.company}</div>
                                                 <div className="text-xs text-slate-500">{sub.bidInviteEmail || "No invite email set"}</div>
                                               </div>
-                                              <div className="text-sm text-slate-600">{sub.invited ? "Invited" : "Not Sent"}</div>
+                                              <div className="pr-1 text-sm text-slate-600">{sub.invited ? "Invited" : "Not Sent"}</div>
                                               <div>
                                                 <span
                                                   className={`inline-flex rounded px-2 py-0.5 text-xs font-semibold ${
@@ -3171,16 +3180,28 @@ export default function NewBidPackagePage() {
                                                   {sub.willBid ? "Bidding" : sub.invited ? "Viewed" : "Draft"}
                                                 </span>
                                               </div>
-                                              <div className="text-right">
-                                                <button
-                                                  type="button"
-                                                  onClick={() => removeSubFromTrade(trade.id, sub.id)}
-                                                  className="inline-flex items-center justify-center rounded-md border border-slate-300 bg-white p-1.5 text-slate-700 hover:bg-slate-50"
-                                                  aria-label={`Remove ${sub.company}`}
-                                                  title={`Remove ${sub.company}`}
-                                                >
-                                                  <Trash2Icon className="size-4" />
-                                                </button>
+                                              <div className="flex justify-end">
+                                                <DropdownMenu>
+                                                  <DropdownMenuTrigger asChild>
+                                                    <button
+                                                      type="button"
+                                                      className="inline-flex size-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                                                      aria-label={`More actions for ${sub.company}`}
+                                                      title={`More actions for ${sub.company}`}
+                                                    >
+                                                      <Ellipsis className="size-4" />
+                                                    </button>
+                                                  </DropdownMenuTrigger>
+                                                  <DropdownMenuContent align="end" className="w-40">
+                                                    <DropdownMenuItem
+                                                      variant="destructive"
+                                                      onClick={() => removeSubFromTrade(trade.id, sub.id)}
+                                                    >
+                                                      <Trash2Icon className="size-4" />
+                                                      Remove sub
+                                                    </DropdownMenuItem>
+                                                  </DropdownMenuContent>
+                                                </DropdownMenu>
                                               </div>
                                             </div>
                                           ))
