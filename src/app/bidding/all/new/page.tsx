@@ -2683,66 +2683,6 @@ export default function NewBidPackagePage() {
           </div>
         </section>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5">
-          <h3 className="text-[18px] font-semibold text-slate-900">Advanced Settings</h3>
-          <div className="mt-4">
-            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
-              Anticipated Award Date
-              <DatePickerField
-                value={draft.anticipated_award_date}
-                onChange={(next) =>
-                  setDraft((prev) => ({ ...prev, anticipated_award_date: next }))
-                }
-                className="w-full max-w-xs"
-              />
-            </label>
-          </div>
-
-          <div className="mt-6 space-y-4">
-            {[
-              ["countdown_emails", "Countdown Email(s)"],
-              ["accept_submissions_past_due", "Accept Submissions past Due Date"],
-              ["enable_blind_bidding", "Enable Blind Bidding"],
-              ["disable_electronic_submission", "Disable Electronic Submission of Bids"],
-              ["include_bid_documents", "Include Bid Documents"],
-            ].map(([key, label]) => {
-              const typedKey = key as keyof BidPackageDraft;
-              const enabled = Boolean(draft[typedKey]);
-              return (
-                <div key={key} className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={enabled}
-                    onClick={() =>
-                      setDraft((prev) => ({
-                        ...prev,
-                        [typedKey]: !Boolean(prev[typedKey]),
-                      }))
-                    }
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
-                      enabled ? "border-blue-600 bg-blue-600" : "border-slate-300 bg-slate-200"
-                    }`}
-                  >
-                    <span className={`inline-block size-5 transform rounded-full bg-white transition ${enabled ? "translate-x-5" : "translate-x-0.5"}`} />
-                  </button>
-                  <span className="text-sm font-medium text-slate-800">{label}</span>
-                </div>
-              );
-            })}
-          </div>
-
-          <label className="mt-6 flex flex-col gap-2 text-sm font-semibold text-slate-700">
-            Bid Submission Confirmation Message
-            <textarea
-              value={draft.bid_submission_confirmation_message}
-              onChange={(event) => setDraft((prev) => ({ ...prev, bid_submission_confirmation_message: event.target.value }))}
-              className="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
-              placeholder="Bid Submission Confirmation Message"
-            />
-          </label>
-        </section>
-
         {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
         <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85 sm:px-6 lg:px-12">
