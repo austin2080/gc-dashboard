@@ -312,6 +312,21 @@ function formatTaxRateDisplay(value: string): string {
   return `${numeric.toFixed(2)}%`;
 }
 
+function formatArizonaConstructionTaxRateDisplay(value: string): string {
+  const sanitized = sanitizeTaxRateInput(value).trim();
+  if (!sanitized) return "";
+  const numeric = Number(sanitized);
+  if (!Number.isFinite(numeric)) return "";
+  return `${(numeric * 0.65).toFixed(2)}%`;
+}
+
+function formatCombinedAndActualTaxRateDisplay(value: string): string {
+  const combined = formatTaxRateDisplay(value);
+  const actual = formatArizonaConstructionTaxRateDisplay(value);
+  if (!combined || !actual) return "";
+  return `${combined} - Actual ${actual}`;
+}
+
 function normalizeTaxRateValue(value: string): string {
   const sanitized = sanitizeTaxRateInput(value).trim();
   if (!sanitized) return "";
@@ -1571,9 +1586,10 @@ export default function NewBidPackagePage() {
   const selectedProjectTaxCity =
     PROJECT_TAX_CITY_OPTIONS.find((option) => option.number === draft.tax_city_number) ?? null;
   const isManualTaxRate = draft.tax_city_number === MANUAL_TAX_CITY_VALUE;
-  const displayedProjectTaxRate = isManualTaxRate
-    ? formatTaxRateDisplay(draft.tax_rate ?? "")
-    : formatTaxRateDisplay(selectedProjectTaxCity?.taxRate ?? "");
+  const combinedProjectTaxRate = isManualTaxRate
+    ? draft.tax_rate ?? ""
+    : selectedProjectTaxCity?.taxRate ?? "";
+  const displayedProjectTaxRate = formatCombinedAndActualTaxRateDisplay(combinedProjectTaxRate);
 
   const addTradeFromCostCode = (costCode: CostCodeOption) => {
     setSelectedTrades((prev) => {
@@ -2688,32 +2704,40 @@ export default function NewBidPackagePage() {
                   </SelectContent>
                 </Select>
                 {isManualTaxRate ? (
-                  <input
-                    value={draft.tax_city_name ?? ""}
-                    onChange={(event) =>
-                      setDraft((prev) => ({ ...prev, tax_city_name: event.target.value }))
-                    }
-                    className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
-                    placeholder="Enter city"
-                  />
+                  <>
+                    <input
+                      value={draft.tax_city_name ?? ""}
+                      onChange={(event) =>
+                        setDraft((prev) => ({ ...prev, tax_city_name: event.target.value }))
+                      }
+                      className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                      placeholder="Enter city"
+                    />
+                    <input
+                      value={formatTaxRateDisplay(draft.tax_rate ?? "")}
+                      onChange={(event) =>
+                        setDraft((prev) => ({ ...prev, tax_rate: sanitizeTaxRateInput(event.target.value) }))
+                      }
+                      onBlur={() =>
+                        setDraft((prev) => ({ ...prev, tax_rate: normalizeTaxRateValue(prev.tax_rate ?? "") }))
+                      }
+                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                      placeholder="Combined state/county/city rate"
+                    />
+                  </>
                 ) : null}
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Tax Rate
                 <input
                   value={displayedProjectTaxRate}
-                  onChange={(event) =>
-                    setDraft((prev) => ({ ...prev, tax_rate: sanitizeTaxRateInput(event.target.value) }))
-                  }
-                  onBlur={() =>
-                    setDraft((prev) => ({ ...prev, tax_rate: normalizeTaxRateValue(prev.tax_rate ?? "") }))
-                  }
-                  disabled={!isManualTaxRate}
-                  className={`rounded-md border px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none ${
-                    isManualTaxRate ? "border-slate-300 bg-white" : "border-slate-300 bg-slate-50 text-slate-500"
-                  }`}
-                  placeholder={isManualTaxRate ? "Enter tax percentage" : "-"}
+                  disabled
+                  className="rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-500 shadow-sm"
+                  placeholder="-"
                 />
+                <span className="text-xs font-normal leading-5 text-slate-500">
+                  Actual applies the Arizona construction 65% taxable base.
+                </span>
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Construction Start Date
