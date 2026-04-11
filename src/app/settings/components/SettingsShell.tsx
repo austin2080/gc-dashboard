@@ -13,6 +13,11 @@ import {
   WORKSPACE_TIMEZONE_OPTIONS,
   type WorkspaceTimezone,
 } from "@/lib/settings/preferences";
+import {
+  getWorkspaceTaxRates,
+  setWorkspaceTaxRates,
+  type WorkspaceTaxRate,
+} from "@/lib/settings/tax-rates";
 import type {
   PermissionModule,
   RoleDefinition,
@@ -32,6 +37,12 @@ const settingsNavItems: SettingsNavItem[] = [
     label: "Company Cost Codes",
     description: "Cost codes and bid settings",
     icon: "📐",
+  },
+  {
+    id: "tax-rates",
+    label: "Tax Rates",
+    description: "City and jurisdiction rates",
+    icon: "🏛️",
   },
   {
     id: "email-sending",
@@ -87,6 +98,13 @@ function splitFullName(value: string): { firstName: string; lastName: string } {
     firstName: parts[0],
     lastName: parts.slice(1).join(" "),
   };
+}
+
+function formatActualArizonaTaxRate(rate: string, state: string): string {
+  if (state.trim().toUpperCase() !== "AZ") return "-";
+  const numericRate = Number.parseFloat(rate);
+  if (!Number.isFinite(numericRate)) return "-";
+  return `${(numericRate * 0.65).toFixed(2)}%`;
 }
 
 const defaultCompanyCostCodes: Array<{ code: string; description: string }> = [
@@ -353,6 +371,7 @@ export function SettingsShell() {
   const [invitingUser, setInvitingUser] = useState(false);
   const [inviteUserError, setInviteUserError] = useState<string | null>(null);
   const [workspaceTimezone, setWorkspaceTimezoneDraft] = useState<WorkspaceTimezone>("pst");
+  const [taxRateRows, setTaxRateRows] = useState<WorkspaceTaxRate[]>([]);
   const [costCodeRows, setCostCodeRows] = useState(
     defaultCompanyCostCodes.map((item, index) => ({
       id: `cc-${index + 1}`,
@@ -363,6 +382,7 @@ export function SettingsShell() {
 
   useEffect(() => {
     setWorkspaceTimezoneDraft(getWorkspaceTimezone());
+    setTaxRateRows(getWorkspaceTaxRates());
   }, []);
 
   useEffect(() => {
@@ -411,6 +431,31 @@ export function SettingsShell() {
 
   const handleTimezoneChange = (nextValue: WorkspaceTimezone) => {
     setWorkspaceTimezoneDraft(nextValue);
+    markUnsaved();
+  };
+
+  const updateTaxRateRow = (rowId: string, patch: Partial<WorkspaceTaxRate>) => {
+    setTaxRateRows((prev) =>
+      prev.map((row) => (row.id === rowId ? { ...row, ...patch } : row))
+    );
+    markUnsaved();
+  };
+
+  const addTaxRateRow = () => {
+    setTaxRateRows((prev) => [
+      ...prev,
+      {
+        id: `tax-custom-${Date.now()}`,
+        city: "",
+        state: "AZ",
+        rate: "",
+      },
+    ]);
+    markUnsaved();
+  };
+
+  const removeTaxRateRow = (rowId: string) => {
+    setTaxRateRows((prev) => prev.filter((row) => row.id !== rowId));
     markUnsaved();
   };
 
@@ -1128,6 +1173,92 @@ export function SettingsShell() {
     </div>
   );
 
+  const renderTaxRates = () => (
+    <div className="space-y-4">
+      <SettingsSectionHeader
+        title="Tax Rates"
+        description="Manage tax rates by city and jurisdiction. Applied automatically to bids based on project location."
+      />
+      <div className="rounded-xl border border-blue-200 bg-blue-50 px-5 py-4 text-sm leading-6 text-blue-800">
+        Tax rates are applied to bids when a project location matches a city or jurisdiction below.
+      </div>
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-5 py-4">
+          <h3 className="text-base font-semibold text-slate-900">Jurisdiction tax rates</h3>
+          <button
+            type="button"
+            onClick={addTaxRateRow}
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            + Add rate
+          </button>
+        </header>
+        <div className="overflow-x-auto px-5 py-4">
+          <table className="min-w-[660px] w-full text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-3 py-3 text-left font-semibold">City / Municipality</th>
+                <th className="w-24 px-3 py-3 text-left font-semibold">State</th>
+                <th className="w-32 px-3 py-3 text-left font-semibold">Rate</th>
+                <th className="w-32 px-3 py-3 text-left font-semibold">Actual Rate</th>
+                <th className="w-24 px-3 py-3 text-right font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {taxRateRows.map((row) => (
+                <tr key={row.id} className="border-t border-slate-200">
+                  <td className="px-3 py-3">
+                    <input
+                      value={row.city}
+                      onChange={(event) => updateTaxRateRow(row.id, { city: event.target.value })}
+                      className="w-full rounded-lg border border-transparent bg-transparent px-2 py-2 font-semibold text-slate-900 outline-none focus:border-blue-300 focus:bg-white"
+                      placeholder="City"
+                    />
+                  </td>
+                  <td className="px-3 py-3">
+                    <input
+                      value={row.state}
+                      onChange={(event) =>
+                        updateTaxRateRow(row.id, { state: event.target.value.toUpperCase() })
+                      }
+                      className="w-full rounded-lg border border-transparent bg-transparent px-2 py-2 font-semibold text-slate-700 outline-none focus:border-blue-300 focus:bg-white"
+                      placeholder="AZ"
+                    />
+                  </td>
+                  <td className="px-3 py-3">
+                    <div className="flex items-center rounded-lg border border-transparent bg-transparent px-2 py-2 focus-within:border-blue-300 focus-within:bg-white">
+                      <input
+                        value={row.rate}
+                        onChange={(event) =>
+                          updateTaxRateRow(row.id, { rate: event.target.value.replace(/[^0-9.]/g, "") })
+                        }
+                        className="w-full bg-transparent text-right font-semibold text-slate-900 outline-none"
+                        placeholder="0.00"
+                      />
+                      <span className="ml-1 text-slate-500">%</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-3 font-semibold text-slate-700">
+                    {formatActualArizonaTaxRate(row.rate, row.state)}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => removeTaxRateRow(row.id)}
+                      className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                    >
+                      Remove
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  );
+
   const renderEmailSending = () => <EmailSendingSection />;
 
   const renderIntegrations = () => (
@@ -1314,6 +1445,7 @@ export function SettingsShell() {
     team: renderTeam(),
     roles: renderRoles(),
     "project-defaults": renderProjectDefaults(),
+    "tax-rates": renderTaxRates(),
     "email-sending": renderEmailSending(),
     integrations: renderIntegrations(),
     notifications: renderNotifications(),
@@ -1332,10 +1464,12 @@ export function SettingsShell() {
         saveStatus={saveStatus}
         onCancel={() => {
           setWorkspaceTimezoneDraft(getWorkspaceTimezone());
+          setTaxRateRows(getWorkspaceTaxRates());
           setSaveStatus("saved");
         }}
         onSave={() => {
           setWorkspaceTimezone(workspaceTimezone);
+          setWorkspaceTaxRates(taxRateRows);
           setSaveStatus("saved");
         }}
       >

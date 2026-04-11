@@ -4,6 +4,7 @@ export type SettingsSectionId =
   | "team"
   | "roles"
   | "project-defaults"
+  | "tax-rates"
   | "email-sending"
   | "integrations"
   | "notifications"

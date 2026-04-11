@@ -21,6 +21,7 @@ import {
   getWorkspaceTimezone,
   getWorkspaceTimezoneLabel,
 } from "@/lib/settings/preferences";
+import { getWorkspaceTaxRates, type WorkspaceTaxRate } from "@/lib/settings/tax-rates";
 import {
   Select,
   SelectContent,
@@ -185,12 +186,6 @@ type BidPackageAutosavePayload = {
   uploadedFiles: UploadedBidFile[];
 };
 
-type ProjectTaxCityOption = {
-  city: string;
-  number: string;
-  taxRate: string;
-};
-
 type DatePickerPreset = {
   label: string;
   daysFromToday: number;
@@ -244,23 +239,6 @@ const DEFAULT_INVITATION_MESSAGE = [
   "Thank you,",
   "{contact_name}",
 ].join("\n");
-
-const PROJECT_TAX_CITY_OPTIONS: ProjectTaxCityOption[] = [
-  { city: "Avondale", number: "14", taxRate: "8.8000" },
-  { city: "Buckeye", number: "12", taxRate: "9.3000" },
-  { city: "Cave Creek", number: "6", taxRate: "9.3000" },
-  { city: "Chandler", number: "11", taxRate: "7.8000" },
-  { city: "Flagstaff", number: "4", taxRate: "9.1800" },
-  { city: "Gilbert", number: "7", taxRate: "8.3000" },
-  { city: "Glendale", number: "8", taxRate: "9.2000" },
-  { city: "Mesa", number: "3", taxRate: "8.3000" },
-  { city: "Paradise Valley", number: "5", taxRate: "8.8000" },
-  { city: "Peoria", number: "10", taxRate: "8.1000" },
-  { city: "Phoenix", number: "2", taxRate: "8.6000" },
-  { city: "Scottsdale", number: "1", taxRate: "8.0500" },
-  { city: "Surprise", number: "13", taxRate: "10.0000" },
-  { city: "Tempe", number: "9", taxRate: "8.1000" },
-];
 
 const DATE_DISPLAY_FORMATTER = new Intl.DateTimeFormat("en-US", {
   month: "2-digit",
@@ -901,6 +879,7 @@ export default function NewBidPackagePage() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedBidFile[]>([]);
   const [draft, setDraft] = useState<BidPackageDraft>(createDefaultDraft());
   const [workspaceTimezoneLabel, setWorkspaceTimezoneLabel] = useState("PST");
+  const [projectTaxCityOptions, setProjectTaxCityOptions] = useState<WorkspaceTaxRate[]>([]);
   const constructionScheduleSyncSourceRef = useRef<
     "dates" | "construction-duration" | "project-duration" | null
   >(null);
@@ -955,6 +934,7 @@ export default function NewBidPackagePage() {
 
   useEffect(() => {
     setWorkspaceTimezoneLabel(getWorkspaceTimezoneLabel(getWorkspaceTimezone()));
+    setProjectTaxCityOptions(getWorkspaceTaxRates());
   }, []);
 
   const handleUploadFiles = async (files: FileList | null) => {
@@ -1584,11 +1564,11 @@ export default function NewBidPackagePage() {
   }, [costCodeQuery, costCodes, selectedTrades]);
 
   const selectedProjectTaxCity =
-    PROJECT_TAX_CITY_OPTIONS.find((option) => option.number === draft.tax_city_number) ?? null;
+    projectTaxCityOptions.find((option) => option.id === draft.tax_city_number) ?? null;
   const isManualTaxRate = draft.tax_city_number === MANUAL_TAX_CITY_VALUE;
   const combinedProjectTaxRate = isManualTaxRate
     ? draft.tax_rate ?? ""
-    : selectedProjectTaxCity?.taxRate ?? "";
+    : selectedProjectTaxCity?.rate ?? "";
   const displayedProjectTaxRate = formatCombinedAndActualTaxRateDisplay(combinedProjectTaxRate);
 
   const addTradeFromCostCode = (costCode: CostCodeOption) => {
@@ -2682,11 +2662,11 @@ export default function NewBidPackagePage() {
                       tax_city_name:
                         value === MANUAL_TAX_CITY_VALUE
                           ? prev.tax_city_name ?? ""
-                          : PROJECT_TAX_CITY_OPTIONS.find((option) => option.number === value)?.city ?? "",
+                          : projectTaxCityOptions.find((option) => option.id === value)?.city ?? "",
                       tax_rate:
                         value === MANUAL_TAX_CITY_VALUE
                           ? prev.tax_rate
-                          : PROJECT_TAX_CITY_OPTIONS.find((option) => option.number === value)?.taxRate ?? "",
+                          : projectTaxCityOptions.find((option) => option.id === value)?.rate ?? "",
                     }))
                   }
                 >
@@ -2696,8 +2676,8 @@ export default function NewBidPackagePage() {
                   <SelectContent>
                     <SelectItem value="__none">Select City</SelectItem>
                     <SelectItem value={MANUAL_TAX_CITY_VALUE}>Other</SelectItem>
-                    {PROJECT_TAX_CITY_OPTIONS.map((option) => (
-                      <SelectItem key={`project-tax-city-${option.number}`} value={option.number}>
+                    {projectTaxCityOptions.map((option) => (
+                      <SelectItem key={`project-tax-city-${option.id}`} value={option.id}>
                         {option.city}
                       </SelectItem>
                     ))}
