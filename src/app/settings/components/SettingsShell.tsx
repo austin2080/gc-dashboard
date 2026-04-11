@@ -7,6 +7,12 @@ import { EmptyState } from "./EmptyState";
 import { SettingsCard } from "./SettingsCard";
 import { SettingsLayout } from "./SettingsLayout";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
+import {
+  getWorkspaceTimezone,
+  setWorkspaceTimezone,
+  WORKSPACE_TIMEZONE_OPTIONS,
+  type WorkspaceTimezone,
+} from "@/lib/settings/preferences";
 import type {
   PermissionModule,
   RoleDefinition,
@@ -346,6 +352,7 @@ export function SettingsShell() {
   const [inviteRoleDraft, setInviteRoleDraft] = useState(roles[0].name);
   const [invitingUser, setInvitingUser] = useState(false);
   const [inviteUserError, setInviteUserError] = useState<string | null>(null);
+  const [workspaceTimezone, setWorkspaceTimezoneDraft] = useState<WorkspaceTimezone>("pst");
   const [costCodeRows, setCostCodeRows] = useState(
     defaultCompanyCostCodes.map((item, index) => ({
       id: `cc-${index + 1}`,
@@ -353,6 +360,10 @@ export function SettingsShell() {
       description: item.description,
     }))
   );
+
+  useEffect(() => {
+    setWorkspaceTimezoneDraft(getWorkspaceTimezone());
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -397,6 +408,11 @@ export function SettingsShell() {
   }, [roleFilter, search, statusFilter, teamUsers]);
 
   const markUnsaved = () => setSaveStatus("unsaved");
+
+  const handleTimezoneChange = (nextValue: WorkspaceTimezone) => {
+    setWorkspaceTimezoneDraft(nextValue);
+    markUnsaved();
+  };
 
   const closeInviteModal = () => {
     setShowInviteModal(false);
@@ -547,11 +563,16 @@ export function SettingsShell() {
         <div className="grid gap-4 md:grid-cols-3">
           <label className="space-y-1 text-sm">
             <span className="font-medium text-slate-700">Timezone</span>
-            <select className="w-full rounded-lg border border-slate-300 p-2" defaultValue="pst" onChange={markUnsaved}>
-              <option value="pst">Pacific (PST)</option>
-              <option value="mst">Mountain (MST)</option>
-              <option value="cst">Central (CST)</option>
-              <option value="est">Eastern (EST)</option>
+            <select
+              className="w-full rounded-lg border border-slate-300 p-2"
+              value={workspaceTimezone}
+              onChange={(event) => handleTimezoneChange(event.target.value as WorkspaceTimezone)}
+            >
+              {WORKSPACE_TIMEZONE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </select>
           </label>
           <label className="space-y-1 text-sm">
@@ -1309,8 +1330,14 @@ export function SettingsShell() {
         activeSection={activeSection}
         onSectionChange={onSectionChange}
         saveStatus={saveStatus}
-        onCancel={() => setSaveStatus("saved")}
-        onSave={() => setSaveStatus("saved")}
+        onCancel={() => {
+          setWorkspaceTimezoneDraft(getWorkspaceTimezone());
+          setSaveStatus("saved");
+        }}
+        onSave={() => {
+          setWorkspaceTimezone(workspaceTimezone);
+          setSaveStatus("saved");
+        }}
       >
         {content}
       </SettingsLayout>

@@ -507,6 +507,34 @@ export async function getNextBidProjectPackageNumber(referenceDate = new Date())
   return `${yearPrefix}${String(maxSequence + 1).padStart(3, "0")}`;
 }
 
+export async function isBidProjectPackageNumberAvailable(
+  packageNumber: string,
+  excludeProjectId?: string | null
+): Promise<boolean> {
+  const value = packageNumber.trim();
+  if (!value) return true;
+
+  const supabase = createClient();
+  let query = supabase
+    .from("bid_projects")
+    .select("id")
+    .eq("package_number", value)
+    .limit(1);
+
+  if (excludeProjectId) {
+    query = query.neq("id", excludeProjectId);
+  }
+
+  const { data, error } = await query;
+  if (isMissingPackageNumberColumn(error)) return true;
+  if (error) {
+    console.error("Failed to check bid project package number", error);
+    return false;
+  }
+
+  return !data?.length;
+}
+
 export async function archiveBidProject(projectId: string): Promise<boolean> {
   const supabase = createClient();
   const { error } = await supabase

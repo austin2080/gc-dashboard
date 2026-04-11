@@ -12,10 +12,15 @@ import {
   getNextBidProjectPackageNumber,
   getBidProjectDetail,
   inviteSubToProject,
+  isBidProjectPackageNumberAvailable,
   listBidSubcontractors,
   updateBidProject,
   updateBidTrades,
 } from "@/lib/bidding/store";
+import {
+  getWorkspaceTimezone,
+  getWorkspaceTimezoneLabel,
+} from "@/lib/settings/preferences";
 import {
   Select,
   SelectContent,
@@ -36,7 +41,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { CalendarIcon, Ellipsis, Trash2Icon } from "lucide-react";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { CalendarIcon, Ellipsis, Info, Trash2Icon } from "lucide-react";
 
 type BidPackageDraft = {
   project_name: string;
@@ -199,11 +210,28 @@ const TOKEN_LIST = [
   "{contact_email}",
 ] as const;
 
-const DEFAULT_INVITATION_SUBJECT = "Invitation to Bid: {bid_package_name} for {project_name}";
-const DEFAULT_INVITATION_MESSAGE = [
+const LEGACY_INVITATION_SUBJECT = "Invitation to Bid: {bid_package_name} for {project_name}";
+const DEFAULT_INVITATION_SUBJECT = "Invitation to Bid: {project_name}";
+const LEGACY_INVITATION_MESSAGE = [
   "Hello,",
   "",
   "You are invited to bid on {bid_package_name} for {project_name}.",
+  "Bid due date: {bid_due_date}",
+  "",
+  "Pre-bid information:",
+  "{prebid_info}",
+  "",
+  "Submit your bid here: {portal_link}",
+  "",
+  "For questions, contact {contact_name} at {contact_email}.",
+  "",
+  "Thank you,",
+  "{contact_name}",
+].join("\n");
+const DEFAULT_INVITATION_MESSAGE = [
+  "Hello,",
+  "",
+  "You are invited to bid on {project_name}.",
   "Bid due date: {bid_due_date}",
   "",
   "Pre-bid information:",
@@ -432,6 +460,8 @@ function formatFileSize(bytes: number): string {
 }
 
 function createDefaultDraft(): BidPackageDraft {
+  const defaultRfiDeadlineDate = addDays(new Date(), 7).toISOString().slice(0, 10);
+
   return {
     project_name: "",
     package_number: "",
@@ -456,7 +486,7 @@ function createDefaultDraft(): BidPackageDraft {
     bidding_cc_group: "",
     bidding_instructions: "",
     rfi_deadline_enabled: true,
-    rfi_deadline_date: "2024-11-30",
+    rfi_deadline_date: defaultRfiDeadlineDate,
     rfi_deadline_hour: "12",
     rfi_deadline_minute: "00",
     rfi_deadline_period: "am",
@@ -764,6 +794,43 @@ function writeBidProjectGeneralInfo(projectId: string, draft: BidPackageDraft) {
   writeBidProjectGeneralInfoMap(current);
 }
 
+function getCachedNextBidProjectPackageNumber(referenceDate = new Date()): string | null {
+  const yearPrefix = String(referenceDate.getFullYear() % 100).padStart(2, "0");
+  let maxSequence = 0;
+
+  for (const row of Object.values(readBidProjectGeneralInfoMap())) {
+    const value = row.projectNumber?.trim() ?? "";
+    if (!new RegExp(`^${yearPrefix}\\d{3}$`).test(value)) continue;
+    const sequence = Number.parseInt(value.slice(2), 10);
+    if (Number.isFinite(sequence)) {
+      maxSequence = Math.max(maxSequence, sequence);
+    }
+  }
+
+  if (maxSequence === 0) return null;
+  return `${yearPrefix}${String(maxSequence + 1).padStart(3, "0")}`;
+}
+
+function getHigherPackageNumber(a: string | null, b: string | null): string | null {
+  if (!a) return b;
+  if (!b) return a;
+  return Number.parseInt(b, 10) > Number.parseInt(a, 10) ? b : a;
+}
+
+async function getNextAvailableBidProjectPackageNumber(): Promise<string | null> {
+  const databaseNext = await getNextBidProjectPackageNumber();
+  const cachedNext = getCachedNextBidProjectPackageNumber();
+  return getHigherPackageNumber(databaseNext, cachedNext);
+}
+
+function isBidProjectPackageNumberUsedInCache(packageNumber: string): boolean {
+  const value = packageNumber.trim();
+  if (!value) return false;
+  return Object.values(readBidProjectGeneralInfoMap()).some(
+    (row) => row.projectNumber?.trim() === value
+  );
+}
+
 export default function NewBidPackagePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -818,6 +885,7 @@ export default function NewBidPackagePage() {
   const [fileError, setFileError] = useState<string | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedBidFile[]>([]);
   const [draft, setDraft] = useState<BidPackageDraft>(createDefaultDraft());
+  const [workspaceTimezoneLabel, setWorkspaceTimezoneLabel] = useState("PST");
   const constructionScheduleSyncSourceRef = useRef<
     "dates" | "construction-duration" | "project-duration" | null
   >(null);
@@ -869,6 +937,10 @@ export default function NewBidPackagePage() {
     return matchingUser?.email || "test@builderos.com";
   }, [companyUserOptions, draft.primary_bidding_contact]);
   const activeSenderEmail = mailboxConnection?.email || primaryBiddingContactEmail;
+
+  useEffect(() => {
+    setWorkspaceTimezoneLabel(getWorkspaceTimezoneLabel(getWorkspaceTimezone()));
+  }, []);
 
   const handleUploadFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -1404,11 +1476,10 @@ export default function NewBidPackagePage() {
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<BidPackageAutosavePayload>;
         if (parsed.draft) {
-          setDraft((prev) => ({ ...prev, ...parsed.draft }));
+          const { package_number: _stalePackageNumber, ...autosavedDraft } = parsed.draft;
+          setDraft((prev) => ({ ...prev, ...autosavedDraft }));
         }
-        if (parsed.activePanel) {
-          setActivePanel(parsed.activePanel);
-        }
+        setActivePanel("general");
         if (parsed.activeFileSection) {
           setActiveFileSection(parsed.activeFileSection);
         }
@@ -1440,7 +1511,7 @@ export default function NewBidPackagePage() {
 
     let active = true;
     async function loadNextPackageNumber() {
-      const nextPackageNumber = await getNextBidProjectPackageNumber();
+      const nextPackageNumber = await getNextAvailableBidProjectPackageNumber();
       if (!active || !nextPackageNumber) return;
       setDraft((prev) => {
         if ((prev.package_number ?? "").trim()) return prev;
@@ -1557,9 +1628,15 @@ export default function NewBidPackagePage() {
       const raw = localStorage.getItem(INVITATION_EMAIL_DRAFT_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<InvitationEmailDraft>;
+        const parsedSubject =
+          typeof parsed.subject === "string" ? parsed.subject : DEFAULT_INVITATION_SUBJECT;
+        const parsedMessage =
+          typeof parsed.message === "string" ? parsed.message : DEFAULT_INVITATION_MESSAGE;
         setInvitationEmailDraft({
-          subject: typeof parsed.subject === "string" ? parsed.subject : DEFAULT_INVITATION_SUBJECT,
-          message: typeof parsed.message === "string" ? parsed.message : DEFAULT_INVITATION_MESSAGE,
+          subject:
+            parsedSubject === LEGACY_INVITATION_SUBJECT ? DEFAULT_INVITATION_SUBJECT : parsedSubject,
+          message:
+            parsedMessage === LEGACY_INVITATION_MESSAGE ? DEFAULT_INVITATION_MESSAGE : parsedMessage,
           requireAcknowledgement: Boolean(parsed.requireAcknowledgement),
         });
       }
@@ -1913,11 +1990,12 @@ export default function NewBidPackagePage() {
             trade_name: buildTradeLabel(trade),
             sort_order: index + 1,
           }));
+          let packageNumberForSubmit = draft.package_number.trim();
 
           if (editingProjectId) {
             const updated = await updateBidProject(editingProjectId, {
               project_name: draft.project_name.trim(),
-              package_number: draft.package_number.trim() || null,
+              package_number: packageNumberForSubmit || null,
               owner: draft.owner.trim() || null,
               location: locationValue || null,
               budget: Number.isFinite(budgetValue) ? budgetValue : null,
@@ -2012,9 +2090,24 @@ export default function NewBidPackagePage() {
             return;
           }
 
+          if (
+            !packageNumberForSubmit ||
+            isBidProjectPackageNumberUsedInCache(packageNumberForSubmit) ||
+            !(await isBidProjectPackageNumberAvailable(packageNumberForSubmit))
+          ) {
+            const nextPackageNumber = await getNextAvailableBidProjectPackageNumber();
+            if (!nextPackageNumber) {
+              setError("Unable to generate the next project number. Please try again.");
+              setSubmitting(false);
+              return;
+            }
+            packageNumberForSubmit = nextPackageNumber;
+            setDraft((prev) => ({ ...prev, package_number: nextPackageNumber }));
+          }
+
           const created = await createBidProject({
             project_name: draft.project_name.trim(),
-            package_number: draft.package_number.trim() || null,
+            package_number: packageNumberForSubmit,
             owner: draft.owner.trim() || null,
             location: locationValue || null,
             budget: Number.isFinite(budgetValue) ? budgetValue : null,
@@ -2080,7 +2173,7 @@ export default function NewBidPackagePage() {
                 : "Bid invites queued successfully.",
             });
           }
-          writeBidProjectGeneralInfo(created.id, draft);
+          writeBidProjectGeneralInfo(created.id, { ...draft, package_number: packageNumberForSubmit });
           writeBidPackageFiles(created.id, uploadedFiles);
 
           setDraft(createDefaultDraft());
@@ -2222,7 +2315,25 @@ export default function NewBidPackagePage() {
               />
             </label>
             <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-3">
-              Bid Set Date
+              <span className="inline-flex items-center gap-2">
+                Bid Set Date
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label="What is bid set date?"
+                        className="inline-flex size-5 items-center justify-center rounded-full text-slate-500 transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                      >
+                        <Info className="size-4" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" sideOffset={6} className="max-w-[260px] text-center leading-5">
+                      The date printed on the construction drawings being used for this bid.
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </span>
               <DatePickerField
                 value={draft.bid_set_date}
                 onChange={(next) => setDraft((prev) => ({ ...prev, bid_set_date: next }))}
@@ -2313,28 +2424,6 @@ export default function NewBidPackagePage() {
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white p-5">
-          <h3 className="text-[18px] font-semibold text-slate-900">Bidding Instructions</h3>
-          <div className="mt-4 overflow-hidden rounded-lg border border-slate-200">
-            <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-              <button type="button" className="rounded px-2 py-1 font-semibold hover:bg-slate-200">B</button>
-              <button type="button" className="rounded px-2 py-1 italic hover:bg-slate-200">I</button>
-              <button type="button" className="rounded px-2 py-1 underline hover:bg-slate-200">U</button>
-              <span className="mx-1 h-5 w-px bg-slate-300" />
-              <button type="button" className="rounded px-2 py-1 hover:bg-slate-200">• List</button>
-              <button type="button" className="rounded px-2 py-1 hover:bg-slate-200">1. List</button>
-              <span className="mx-1 h-5 w-px bg-slate-300" />
-              <button type="button" className="rounded px-2 py-1 hover:bg-slate-200">12pt</button>
-              <button type="button" className="rounded px-2 py-1 hover:bg-slate-200">A</button>
-            </div>
-            <textarea
-              value={draft.bidding_instructions}
-              onChange={(event) => setDraft((prev) => ({ ...prev, bidding_instructions: event.target.value }))}
-              className="min-h-56 w-full resize-y border-0 px-4 py-4 text-base leading-8 text-slate-800 focus:outline-none"
-            />
-          </div>
-        </section>
-
-        <section className="rounded-xl border border-slate-200 bg-white p-5">
           <h3 className="text-[18px] font-semibold text-slate-900">Pre-Bid Information</h3>
           <div className="mt-5 space-y-4">
             <div>
@@ -2345,7 +2434,6 @@ export default function NewBidPackagePage() {
                 <DatePickerField
                   value={draft.due_date}
                   onChange={(next) => setDraft((prev) => ({ ...prev, due_date: next }))}
-                  disabled={draft.tbd_due_date}
                   presets={[
                     { label: "Today", daysFromToday: 0 },
                     { label: "Tomorrow", daysFromToday: 1 },
@@ -2356,7 +2444,6 @@ export default function NewBidPackagePage() {
                 <Select
                   value={draft.due_hour}
                   onValueChange={(value) => setDraft((prev) => ({ ...prev, due_hour: value }))}
-                  disabled={draft.tbd_due_date}
                 >
                   <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
                     <SelectValue />
@@ -2372,7 +2459,6 @@ export default function NewBidPackagePage() {
                 <Select
                   value={draft.due_minute}
                   onValueChange={(value) => setDraft((prev) => ({ ...prev, due_minute: value }))}
-                  disabled={draft.tbd_due_date}
                 >
                   <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
                     <SelectValue />
@@ -2388,7 +2474,6 @@ export default function NewBidPackagePage() {
                 <Select
                   value={draft.due_period}
                   onValueChange={(value) => setDraft((prev) => ({ ...prev, due_period: value }))}
-                  disabled={draft.tbd_due_date}
                 >
                   <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
                     <SelectValue />
@@ -2398,23 +2483,8 @@ export default function NewBidPackagePage() {
                     <SelectItem value="pm">pm</SelectItem>
                   </SelectContent>
                 </Select>
-                <span className="text-sm text-slate-600">America/Adak</span>
+                <span className="text-sm text-slate-600">{workspaceTimezoneLabel}</span>
               </div>
-              <label className="mt-3 inline-flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={draft.tbd_due_date}
-                  onChange={(event) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      tbd_due_date: event.target.checked,
-                      due_date: event.target.checked ? "" : prev.due_date,
-                    }))
-                  }
-                  className="size-4 rounded border-slate-300"
-                />
-                To be determined
-              </label>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <button
@@ -2485,7 +2555,7 @@ export default function NewBidPackagePage() {
                       <SelectItem value="pm">pm</SelectItem>
                     </SelectContent>
                   </Select>
-                  <span className="text-sm text-slate-600">America/Adak</span>
+                  <span className="text-sm text-slate-600">{workspaceTimezoneLabel}</span>
                 </div>
               ) : null}
             </div>
@@ -2559,7 +2629,7 @@ export default function NewBidPackagePage() {
                       <SelectItem value="pm">pm</SelectItem>
                     </SelectContent>
                   </Select>
-                  <span className="text-sm text-slate-600">America/Adak</span>
+                  <span className="text-sm text-slate-600">{workspaceTimezoneLabel}</span>
                 </div>
               ) : null}
             </div>

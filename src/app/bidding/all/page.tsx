@@ -13,6 +13,11 @@ import {
 } from "@/lib/bidding/store";
 
 const PAGE_SIZE = 10;
+const BID_PROJECT_GENERAL_INFO_STORAGE_KEY = "bidding-project-general-info-v1";
+
+type BidProjectGeneralInfoCacheRow = {
+  projectNumber?: string;
+};
 
 function formatDueDateTime(isoDate: string | null): string {
   if (!isoDate) return "No due date";
@@ -43,6 +48,42 @@ function formatDueLabel(isoDate: string | null, todayYmd: string): string {
   return `Due ${pastDays} day${pastDays === 1 ? "" : "s"} ago`;
 }
 
+function getDisplayPackageNumber(row: BidProjectSummary, cache: Record<string, string>): string {
+  return row.package_number?.trim() || cache[row.id] || "";
+}
+
+function comparePackageNumbers(a: BidProjectSummary, b: BidProjectSummary, cache: Record<string, string>): number {
+  const aNumber = getDisplayPackageNumber(a, cache);
+  const bNumber = getDisplayPackageNumber(b, cache);
+  if (aNumber && bNumber) {
+    return aNumber.localeCompare(bNumber, undefined, { numeric: true, sensitivity: "base" });
+  }
+  if (aNumber) return -1;
+  if (bNumber) return 1;
+  return a.project_name.localeCompare(b.project_name);
+}
+
+function readBidProjectNumberCache(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(BID_PROJECT_GENERAL_INFO_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+
+    const next: Record<string, string> = {};
+    for (const [projectId, value] of Object.entries(parsed)) {
+      if (!value || typeof value !== "object") continue;
+      const row = value as BidProjectGeneralInfoCacheRow;
+      const projectNumber = typeof row.projectNumber === "string" ? row.projectNumber.trim() : "";
+      if (projectNumber) next[projectId] = projectNumber;
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
 export default function AllBidsPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -58,6 +99,7 @@ export default function AllBidsPage() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [projectNumberCache, setProjectNumberCache] = useState<Record<string, string>>({});
   const [draft, setDraft] = useState({
     project_name: "",
     package_number: "",
@@ -111,6 +153,10 @@ export default function AllBidsPage() {
     };
   }, []);
 
+  useEffect(() => {
+    setProjectNumberCache(readBidProjectNumberCache());
+  }, []);
+
   const sortedRows = useMemo(
     () =>
       [...rows].sort((a, b) => {
@@ -150,10 +196,10 @@ export default function AllBidsPage() {
   const tab = searchParams.get("tab");
   const activeTab = tab === "open" || tab === "closed" || tab === "recycle" ? tab : "all";
   const visibleRows = activeTab === "open" ? openRows : activeTab === "closed" ? closedRows : activeTab === "recycle" ? sortedArchivedRows : sortedRows;
-  const orderedRows = useMemo(
-    () => (rowSortDirection === "asc" ? visibleRows : [...visibleRows].reverse()),
-    [rowSortDirection, visibleRows]
-  );
+  const orderedRows = useMemo(() => {
+    const sorted = [...visibleRows].sort((a, b) => comparePackageNumbers(a, b, projectNumberCache));
+    return rowSortDirection === "asc" ? sorted : sorted.reverse();
+  }, [projectNumberCache, rowSortDirection, visibleRows]);
   const emptyMessage =
     activeTab === "open"
       ? "No open bid packages."
@@ -348,9 +394,7 @@ export default function AllBidsPage() {
                 </thead>
                 <tbody>
                   {pagedRows.map((row, index) => {
-                    const absoluteIndex = (currentPage - 1) * PAGE_SIZE + index;
-                    const rowNumber =
-                      rowSortDirection === "asc" ? absoluteIndex + 1 : orderedRows.length - absoluteIndex;
+                    const packageNumber = getDisplayPackageNumber(row, projectNumberCache) || "-";
                     const statusLabel =
                       activeTab === "recycle"
                         ? "Archived"
@@ -383,7 +427,7 @@ export default function AllBidsPage() {
                           </button>
                         </div>
                       </td>
-                      <td className="border-r border-slate-100 px-4 py-4 text-sm font-semibold text-slate-700">{rowNumber}</td>
+                      <td className="border-r border-slate-100 px-4 py-4 text-sm font-semibold text-slate-700">{packageNumber}</td>
                       <td className="border-r border-slate-100 px-4 py-4 font-semibold">
                         <button
                           type="button"
@@ -531,6 +575,7 @@ export default function AllBidsPage() {
                 const budgetValue = draft.budget.trim() ? Number(draft.budget) : null;
                 const created = await createBidProject({
                   project_name: draft.project_name.trim(),
+                  package_number: draft.package_number.trim() || null,
                   owner: draft.owner.trim() || null,
                   location: draft.location.trim() || null,
                   budget: Number.isFinite(budgetValue) ? budgetValue : null,
