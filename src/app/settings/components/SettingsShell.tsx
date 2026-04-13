@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { EmailSendingSection } from "./EmailSendingSection";
 import { EmptyState } from "./EmptyState";
@@ -100,12 +100,68 @@ function splitFullName(value: string): { firstName: string; lastName: string } {
   };
 }
 
-function formatActualArizonaTaxRate(rate: string, state: string): string {
-  if (state.trim().toUpperCase() !== "AZ") return "-";
+const US_STATES = [
+  { code: "AL", name: "Alabama" },
+  { code: "AK", name: "Alaska" },
+  { code: "AZ", name: "Arizona" },
+  { code: "AR", name: "Arkansas" },
+  { code: "CA", name: "California" },
+  { code: "CO", name: "Colorado" },
+  { code: "CT", name: "Connecticut" },
+  { code: "DE", name: "Delaware" },
+  { code: "FL", name: "Florida" },
+  { code: "GA", name: "Georgia" },
+  { code: "HI", name: "Hawaii" },
+  { code: "ID", name: "Idaho" },
+  { code: "IL", name: "Illinois" },
+  { code: "IN", name: "Indiana" },
+  { code: "IA", name: "Iowa" },
+  { code: "KS", name: "Kansas" },
+  { code: "KY", name: "Kentucky" },
+  { code: "LA", name: "Louisiana" },
+  { code: "ME", name: "Maine" },
+  { code: "MD", name: "Maryland" },
+  { code: "MA", name: "Massachusetts" },
+  { code: "MI", name: "Michigan" },
+  { code: "MN", name: "Minnesota" },
+  { code: "MS", name: "Mississippi" },
+  { code: "MO", name: "Missouri" },
+  { code: "MT", name: "Montana" },
+  { code: "NE", name: "Nebraska" },
+  { code: "NV", name: "Nevada" },
+  { code: "NH", name: "New Hampshire" },
+  { code: "NJ", name: "New Jersey" },
+  { code: "NM", name: "New Mexico" },
+  { code: "NY", name: "New York" },
+  { code: "NC", name: "North Carolina" },
+  { code: "ND", name: "North Dakota" },
+  { code: "OH", name: "Ohio" },
+  { code: "OK", name: "Oklahoma" },
+  { code: "OR", name: "Oregon" },
+  { code: "PA", name: "Pennsylvania" },
+  { code: "RI", name: "Rhode Island" },
+  { code: "SC", name: "South Carolina" },
+  { code: "SD", name: "South Dakota" },
+  { code: "TN", name: "Tennessee" },
+  { code: "TX", name: "Texas" },
+  { code: "UT", name: "Utah" },
+  { code: "VT", name: "Vermont" },
+  { code: "VA", name: "Virginia" },
+  { code: "WA", name: "Washington" },
+  { code: "WV", name: "West Virginia" },
+  { code: "WI", name: "Wisconsin" },
+  { code: "WY", name: "Wyoming" },
+];
+
+function formatActualTaxRate(rate: string, state: string): string {
   const numericRate = Number.parseFloat(rate);
   if (!Number.isFinite(numericRate)) return "-";
-  return `${(numericRate * 0.65).toFixed(2)}%`;
+  const actualRate = state.trim().toUpperCase() === "AZ" ? numericRate * 0.65 : numericRate;
+  return `${actualRate.toFixed(2)}%`;
 }
+
+type TaxRateSortKey = "city" | "state";
+type SortDirection = "asc" | "desc";
 
 const defaultCompanyCostCodes: Array<{ code: string; description: string }> = [
   { code: "00", description: "Professional Services" },
@@ -338,14 +394,27 @@ function parseSection(value: string | null): SettingsSectionId {
   return match?.id ?? fallback;
 }
 
+function getDefaultCostCodeRows() {
+  return defaultCompanyCostCodes.map((item, index) => ({
+    id: `cc-${index + 1}`,
+    code: item.code,
+    description: item.description,
+  }));
+}
+
 export function SettingsShell() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const bypassUnsavedGuardRef = useRef(false);
 
   const activeSection = parseSection(searchParams.get("section"));
 
   const [saveStatus, setSaveStatus] = useState<"saved" | "unsaved">("saved");
+  const [pendingNavigation, setPendingNavigation] = useState<{
+    section?: SettingsSectionId;
+    href?: string;
+  } | null>(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [teamUsers, setTeamUsers] = useState<TeamUser[]>(initialUsers);
   const [loadingTeamUsers, setLoadingTeamUsers] = useState(false);
@@ -372,18 +441,65 @@ export function SettingsShell() {
   const [inviteUserError, setInviteUserError] = useState<string | null>(null);
   const [workspaceTimezone, setWorkspaceTimezoneDraft] = useState<WorkspaceTimezone>("pst");
   const [taxRateRows, setTaxRateRows] = useState<WorkspaceTaxRate[]>([]);
-  const [costCodeRows, setCostCodeRows] = useState(
-    defaultCompanyCostCodes.map((item, index) => ({
-      id: `cc-${index + 1}`,
-      code: item.code,
-      description: item.description,
-    }))
-  );
+  const [taxRateSort, setTaxRateSort] = useState<{
+    key: TaxRateSortKey;
+    direction: SortDirection;
+  }>({
+    key: "city",
+    direction: "asc",
+  });
+  const [costCodeRows, setCostCodeRows] = useState(getDefaultCostCodeRows);
 
   useEffect(() => {
     setWorkspaceTimezoneDraft(getWorkspaceTimezone());
     setTaxRateRows(getWorkspaceTaxRates());
   }, []);
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (saveStatus !== "unsaved" || bypassUnsavedGuardRef.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [saveStatus]);
+
+  useEffect(() => {
+    const handleDocumentClick = (event: MouseEvent) => {
+      if (saveStatus !== "unsaved" || bypassUnsavedGuardRef.current) return;
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+
+      const link = target.closest("a[href]");
+      if (!(link instanceof HTMLAnchorElement)) return;
+      if (link.target && link.target !== "_self") return;
+
+      const href = link.href;
+      if (!href) return;
+
+      const nextUrl = new URL(href);
+      if (nextUrl.protocol !== "http:" && nextUrl.protocol !== "https:") return;
+      const currentUrl = new URL(window.location.href);
+      const sameDestination =
+        nextUrl.pathname === currentUrl.pathname &&
+        nextUrl.search === currentUrl.search &&
+        nextUrl.hash === currentUrl.hash;
+
+      if (sameDestination) return;
+
+      event.preventDefault();
+      setPendingNavigation({ href });
+    };
+
+    document.addEventListener("click", handleDocumentClick, true);
+    return () => document.removeEventListener("click", handleDocumentClick, true);
+  }, [saveStatus]);
 
   useEffect(() => {
     let active = true;
@@ -427,7 +543,57 @@ export function SettingsShell() {
     });
   }, [roleFilter, search, statusFilter, teamUsers]);
 
-  const markUnsaved = () => setSaveStatus("unsaved");
+  const resetSettingsDrafts = () => {
+    setWorkspaceTimezoneDraft(getWorkspaceTimezone());
+    setTaxRateRows(getWorkspaceTaxRates());
+    setCostCodeRows(getDefaultCostCodeRows());
+    setSaveStatus("saved");
+  };
+
+  const markUnsaved = () => {
+    bypassUnsavedGuardRef.current = false;
+    setSaveStatus("unsaved");
+  };
+
+  const sortedTaxRateRows = useMemo(() => {
+    const compareText = (left: string, right: string) =>
+      left.trim().localeCompare(right.trim(), undefined, {
+        numeric: true,
+        sensitivity: "base",
+      });
+
+    return [...taxRateRows].sort((left, right) => {
+      const primaryCompare = compareText(left[taxRateSort.key], right[taxRateSort.key]);
+      const secondaryKey = taxRateSort.key === "city" ? "state" : "city";
+      const secondaryCompare = compareText(left[secondaryKey], right[secondaryKey]);
+      const result = primaryCompare || secondaryCompare;
+      return taxRateSort.direction === "asc" ? result : result * -1;
+    });
+  }, [taxRateRows, taxRateSort]);
+
+  const toggleTaxRateSort = (key: TaxRateSortKey) => {
+    setTaxRateSort((prev) => ({
+      key,
+      direction: prev.key === key && prev.direction === "asc" ? "desc" : "asc",
+    }));
+  };
+
+  const renderTaxRateSortIcon = (key: TaxRateSortKey) => {
+    const isActive = taxRateSort.key === key;
+
+    return (
+      <svg viewBox="0 0 20 20" className="size-4" aria-hidden>
+        <path
+          d="M10 4 5.5 9h9L10 4z"
+          fill={isActive && taxRateSort.direction === "asc" ? "#3B82F6" : "#CBD5E1"}
+        />
+        <path
+          d="M10 16 14.5 11h-9L10 16z"
+          fill={isActive && taxRateSort.direction === "desc" ? "#3B82F6" : "#CBD5E1"}
+        />
+      </svg>
+    );
+  };
 
   const handleTimezoneChange = (nextValue: WorkspaceTimezone) => {
     setWorkspaceTimezoneDraft(nextValue);
@@ -593,9 +759,39 @@ export function SettingsShell() {
   };
 
   const onSectionChange = (section: SettingsSectionId) => {
+    if (saveStatus === "unsaved" && section !== activeSection) {
+      setPendingNavigation({ section });
+      return;
+    }
+
     const params = new URLSearchParams(searchParams.toString());
     params.set("section", section);
     router.replace(`${pathname}?${params.toString()}`);
+  };
+
+  const confirmPendingNavigation = () => {
+    if (!pendingNavigation) return;
+    bypassUnsavedGuardRef.current = true;
+    const nextNavigation = pendingNavigation;
+    setPendingNavigation(null);
+    resetSettingsDrafts();
+
+    if (nextNavigation.section) {
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("section", nextNavigation.section);
+      router.replace(`${pathname}?${params.toString()}`);
+      return;
+    }
+
+    if (nextNavigation.href) {
+      const nextUrl = new URL(nextNavigation.href);
+      if (nextUrl.origin === window.location.origin) {
+        router.push(`${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`);
+        return;
+      }
+
+      window.location.href = nextNavigation.href;
+    }
   };
 
   const renderGeneral = () => (
@@ -1194,36 +1390,70 @@ export function SettingsShell() {
           </button>
         </header>
         <div className="overflow-x-auto px-5 py-4">
-          <table className="min-w-[660px] w-full text-sm">
+          <table className="min-w-[760px] w-full text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-3 py-3 text-left font-semibold">City / Municipality</th>
-                <th className="w-24 px-3 py-3 text-left font-semibold">State</th>
+                <th className="px-3 py-3 text-left font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => toggleTaxRateSort("city")}
+                    className="inline-flex items-center gap-4 rounded-md text-left font-semibold uppercase tracking-wide text-slate-500 hover:text-slate-900"
+                    aria-label={`Sort city or municipality ${
+                      taxRateSort.key === "city" && taxRateSort.direction === "asc"
+                        ? "descending"
+                        : "ascending"
+                    }`}
+                  >
+                    <span>City / Municipality</span>
+                    {renderTaxRateSortIcon("city")}
+                  </button>
+                </th>
+                <th className="w-48 px-3 py-3 text-left font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => toggleTaxRateSort("state")}
+                    className="inline-flex items-center gap-4 rounded-md text-left font-semibold uppercase tracking-wide text-slate-500 hover:text-slate-900"
+                    aria-label={`Sort state ${
+                      taxRateSort.key === "state" && taxRateSort.direction === "asc"
+                        ? "descending"
+                        : "ascending"
+                    }`}
+                  >
+                    <span>State</span>
+                    {renderTaxRateSortIcon("state")}
+                  </button>
+                </th>
                 <th className="w-32 px-3 py-3 text-left font-semibold">Rate</th>
                 <th className="w-32 px-3 py-3 text-left font-semibold">Actual Rate</th>
                 <th className="w-24 px-3 py-3 text-right font-semibold">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {taxRateRows.map((row) => (
+              {sortedTaxRateRows.map((row) => (
                 <tr key={row.id} className="border-t border-slate-200">
                   <td className="px-3 py-3">
                     <input
                       value={row.city}
                       onChange={(event) => updateTaxRateRow(row.id, { city: event.target.value })}
-                      className="w-full rounded-lg border border-transparent bg-transparent px-2 py-2 font-semibold text-slate-900 outline-none focus:border-blue-300 focus:bg-white"
+                      className="w-full scroll-mb-40 rounded-lg border border-transparent bg-transparent px-2 py-2 font-semibold text-slate-900 outline-none focus:border-blue-300 focus:bg-white"
                       placeholder="City"
                     />
                   </td>
                   <td className="px-3 py-3">
-                    <input
+                    <select
                       value={row.state}
                       onChange={(event) =>
-                        updateTaxRateRow(row.id, { state: event.target.value.toUpperCase() })
+                        updateTaxRateRow(row.id, { state: event.target.value })
                       }
-                      className="w-full rounded-lg border border-transparent bg-transparent px-2 py-2 font-semibold text-slate-700 outline-none focus:border-blue-300 focus:bg-white"
-                      placeholder="AZ"
-                    />
+                      className="w-full scroll-mb-40 rounded-lg border border-transparent bg-transparent px-2 py-2 font-semibold text-slate-700 outline-none focus:border-blue-300 focus:bg-white"
+                      aria-label={`State for ${row.city || "tax rate"}`}
+                    >
+                      {US_STATES.map((state) => (
+                        <option key={state.code} value={state.code}>
+                          {state.name} ({state.code})
+                        </option>
+                      ))}
+                    </select>
                   </td>
                   <td className="px-3 py-3">
                     <div className="flex items-center rounded-lg border border-transparent bg-transparent px-2 py-2 focus-within:border-blue-300 focus-within:bg-white">
@@ -1232,14 +1462,14 @@ export function SettingsShell() {
                         onChange={(event) =>
                           updateTaxRateRow(row.id, { rate: event.target.value.replace(/[^0-9.]/g, "") })
                         }
-                        className="w-full bg-transparent text-right font-semibold text-slate-900 outline-none"
+                        className="w-full scroll-mb-40 bg-transparent text-right font-semibold text-slate-900 outline-none"
                         placeholder="0.00"
                       />
                       <span className="ml-1 text-slate-500">%</span>
                     </div>
                   </td>
                   <td className="px-3 py-3 font-semibold text-slate-700">
-                    {formatActualArizonaTaxRate(row.rate, row.state)}
+                    {formatActualTaxRate(row.rate, row.state)}
                   </td>
                   <td className="px-3 py-3 text-right">
                     <button
@@ -1463,18 +1693,43 @@ export function SettingsShell() {
         onSectionChange={onSectionChange}
         saveStatus={saveStatus}
         onCancel={() => {
-          setWorkspaceTimezoneDraft(getWorkspaceTimezone());
-          setTaxRateRows(getWorkspaceTaxRates());
-          setSaveStatus("saved");
+          resetSettingsDrafts();
         }}
         onSave={() => {
           setWorkspaceTimezone(workspaceTimezone);
           setWorkspaceTaxRates(taxRateRows);
+          bypassUnsavedGuardRef.current = false;
           setSaveStatus("saved");
         }}
       >
         {content}
       </SettingsLayout>
+      {pendingNavigation ? (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl">
+            <h3 className="text-lg font-semibold text-slate-900">Leave without saving?</h3>
+            <p className="mt-2 text-sm leading-6 text-slate-600">
+              You have unsaved settings changes. If you leave now, those changes will be lost.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100"
+                onClick={() => setPendingNavigation(null)}
+              >
+                Stay
+              </button>
+              <button
+                type="button"
+                className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700"
+                onClick={confirmPendingNavigation}
+              >
+                Leave without saving
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }

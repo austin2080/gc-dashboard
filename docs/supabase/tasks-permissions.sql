@@ -1,6 +1,6 @@
 -- Task backend guardrails for assignee/workspace/project validation.
 -- Assumes:
---   tasks(id, company_id, project_id, created_by, assignee_user_id, ...)
+--   tasks(id, company_id, project_id, created_by, assignee_id, ...)
 --   projects(id, company_id, created_by)
 --   company_members(company_id, user_id, role, is_active, can_view_all_projects)
 --   project_members(project_id, user_id)
@@ -75,27 +75,27 @@ begin
   actor_id := app_request_user_id();
   actor_is_manager := app_is_manager_or_admin(actor_id, new.company_id);
 
-  if new.assignee_user_id is not null then
+  if new.assignee_id is not null then
     select exists (
       select 1
       from company_members cm
-      where cm.user_id = new.assignee_user_id
+      where cm.user_id = new.assignee_id
         and cm.company_id = new.company_id
         and cm.is_active = true
     ) into assignee_in_company;
 
     if not assignee_in_company then
-      raise exception 'assignee_user_id must belong to the same company';
+      raise exception 'assignee_id must belong to the same company';
     end if;
 
-    assignee_has_project_access := app_user_can_access_project(new.assignee_user_id, new.company_id, new.project_id);
+    assignee_has_project_access := app_user_can_access_project(new.assignee_id, new.company_id, new.project_id);
     if not assignee_has_project_access then
-      raise exception 'assignee_user_id must have access to the task project';
+      raise exception 'assignee_id must have access to the task project';
     end if;
   end if;
 
   if tg_op = 'UPDATE' and not actor_is_manager then
-    if new.assignee_user_id is distinct from old.assignee_user_id then
+    if new.assignee_id is distinct from old.assignee_id then
       raise exception 'Only manager/admin can reassign tasks';
     end if;
 
@@ -135,7 +135,7 @@ using (
   and (
     app_is_manager_or_admin(auth.uid(), company_id)
     or created_by = auth.uid()
-    or assignee_user_id = auth.uid()
+    or assignee_id = auth.uid()
   )
 )
 with check (

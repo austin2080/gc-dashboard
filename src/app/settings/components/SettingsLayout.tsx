@@ -69,7 +69,7 @@ export function SettingsLayout({
       </div>
 
       {saveStatus === "unsaved" ? (
-        <div className="sticky bottom-4 mt-6 flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-lg">
+        <div className="mt-6 flex items-center justify-between rounded-2xl border border-slate-200 bg-white p-4 shadow-lg">
           <p className="text-sm text-slate-600">You have unsaved settings changes.</p>
           <div className="flex items-center gap-2">
             <button
