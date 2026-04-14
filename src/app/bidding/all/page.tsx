@@ -111,6 +111,7 @@ export default function AllBidsPage() {
     due_hour: "12",
     due_minute: "00",
     due_period: "am",
+    due_time_enabled: true,
     tbd_due_date: false,
     primary_bidding_contact: "Project Manager",
     bidding_cc_group: "",
@@ -123,11 +124,13 @@ export default function AllBidsPage() {
     rfi_deadline_hour: "12",
     rfi_deadline_minute: "00",
     rfi_deadline_period: "am",
+    rfi_deadline_time_enabled: false,
     site_walkthrough_enabled: false,
     site_walkthrough_date: "",
     site_walkthrough_hour: "12",
     site_walkthrough_minute: "00",
     site_walkthrough_period: "am",
+    site_walkthrough_time_enabled: false,
     anticipated_award_date: "",
     countdown_emails: false,
     accept_submissions_past_due: false,
@@ -601,6 +604,7 @@ export default function AllBidsPage() {
                   due_hour: "12",
                   due_minute: "00",
                   due_period: "am",
+                  due_time_enabled: true,
                   tbd_due_date: false,
                   primary_bidding_contact: "Project Manager",
                   bidding_cc_group: "",
@@ -613,11 +617,13 @@ export default function AllBidsPage() {
                   rfi_deadline_hour: "12",
                   rfi_deadline_minute: "00",
                   rfi_deadline_period: "am",
+                  rfi_deadline_time_enabled: false,
                   site_walkthrough_enabled: false,
                   site_walkthrough_date: "",
                   site_walkthrough_hour: "12",
                   site_walkthrough_minute: "00",
                   site_walkthrough_period: "am",
+                  site_walkthrough_time_enabled: false,
                   anticipated_award_date: "",
                   countdown_emails: false,
                   accept_submissions_past_due: false,
@@ -686,40 +692,65 @@ export default function AllBidsPage() {
                         disabled={draft.tbd_due_date}
                         className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50"
                       />
-                      <select
-                        value={draft.due_hour}
-                        onChange={(event) => setDraft((prev) => ({ ...prev, due_hour: event.target.value }))}
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={draft.due_time_enabled}
                         disabled={draft.tbd_due_date}
-                        className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => setDraft((prev) => ({ ...prev, due_time_enabled: !prev.due_time_enabled }))}
+                        className="inline-flex h-10 items-center gap-3 rounded-full border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
-                          <option key={hour} value={hour}>
-                            {hour}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        value={draft.due_minute}
-                        onChange={(event) => setDraft((prev) => ({ ...prev, due_minute: event.target.value }))}
-                        disabled={draft.tbd_due_date}
-                        className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {["00", "15", "30", "45"].map((minute) => (
-                          <option key={minute} value={minute}>
-                            {minute}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        value={draft.due_period}
-                        onChange={(event) => setDraft((prev) => ({ ...prev, due_period: event.target.value }))}
-                        disabled={draft.tbd_due_date}
-                        className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        <option value="am">am</option>
-                        <option value="pm">pm</option>
-                      </select>
-                      <span className="text-sm text-slate-600">America/Adak</span>
+                        <span
+                          className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${
+                            draft.due_time_enabled ? "bg-blue-600" : "bg-slate-300"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block size-4 rounded-full bg-white transition ${
+                              draft.due_time_enabled ? "translate-x-5" : "translate-x-0.5"
+                            }`}
+                          />
+                        </span>
+                        Include time
+                      </button>
+                      {draft.due_time_enabled ? (
+                        <>
+                          <select
+                            value={draft.due_hour}
+                            onChange={(event) => setDraft((prev) => ({ ...prev, due_hour: event.target.value }))}
+                            disabled={draft.tbd_due_date}
+                            className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
+                              <option key={hour} value={hour}>
+                                {hour}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={draft.due_minute}
+                            onChange={(event) => setDraft((prev) => ({ ...prev, due_minute: event.target.value }))}
+                            disabled={draft.tbd_due_date}
+                            className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {["00", "15", "30", "45"].map((minute) => (
+                              <option key={minute} value={minute}>
+                                {minute}
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={draft.due_period}
+                            onChange={(event) => setDraft((prev) => ({ ...prev, due_period: event.target.value }))}
+                            disabled={draft.tbd_due_date}
+                            className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <option value="am">am</option>
+                            <option value="pm">pm</option>
+                          </select>
+                          <span className="text-sm text-slate-600">America/Adak</span>
+                        </>
+                      ) : null}
                     </div>
                     <label className="mt-3 inline-flex items-center gap-2 text-sm text-slate-700">
                       <input
@@ -748,7 +779,7 @@ export default function AllBidsPage() {
                       Primary Bidding Contact <span className="text-rose-600">*</span>
                       <span
                         className="inline-flex size-5 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white"
-                        title="Who receives and sends bidding communications."
+                        title="Emails will be sent from: test@buildrightos.com"
                         aria-label="Primary bidding contact help"
                       >
                         i
@@ -777,9 +808,6 @@ export default function AllBidsPage() {
                         <path d="M5 7l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                     </div>
-                    <span className="text-sm font-normal text-slate-600">
-                      Emails will be sent from: test@buildrightos.com
-                    </span>
                   </label>
 
                   <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
@@ -873,43 +901,72 @@ export default function AllBidsPage() {
                           }
                           className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
                         />
-                        <select
-                          value={draft.rfi_deadline_hour}
-                          onChange={(event) =>
-                            setDraft((prev) => ({ ...prev, rfi_deadline_hour: event.target.value }))
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={draft.rfi_deadline_time_enabled}
+                          onClick={() =>
+                            setDraft((prev) => ({
+                              ...prev,
+                              rfi_deadline_time_enabled: !prev.rfi_deadline_time_enabled,
+                            }))
                           }
-                          className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700"
+                          className="inline-flex h-10 items-center gap-3 rounded-full border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                         >
-                          {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
-                            <option key={`rfi-hour-${hour}`} value={hour}>
-                              {hour}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          value={draft.rfi_deadline_minute}
-                          onChange={(event) =>
-                            setDraft((prev) => ({ ...prev, rfi_deadline_minute: event.target.value }))
-                          }
-                          className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700"
-                        >
-                          {["00", "15", "30", "45"].map((minute) => (
-                            <option key={`rfi-minute-${minute}`} value={minute}>
-                              {minute}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          value={draft.rfi_deadline_period}
-                          onChange={(event) =>
-                            setDraft((prev) => ({ ...prev, rfi_deadline_period: event.target.value }))
-                          }
-                          className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700"
-                        >
-                          <option value="am">am</option>
-                          <option value="pm">pm</option>
-                        </select>
-                        <span className="text-sm text-slate-600">America/Adak</span>
+                          <span
+                            className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${
+                              draft.rfi_deadline_time_enabled ? "bg-blue-600" : "bg-slate-300"
+                            }`}
+                          >
+                            <span
+                              className={`inline-block size-4 rounded-full bg-white transition ${
+                                draft.rfi_deadline_time_enabled ? "translate-x-5" : "translate-x-0.5"
+                              }`}
+                            />
+                          </span>
+                          Include time
+                        </button>
+                        {draft.rfi_deadline_time_enabled ? (
+                          <>
+                            <select
+                              value={draft.rfi_deadline_hour}
+                              onChange={(event) =>
+                                setDraft((prev) => ({ ...prev, rfi_deadline_hour: event.target.value }))
+                              }
+                              className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700"
+                            >
+                              {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
+                                <option key={`rfi-hour-${hour}`} value={hour}>
+                                  {hour}
+                                </option>
+                              ))}
+                            </select>
+                            <select
+                              value={draft.rfi_deadline_minute}
+                              onChange={(event) =>
+                                setDraft((prev) => ({ ...prev, rfi_deadline_minute: event.target.value }))
+                              }
+                              className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700"
+                            >
+                              {["00", "15", "30", "45"].map((minute) => (
+                                <option key={`rfi-minute-${minute}`} value={minute}>
+                                  {minute}
+                                </option>
+                              ))}
+                            </select>
+                            <select
+                              value={draft.rfi_deadline_period}
+                              onChange={(event) =>
+                                setDraft((prev) => ({ ...prev, rfi_deadline_period: event.target.value }))
+                              }
+                              className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700"
+                            >
+                              <option value="am">am</option>
+                              <option value="pm">pm</option>
+                            </select>
+                            <span className="text-sm text-slate-600">America/Adak</span>
+                          </>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>
@@ -943,43 +1000,72 @@ export default function AllBidsPage() {
                           }
                           className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
                         />
-                        <select
-                          value={draft.site_walkthrough_hour}
-                          onChange={(event) =>
-                            setDraft((prev) => ({ ...prev, site_walkthrough_hour: event.target.value }))
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={draft.site_walkthrough_time_enabled}
+                          onClick={() =>
+                            setDraft((prev) => ({
+                              ...prev,
+                              site_walkthrough_time_enabled: !prev.site_walkthrough_time_enabled,
+                            }))
                           }
-                          className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700"
+                          className="inline-flex h-10 items-center gap-3 rounded-full border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
                         >
-                          {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
-                            <option key={`walk-hour-${hour}`} value={hour}>
-                              {hour}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          value={draft.site_walkthrough_minute}
-                          onChange={(event) =>
-                            setDraft((prev) => ({ ...prev, site_walkthrough_minute: event.target.value }))
-                          }
-                          className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700"
-                        >
-                          {["00", "15", "30", "45"].map((minute) => (
-                            <option key={`walk-minute-${minute}`} value={minute}>
-                              {minute}
-                            </option>
-                          ))}
-                        </select>
-                        <select
-                          value={draft.site_walkthrough_period}
-                          onChange={(event) =>
-                            setDraft((prev) => ({ ...prev, site_walkthrough_period: event.target.value }))
-                          }
-                          className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700"
-                        >
-                          <option value="am">am</option>
-                          <option value="pm">pm</option>
-                        </select>
-                        <span className="text-sm text-slate-600">America/Adak</span>
+                          <span
+                            className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${
+                              draft.site_walkthrough_time_enabled ? "bg-blue-600" : "bg-slate-300"
+                            }`}
+                          >
+                            <span
+                              className={`inline-block size-4 rounded-full bg-white transition ${
+                                draft.site_walkthrough_time_enabled ? "translate-x-5" : "translate-x-0.5"
+                              }`}
+                            />
+                          </span>
+                          Include time
+                        </button>
+                        {draft.site_walkthrough_time_enabled ? (
+                          <>
+                            <select
+                              value={draft.site_walkthrough_hour}
+                              onChange={(event) =>
+                                setDraft((prev) => ({ ...prev, site_walkthrough_hour: event.target.value }))
+                              }
+                              className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700"
+                            >
+                              {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
+                                <option key={`walk-hour-${hour}`} value={hour}>
+                                  {hour}
+                                </option>
+                              ))}
+                            </select>
+                            <select
+                              value={draft.site_walkthrough_minute}
+                              onChange={(event) =>
+                                setDraft((prev) => ({ ...prev, site_walkthrough_minute: event.target.value }))
+                              }
+                              className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700"
+                            >
+                              {["00", "15", "30", "45"].map((minute) => (
+                                <option key={`walk-minute-${minute}`} value={minute}>
+                                  {minute}
+                                </option>
+                              ))}
+                            </select>
+                            <select
+                              value={draft.site_walkthrough_period}
+                              onChange={(event) =>
+                                setDraft((prev) => ({ ...prev, site_walkthrough_period: event.target.value }))
+                              }
+                              className="rounded-md border border-slate-200 px-2 py-2 text-sm text-slate-700"
+                            >
+                              <option value="am">am</option>
+                              <option value="pm">pm</option>
+                            </select>
+                            <span className="text-sm text-slate-600">America/Adak</span>
+                          </>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>

@@ -17,11 +17,8 @@ import {
   updateBidProject,
   updateBidTrades,
 } from "@/lib/bidding/store";
-import {
-  getWorkspaceTimezone,
-  getWorkspaceTimezoneLabel,
-} from "@/lib/settings/preferences";
 import { getWorkspaceTaxRates, type WorkspaceTaxRate } from "@/lib/settings/tax-rates";
+import { getWorkspaceCostCodes } from "@/lib/settings/company-cost-codes";
 import {
   Select,
   SelectContent,
@@ -42,6 +39,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Tooltip,
   TooltipContent,
@@ -69,6 +74,7 @@ type BidPackageDraft = {
   due_hour: string;
   due_minute: string;
   due_period: string;
+  due_time_enabled: boolean;
   tbd_due_date: boolean;
   primary_bidding_contact: string;
   bidding_cc_group: string;
@@ -78,11 +84,13 @@ type BidPackageDraft = {
   rfi_deadline_hour: string;
   rfi_deadline_minute: string;
   rfi_deadline_period: string;
+  rfi_deadline_time_enabled: boolean;
   site_walkthrough_enabled: boolean;
   site_walkthrough_date: string;
   site_walkthrough_hour: string;
   site_walkthrough_minute: string;
   site_walkthrough_period: string;
+  site_walkthrough_time_enabled: boolean;
   project_size_sqft: string;
   project_site_size_sqft: string;
   construction_start_date: string;
@@ -240,6 +248,8 @@ const DEFAULT_INVITATION_MESSAGE = [
   "{contact_name}",
 ].join("\n");
 
+const PREBID_TIMEZONE_OPTIONS = ["EST", "CST", "MST", "PST"] as const;
+
 const DATE_DISPLAY_FORMATTER = new Intl.DateTimeFormat("en-US", {
   month: "2-digit",
   day: "2-digit",
@@ -263,6 +273,33 @@ function toIsoDate(value: Date): string {
   const month = String(value.getMonth() + 1).padStart(2, "0");
   const day = String(value.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function formatOptionalDateTimeLabel(
+  date: string,
+  hour: string,
+  minute: string,
+  period: string,
+  includeTime: boolean,
+  fallback = "TBD"
+) {
+  const selectedDate = parseIsoDate(date);
+  if (!selectedDate) return fallback;
+  const dateLabel = DATE_DISPLAY_FORMATTER.format(selectedDate);
+  if (!includeTime) return dateLabel;
+  return `${dateLabel} ${hour}:${minute} ${period.toUpperCase()}`;
+}
+
+function formatBidDueDateLabel(
+  draft: Pick<BidPackageDraft, "due_date" | "due_hour" | "due_minute" | "due_period" | "due_time_enabled">
+) {
+  return formatOptionalDateTimeLabel(
+    draft.due_date,
+    draft.due_hour,
+    draft.due_minute,
+    draft.due_period,
+    draft.due_time_enabled
+  );
 }
 
 function addDaysToIsoDate(isoDate: string, days: number) {
@@ -290,17 +327,18 @@ function formatTaxRateDisplay(value: string): string {
   return `${numeric.toFixed(2)}%`;
 }
 
-function formatArizonaConstructionTaxRateDisplay(value: string): string {
+function formatActualTaxRateDisplay(value: string, state: string): string {
   const sanitized = sanitizeTaxRateInput(value).trim();
   if (!sanitized) return "";
   const numeric = Number(sanitized);
   if (!Number.isFinite(numeric)) return "";
-  return `${(numeric * 0.65).toFixed(2)}%`;
+  const actualRate = state.trim().toUpperCase() === "AZ" ? numeric * 0.65 : numeric;
+  return `${actualRate.toFixed(2)}%`;
 }
 
-function formatCombinedAndActualTaxRateDisplay(value: string): string {
+function formatCombinedAndActualTaxRateDisplay(value: string, state: string): string {
   const combined = formatTaxRateDisplay(value);
-  const actual = formatArizonaConstructionTaxRateDisplay(value);
+  const actual = formatActualTaxRateDisplay(value, state);
   if (!combined || !actual) return "";
   return `${combined} - Actual ${actual}`;
 }
@@ -346,12 +384,16 @@ function DatePickerField({
   disabled,
   className,
   presets,
+  placeholder = "Select date",
+  iconPosition = "left",
 }: {
   value: string;
   onChange: (next: string) => void;
   disabled?: boolean;
   className?: string;
   presets?: DatePickerPreset[];
+  placeholder?: string;
+  iconPosition?: "left" | "right";
 }) {
   const [open, setOpen] = useState(false);
   const selectedDate = parseIsoDate(value);
@@ -379,13 +421,22 @@ function DatePickerField({
           type="button"
           variant="outline"
           disabled={disabled}
-          className={`justify-start rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900 shadow-sm hover:bg-white ${className ?? "w-[170px]"}`}
+          className={`${
+            iconPosition === "right" ? "justify-between" : "justify-start"
+          } rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900 shadow-sm hover:bg-white ${className ?? "w-[170px]"}`}
         >
-          <CalendarIcon className="mr-2 size-4 text-slate-500" />
-          {selectedDate ? DATE_DISPLAY_FORMATTER.format(selectedDate) : "Select date"}
+          {iconPosition === "left" ? <CalendarIcon className="mr-2 size-4 text-slate-500" /> : null}
+          <span>{selectedDate ? DATE_DISPLAY_FORMATTER.format(selectedDate) : placeholder}</span>
+          {iconPosition === "right" ? <CalendarIcon className="size-5 text-current" /> : null}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="h-auto w-[340px] min-w-[340px] p-0" align="start">
+      <PopoverContent
+        className="max-h-[var(--radix-popover-content-available-height)] w-[340px] min-w-[340px] overflow-y-auto p-0"
+        align="start"
+        side="bottom"
+        sideOffset={6}
+        collisionPadding={{ top: 88, right: 16, bottom: 16, left: 16 }}
+      >
         <Calendar
           mode="single"
           selected={selectedDate}
@@ -471,9 +522,10 @@ function createDefaultDraft(): BidPackageDraft {
     project_zip: "",
     budget: "",
     due_date: "",
-    due_hour: "12",
+    due_hour: "04",
     due_minute: "00",
-    due_period: "am",
+    due_period: "pm",
+    due_time_enabled: true,
     tbd_due_date: false,
     primary_bidding_contact: "Project Manager",
     bidding_cc_group: "",
@@ -483,11 +535,13 @@ function createDefaultDraft(): BidPackageDraft {
     rfi_deadline_hour: "12",
     rfi_deadline_minute: "00",
     rfi_deadline_period: "am",
+    rfi_deadline_time_enabled: false,
     site_walkthrough_enabled: false,
     site_walkthrough_date: "",
     site_walkthrough_hour: "12",
     site_walkthrough_minute: "00",
     site_walkthrough_period: "am",
+    site_walkthrough_time_enabled: false,
     project_size_sqft: "",
     project_site_size_sqft: "",
     construction_start_date: "",
@@ -510,6 +564,29 @@ function createDefaultDraft(): BidPackageDraft {
 
 function buildTradeLabel(trade: { code: string; description: string | null }): string {
   return `${trade.code}${trade.description ? ` ${trade.description}` : ""}`.trim();
+}
+
+function mapSettingsCostCodeOptions(settingsRows: ReturnType<typeof getWorkspaceCostCodes>) {
+  const merged: CostCodeOption[] = [];
+  const seenCodes = new Set<string>();
+
+  for (const row of settingsRows) {
+    const normalizedCode = row.code.trim().toLowerCase();
+    if (!normalizedCode || seenCodes.has(normalizedCode)) continue;
+    seenCodes.add(normalizedCode);
+    merged.push({
+      id: `settings-cost-code-${row.id}`,
+      code: row.code.trim(),
+      description: row.description.trim() || null,
+    });
+  }
+
+  return merged.sort((left, right) =>
+    left.code.localeCompare(right.code, undefined, {
+      numeric: true,
+      sensitivity: "base",
+    })
+  );
 }
 
 function buildInviteRecipientsPayload(
@@ -878,8 +955,9 @@ export default function NewBidPackagePage() {
   const [fileError, setFileError] = useState<string | null>(null);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedBidFile[]>([]);
   const [draft, setDraft] = useState<BidPackageDraft>(createDefaultDraft());
-  const [workspaceTimezoneLabel, setWorkspaceTimezoneLabel] = useState("PST");
+  const [prebidTimezone, setPrebidTimezone] = useState<(typeof PREBID_TIMEZONE_OPTIONS)[number]>("MST");
   const [projectTaxCityOptions, setProjectTaxCityOptions] = useState<WorkspaceTaxRate[]>([]);
+  const [projectTaxCityOpen, setProjectTaxCityOpen] = useState(false);
   const constructionScheduleSyncSourceRef = useRef<
     "dates" | "construction-duration" | "project-duration" | null
   >(null);
@@ -933,7 +1011,6 @@ export default function NewBidPackagePage() {
   const activeSenderEmail = mailboxConnection?.email || primaryBiddingContactEmail;
 
   useEffect(() => {
-    setWorkspaceTimezoneLabel(getWorkspaceTimezoneLabel(getWorkspaceTimezone()));
     setProjectTaxCityOptions(getWorkspaceTaxRates());
   }, []);
 
@@ -983,6 +1060,13 @@ export default function NewBidPackagePage() {
     async function loadCostCodes() {
       setLoadingCostCodes(true);
       setCostCodeLoadError(null);
+      const settingsCostCodes = getWorkspaceCostCodes();
+      const settingsCostCodeOptions = mapSettingsCostCodeOptions(settingsCostCodes);
+      if (settingsCostCodeOptions.length) {
+        setCostCodes(settingsCostCodeOptions);
+        setLoadingCostCodes(false);
+        return;
+      }
       try {
         const response = await fetch("/api/cost-codes", { cache: "no-store" });
         const payload = (await response.json().catch(() => null)) as { costCodes?: unknown; error?: string } | null;
@@ -1563,13 +1647,68 @@ export default function NewBidPackagePage() {
     });
   }, [costCodeQuery, costCodes, selectedTrades]);
 
+  const sortedProjectTaxCityOptions = useMemo(
+    () =>
+      [...projectTaxCityOptions].sort((left, right) => {
+        const stateCompare = left.state.localeCompare(right.state, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+        if (stateCompare !== 0) return stateCompare;
+        return left.city.localeCompare(right.city, undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      }),
+    [projectTaxCityOptions]
+  );
+
+  const projectTaxCityOptionsByState = useMemo(
+    () =>
+      sortedProjectTaxCityOptions.reduce<Array<{ state: string; cities: WorkspaceTaxRate[] }>>(
+        (groups, option) => {
+          const state = option.state.trim().toUpperCase();
+          const currentGroup = groups[groups.length - 1];
+          if (currentGroup?.state === state) {
+            currentGroup.cities.push(option);
+            return groups;
+          }
+
+          groups.push({ state, cities: [option] });
+          return groups;
+        },
+        []
+      ),
+    [sortedProjectTaxCityOptions]
+  );
+
   const selectedProjectTaxCity =
     projectTaxCityOptions.find((option) => option.id === draft.tax_city_number) ?? null;
   const isManualTaxRate = draft.tax_city_number === MANUAL_TAX_CITY_VALUE;
   const combinedProjectTaxRate = isManualTaxRate
     ? draft.tax_rate ?? ""
     : selectedProjectTaxCity?.rate ?? "";
-  const displayedProjectTaxRate = formatCombinedAndActualTaxRateDisplay(combinedProjectTaxRate);
+  const selectedProjectTaxState = selectedProjectTaxCity?.state ?? "AZ";
+  const displayedProjectTaxRate = formatCombinedAndActualTaxRateDisplay(
+    combinedProjectTaxRate,
+    selectedProjectTaxState
+  );
+
+  const selectProjectTaxCity = (value: string) => {
+    setDraft((prev) => ({
+      ...prev,
+      tax_city_number: value === "__none" ? "" : value,
+      tax_city_name:
+        value === MANUAL_TAX_CITY_VALUE
+          ? prev.tax_city_name ?? ""
+          : projectTaxCityOptions.find((option) => option.id === value)?.city ?? "",
+      tax_rate:
+        value === MANUAL_TAX_CITY_VALUE
+          ? prev.tax_rate
+          : projectTaxCityOptions.find((option) => option.id === value)?.rate ?? "",
+    }));
+    setProjectTaxCityOpen(false);
+  };
 
   const addTradeFromCostCode = (costCode: CostCodeOption) => {
     setSelectedTrades((prev) => {
@@ -1727,12 +1866,30 @@ export default function NewBidPackagePage() {
     uniqueInviteRecipients.length > 0;
 
   const tokenValues = useMemo(() => {
-    const dueLabel = draft.due_date
-      ? `${new Date(draft.due_date).toLocaleDateString()} ${draft.due_hour}:${draft.due_minute} ${draft.due_period.toUpperCase()}`
-      : "TBD";
+    const dueLabel = formatBidDueDateLabel(draft);
     const prebidParts: string[] = [];
-    if (draft.rfi_deadline_enabled && draft.rfi_deadline_date) prebidParts.push(`RFI Deadline: ${draft.rfi_deadline_date}`);
-    if (draft.site_walkthrough_enabled && draft.site_walkthrough_date) prebidParts.push(`Site Walkthrough: ${draft.site_walkthrough_date}`);
+    if (draft.rfi_deadline_enabled && draft.rfi_deadline_date) {
+      prebidParts.push(
+        `RFI Deadline: ${formatOptionalDateTimeLabel(
+          draft.rfi_deadline_date,
+          draft.rfi_deadline_hour,
+          draft.rfi_deadline_minute,
+          draft.rfi_deadline_period,
+          draft.rfi_deadline_time_enabled
+        )}`
+      );
+    }
+    if (draft.site_walkthrough_enabled && draft.site_walkthrough_date) {
+      prebidParts.push(
+        `Site Walkthrough: ${formatOptionalDateTimeLabel(
+          draft.site_walkthrough_date,
+          draft.site_walkthrough_hour,
+          draft.site_walkthrough_minute,
+          draft.site_walkthrough_period,
+          draft.site_walkthrough_time_enabled
+        )}`
+      );
+    }
     const portalLink = typeof window !== "undefined" ? `${window.location.origin}/bidding/all` : "/bidding/all";
     return {
       "{project_name}": draft.project_name.trim() || "Project Name",
@@ -1748,14 +1905,183 @@ export default function NewBidPackagePage() {
     draft.due_hour,
     draft.due_minute,
     draft.due_period,
+    draft.due_time_enabled,
     draft.primary_bidding_contact,
     draft.project_name,
     draft.rfi_deadline_date,
     draft.rfi_deadline_enabled,
+    draft.rfi_deadline_hour,
+    draft.rfi_deadline_minute,
+    draft.rfi_deadline_period,
+    draft.rfi_deadline_time_enabled,
     draft.site_walkthrough_date,
     draft.site_walkthrough_enabled,
+    draft.site_walkthrough_hour,
+    draft.site_walkthrough_minute,
+    draft.site_walkthrough_period,
+    draft.site_walkthrough_time_enabled,
     primaryBiddingContactEmail,
   ]);
+
+  const handleDueDateChange = (next: string) => {
+    setDraft((prev) => ({
+      ...prev,
+      due_date: next,
+      tbd_due_date: !next,
+    }));
+  };
+
+  const renderIncludeTimeToggle = (enabled: boolean, onClick: () => void) => (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={enabled}
+      onClick={onClick}
+      className={`inline-flex h-10 items-center gap-2 rounded-full border px-3 text-sm font-semibold transition ${
+        enabled
+          ? "border-blue-200 bg-blue-50 text-blue-950"
+          : "border-slate-300 bg-white text-slate-600 hover:bg-slate-50"
+      }`}
+    >
+      <span
+        className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors ${
+          enabled ? "bg-blue-500" : "bg-slate-300"
+        }`}
+      >
+        <span
+          className={`inline-block size-4 rounded-full bg-white transition ${
+            enabled ? "translate-x-5" : "translate-x-0.5"
+          }`}
+        />
+      </span>
+      Include time
+    </button>
+  );
+
+  const renderTimeControls = ({
+    hour,
+    minute,
+    period,
+    onHourChange,
+    onMinuteChange,
+    onPeriodChange,
+  }: {
+    hour: string;
+    minute: string;
+    period: string;
+    onHourChange: (value: string) => void;
+    onMinuteChange: (value: string) => void;
+    onPeriodChange: (value: string) => void;
+  }) => (
+    <div className="flex flex-wrap items-center gap-3">
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex h-10 w-[150px] items-center gap-2 rounded-md border border-slate-300 bg-slate-50 px-3 text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-100"
+            aria-label="Select time"
+          >
+            <span>{hour}:{minute} {period.toUpperCase()}</span>
+            <svg
+              viewBox="0 0 24 24"
+              className="ml-auto size-5 text-slate-500"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden
+            >
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7v5l3 2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto overflow-hidden rounded-md border border-slate-300 bg-slate-100 p-0 shadow-lg" align="start">
+          <div className="grid grid-cols-[auto_auto_auto] divide-x divide-slate-300">
+            <div className="max-h-[260px] overflow-y-auto px-[6px] py-1">
+              {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((option) => (
+                <button
+                  key={`time-picker-hour-${option}`}
+                  type="button"
+                  onClick={() => onHourChange(option)}
+                  className={`mb-1 flex h-9 items-center justify-center rounded-sm px-[6px] text-base font-semibold ${
+                    hour === option
+                      ? "border border-blue-300 bg-blue-200 text-slate-900"
+                      : "text-slate-700 hover:bg-slate-200"
+                  }`}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+            <div className="max-h-[260px] overflow-y-auto px-[6px] py-1">
+              {Array.from({ length: 60 }, (_, index) => String(index).padStart(2, "0")).map((option) => (
+                <button
+                  key={`time-picker-minute-${option}`}
+                  type="button"
+                  onClick={() => onMinuteChange(option)}
+                  className={`mb-1 flex h-9 items-center justify-center rounded-sm px-[6px] text-base font-semibold ${
+                    minute === option
+                      ? "border border-blue-300 bg-blue-200 text-slate-900"
+                      : "text-slate-700 hover:bg-slate-200"
+                  }`}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+            <div className="px-[6px] py-1">
+              {(["pm", "am"] as const).map((option) => (
+                <button
+                  key={`time-picker-period-${option}`}
+                  type="button"
+                  onClick={() => onPeriodChange(option)}
+                  className={`mb-1 flex h-9 items-center justify-center rounded-sm px-[6px] text-base font-semibold uppercase ${
+                    period === option
+                      ? "border border-blue-300 bg-blue-200 text-slate-900"
+                      : "text-slate-700 hover:bg-slate-200"
+                  }`}
+                >
+                  {option}
+                </button>
+              ))}
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="inline-flex h-10 items-center gap-3 rounded-md border border-slate-300 bg-slate-50 px-4 text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-100"
+            aria-label="Timezone"
+          >
+            {prebidTimezone}
+            <svg viewBox="0 0 20 20" className="size-4 text-slate-500" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <path d="m5 7 5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </PopoverTrigger>
+        <PopoverContent className="w-auto rounded-md border border-slate-300 bg-white p-1 shadow-lg" align="start">
+          <div className="grid gap-1">
+            {PREBID_TIMEZONE_OPTIONS.map((option) => (
+              <button
+                key={`prebid-timezone-${option}`}
+                type="button"
+                onClick={() => setPrebidTimezone(option)}
+                className={`rounded-sm px-3 py-2 text-left text-sm font-semibold ${
+                  prebidTimezone === option
+                    ? "bg-blue-100 text-blue-950"
+                    : "text-slate-700 hover:bg-slate-100"
+                }`}
+              >
+                {option}
+              </button>
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
 
   const renderTokens = (input: string) =>
     TOKEN_LIST.reduce((text, token) => text.split(token).join(tokenValues[token]), input);
@@ -2345,7 +2671,22 @@ export default function NewBidPackagePage() {
             <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
               <span className="inline-flex items-center gap-2">
                 Primary Bidding Contact <span className="text-rose-600">*</span>
-                <span className="inline-flex size-5 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">i</span>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label="Primary bidding contact help"
+                        className="inline-flex size-5 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                      >
+                        i
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" sideOffset={6} className="max-w-[280px] text-center leading-5">
+                      Emails will be sent from: {activeSenderEmail}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </span>
               <Select
                 value={draft.primary_bidding_contact}
@@ -2370,15 +2711,29 @@ export default function NewBidPackagePage() {
                   )}
                 </SelectContent>
               </Select>
-              <span className="text-sm font-normal text-slate-600">
-                Emails will be sent from: {activeSenderEmail}
-              </span>
             </label>
 
             <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
               <span className="inline-flex items-center gap-2">
                 Bidding CC Group
-                <span className="inline-flex size-5 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">i</span>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label="Bidding CC group help"
+                        className="inline-flex size-5 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                      >
+                        i
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" sideOffset={6} className="max-w-[280px] text-center leading-5">
+                      {!hasSelectableCcUser && companyUserOptions.length
+                        ? "Add another active user to CC someone other than the primary contact."
+                        : "Optional copied recipient for bidding communications."}
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </span>
               <Select
                 value={draft.bidding_cc_group || "__none"}
@@ -2410,227 +2765,110 @@ export default function NewBidPackagePage() {
                   )}
                 </SelectContent>
               </Select>
-              {!hasSelectableCcUser && companyUserOptions.length ? (
-                <span className="text-xs font-normal text-slate-500">
-                  Add another active user to CC someone other than the primary contact.
-                </span>
-              ) : null}
             </label>
           </div>
         </section>
 
         <section className="rounded-xl border border-slate-200 bg-white p-5">
-          <h3 className="text-[18px] font-semibold text-slate-900">Pre-Bid Information</h3>
-          <div className="mt-5 space-y-4">
-            <div>
-              <div className="mb-2 text-sm font-semibold text-slate-700">
-                Bid Due Date <span className="text-rose-600">*</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <DatePickerField
-                  value={draft.due_date}
-                  onChange={(next) => setDraft((prev) => ({ ...prev, due_date: next }))}
-                  presets={[
-                    { label: "Today", daysFromToday: 0 },
-                    { label: "Tomorrow", daysFromToday: 1 },
-                    { label: "In a week", daysFromToday: 7 },
-                    { label: "In 2 weeks", daysFromToday: 14 },
-                  ]}
-                />
-                <Select
-                  value={draft.due_hour}
-                  onValueChange={(value) => setDraft((prev) => ({ ...prev, due_hour: value }))}
-                >
-                  <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
-                      <SelectItem key={hour} value={hour}>
-                        {hour}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={draft.due_minute}
-                  onValueChange={(value) => setDraft((prev) => ({ ...prev, due_minute: value }))}
-                >
-                  <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {["00", "15", "30", "45"].map((minute) => (
-                      <SelectItem key={minute} value={minute}>
-                        {minute}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select
-                  value={draft.due_period}
-                  onValueChange={(value) => setDraft((prev) => ({ ...prev, due_period: value }))}
-                >
-                  <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="am">am</SelectItem>
-                    <SelectItem value="pm">pm</SelectItem>
-                  </SelectContent>
-                </Select>
-                <span className="text-sm text-slate-600">{workspaceTimezoneLabel}</span>
+          <h3 className="text-[18px] font-semibold tracking-normal text-slate-950">Prebid information</h3>
+          <div className="mt-5 divide-y divide-slate-200">
+            <div className="pb-5">
+              <div className="mb-2 text-sm font-semibold text-slate-700">Bid due date</div>
+              <DatePickerField
+                value={draft.due_date}
+                onChange={handleDueDateChange}
+                className="h-10 w-full justify-between rounded-md border border-slate-300 bg-slate-50 px-3 text-left text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50 [&_svg]:text-slate-500"
+                placeholder="mm/dd/yyyy"
+                iconPosition="right"
+                presets={[
+                  { label: "Today", daysFromToday: 0 },
+                  { label: "Tomorrow", daysFromToday: 1 },
+                  { label: "In a week", daysFromToday: 7 },
+                  { label: "In 2 weeks", daysFromToday: 14 },
+                ]}
+              />
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                {renderIncludeTimeToggle(draft.due_time_enabled, () =>
+                  setDraft((prev) => ({ ...prev, due_time_enabled: !prev.due_time_enabled }))
+                )}
+                {draft.due_time_enabled
+                  ? renderTimeControls({
+                      hour: draft.due_hour,
+                      minute: draft.due_minute,
+                      period: draft.due_period,
+                      onHourChange: (value) => setDraft((prev) => ({ ...prev, due_hour: value })),
+                      onMinuteChange: (value) => setDraft((prev) => ({ ...prev, due_minute: value })),
+                      onPeriodChange: (value) => setDraft((prev) => ({ ...prev, due_period: value })),
+                    })
+                  : null}
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                role="switch"
-                aria-checked={draft.rfi_deadline_enabled}
-                onClick={() => setDraft((prev) => ({ ...prev, rfi_deadline_enabled: !prev.rfi_deadline_enabled }))}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
-                  draft.rfi_deadline_enabled ? "border-blue-600 bg-blue-600" : "border-slate-300 bg-slate-200"
-                }`}
-              >
-                <span className={`inline-block size-5 transform rounded-full bg-white transition ${draft.rfi_deadline_enabled ? "translate-x-5" : "translate-x-0.5"}`} />
-              </button>
-              <span className="text-sm font-medium text-slate-800">RFI Deadline</span>
-              {draft.rfi_deadline_enabled ? (
-                <div className="ml-4 flex flex-wrap items-center gap-2">
-                  <DatePickerField
-                    value={draft.rfi_deadline_date}
-                    onChange={(next) =>
-                      setDraft((prev) => ({ ...prev, rfi_deadline_date: next }))
-                    }
-                  />
-                  <Select
-                    value={draft.rfi_deadline_hour}
-                    onValueChange={(value) =>
-                      setDraft((prev) => ({ ...prev, rfi_deadline_hour: value }))
-                    }
-                  >
-                    <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
-                        <SelectItem key={`rfi-hour-${hour}`} value={hour}>
-                          {hour}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select
-                    value={draft.rfi_deadline_minute}
-                    onValueChange={(value) =>
-                      setDraft((prev) => ({ ...prev, rfi_deadline_minute: value }))
-                    }
-                  >
-                    <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {["00", "15", "30", "45"].map((minute) => (
-                        <SelectItem key={`rfi-minute-${minute}`} value={minute}>
-                          {minute}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select
-                    value={draft.rfi_deadline_period}
-                    onValueChange={(value) =>
-                      setDraft((prev) => ({ ...prev, rfi_deadline_period: value }))
-                    }
-                  >
-                    <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="am">am</SelectItem>
-                      <SelectItem value="pm">pm</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <span className="text-sm text-slate-600">{workspaceTimezoneLabel}</span>
-                </div>
-              ) : null}
+
+            <div className="py-5">
+              <div className="mb-2 text-sm font-semibold text-slate-700">RFI deadline</div>
+              <DatePickerField
+                value={draft.rfi_deadline_date}
+                onChange={(next) =>
+                  setDraft((prev) => ({ ...prev, rfi_deadline_date: next, rfi_deadline_enabled: Boolean(next) }))
+                }
+                className="h-10 w-full justify-between rounded-md border border-slate-300 bg-slate-50 px-3 text-left text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50 [&_svg]:text-slate-500"
+                placeholder="mm/dd/yyyy"
+                iconPosition="right"
+              />
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                {renderIncludeTimeToggle(draft.rfi_deadline_time_enabled, () =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    rfi_deadline_time_enabled: !prev.rfi_deadline_time_enabled,
+                  }))
+                )}
+                {draft.rfi_deadline_time_enabled
+                  ? renderTimeControls({
+                      hour: draft.rfi_deadline_hour,
+                      minute: draft.rfi_deadline_minute,
+                      period: draft.rfi_deadline_period,
+                      onHourChange: (value) => setDraft((prev) => ({ ...prev, rfi_deadline_hour: value })),
+                      onMinuteChange: (value) => setDraft((prev) => ({ ...prev, rfi_deadline_minute: value })),
+                      onPeriodChange: (value) => setDraft((prev) => ({ ...prev, rfi_deadline_period: value })),
+                    })
+                  : null}
+              </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                role="switch"
-                aria-checked={draft.site_walkthrough_enabled}
-                onClick={() => setDraft((prev) => ({ ...prev, site_walkthrough_enabled: !prev.site_walkthrough_enabled }))}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full border transition-colors ${
-                  draft.site_walkthrough_enabled ? "border-blue-600 bg-blue-600" : "border-slate-300 bg-slate-200"
-                }`}
-              >
-                <span className={`inline-block size-5 transform rounded-full bg-white transition ${draft.site_walkthrough_enabled ? "translate-x-5" : "translate-x-0.5"}`} />
-              </button>
-              <span className="text-sm font-medium text-slate-800">Site Walkthrough</span>
-              {draft.site_walkthrough_enabled ? (
-                <div className="ml-4 flex flex-wrap items-center gap-2">
-                  <DatePickerField
-                    value={draft.site_walkthrough_date}
-                    onChange={(next) =>
-                      setDraft((prev) => ({ ...prev, site_walkthrough_date: next }))
-                    }
-                  />
-                  <Select
-                    value={draft.site_walkthrough_hour}
-                    onValueChange={(value) =>
-                      setDraft((prev) => ({ ...prev, site_walkthrough_hour: value }))
-                    }
-                  >
-                    <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, "0")).map((hour) => (
-                        <SelectItem key={`walk-hour-${hour}`} value={hour}>
-                          {hour}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select
-                    value={draft.site_walkthrough_minute}
-                    onValueChange={(value) =>
-                      setDraft((prev) => ({ ...prev, site_walkthrough_minute: value }))
-                    }
-                  >
-                    <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {["00", "15", "30", "45"].map((minute) => (
-                        <SelectItem key={`walk-minute-${minute}`} value={minute}>
-                          {minute}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Select
-                    value={draft.site_walkthrough_period}
-                    onValueChange={(value) =>
-                      setDraft((prev) => ({ ...prev, site_walkthrough_period: value }))
-                    }
-                  >
-                    <SelectTrigger className="w-[90px] rounded-md border-slate-300 px-2 py-2 text-sm text-slate-700 shadow-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="am">am</SelectItem>
-                      <SelectItem value="pm">pm</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <span className="text-sm text-slate-600">{workspaceTimezoneLabel}</span>
-                </div>
-              ) : null}
+            <div className="pt-5">
+              <div className="mb-2 text-sm font-semibold text-slate-700">Site walkthrough</div>
+              <DatePickerField
+                value={draft.site_walkthrough_date}
+                onChange={(next) =>
+                  setDraft((prev) => ({ ...prev, site_walkthrough_date: next, site_walkthrough_enabled: Boolean(next) }))
+                }
+                className="h-10 w-full justify-between rounded-md border border-slate-300 bg-slate-50 px-3 text-left text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50 [&_svg]:text-slate-500"
+                placeholder="mm/dd/yyyy"
+                iconPosition="right"
+              />
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                {renderIncludeTimeToggle(draft.site_walkthrough_time_enabled, () =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    site_walkthrough_time_enabled: !prev.site_walkthrough_time_enabled,
+                  }))
+                )}
+                {draft.site_walkthrough_time_enabled
+                  ? renderTimeControls({
+                      hour: draft.site_walkthrough_hour,
+                      minute: draft.site_walkthrough_minute,
+                      period: draft.site_walkthrough_period,
+                      onHourChange: (value) => setDraft((prev) => ({ ...prev, site_walkthrough_hour: value })),
+                      onMinuteChange: (value) => setDraft((prev) => ({ ...prev, site_walkthrough_minute: value })),
+                      onPeriodChange: (value) => setDraft((prev) => ({ ...prev, site_walkthrough_period: value })),
+                    })
+                  : null}
+              </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
+          </div>
+
+            <div className="mt-8 grid gap-4 md:grid-cols-2">
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Project Size (SQ FT)
                 <input
@@ -2653,36 +2891,55 @@ export default function NewBidPackagePage() {
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 City
-                <Select
-                  value={draft.tax_city_number}
-                  onValueChange={(value) =>
-                    setDraft((prev) => ({
-                      ...prev,
-                      tax_city_number: value === "__none" ? "" : value,
-                      tax_city_name:
-                        value === MANUAL_TAX_CITY_VALUE
-                          ? prev.tax_city_name ?? ""
-                          : projectTaxCityOptions.find((option) => option.id === value)?.city ?? "",
-                      tax_rate:
-                        value === MANUAL_TAX_CITY_VALUE
-                          ? prev.tax_rate
-                          : projectTaxCityOptions.find((option) => option.id === value)?.rate ?? "",
-                    }))
-                  }
-                >
-                  <SelectTrigger className="w-full rounded-md border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm">
-                    <SelectValue placeholder="Select City" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none">Select City</SelectItem>
-                    <SelectItem value={MANUAL_TAX_CITY_VALUE}>Other</SelectItem>
-                    {projectTaxCityOptions.map((option) => (
-                      <SelectItem key={`project-tax-city-${option.id}`} value={option.id}>
-                        {option.city}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={projectTaxCityOpen} onOpenChange={setProjectTaxCityOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-2 text-left text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                      aria-label="Search or select city"
+                    >
+                      <span>
+                        {isManualTaxRate
+                          ? "Other"
+                          : selectedProjectTaxCity
+                            ? `${selectedProjectTaxCity.city} (${selectedProjectTaxCity.state})`
+                            : "Select City"}
+                      </span>
+                      <svg viewBox="0 0 20 20" className="size-4 text-slate-500" aria-hidden>
+                        <path fill="currentColor" d="m5.3 7.3 4.7 4.7 4.7-4.7 1.4 1.4-6.1 6.1-6.1-6.1z" />
+                      </svg>
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search city..." />
+                      <CommandList>
+                        <CommandEmpty>No city found.</CommandEmpty>
+                        <CommandGroup>
+                          <CommandItem value="Select City" onSelect={() => selectProjectTaxCity("__none")}>
+                            Select City
+                          </CommandItem>
+                          <CommandItem value="Other" onSelect={() => selectProjectTaxCity(MANUAL_TAX_CITY_VALUE)}>
+                            Other
+                          </CommandItem>
+                        </CommandGroup>
+                        {projectTaxCityOptionsByState.map((group) => (
+                          <CommandGroup key={`project-tax-state-${group.state}`} heading={group.state}>
+                            {group.cities.map((option) => (
+                              <CommandItem
+                                key={`project-tax-city-${option.id}`}
+                                value={`${option.city} ${option.state}`}
+                                onSelect={() => selectProjectTaxCity(option.id)}
+                              >
+                                {option.city} ({option.state})
+                              </CommandItem>
+                            ))}
+                          </CommandGroup>
+                        ))}
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
                 {isManualTaxRate ? (
                   <>
                     <input
@@ -2716,7 +2973,7 @@ export default function NewBidPackagePage() {
                   placeholder="-"
                 />
                 <span className="text-xs font-normal leading-5 text-slate-500">
-                  Actual applies the Arizona construction 65% taxable base.
+                  Arizona actual rates use the 65% construction taxable base. Other states use the full rate.
                 </span>
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
@@ -2754,7 +3011,6 @@ export default function NewBidPackagePage() {
                 />
               </label>
             </div>
-          </div>
         </section>
 
         {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
@@ -3036,9 +3292,7 @@ export default function NewBidPackagePage() {
                     {selectedTrades.map((trade) => {
                       const assigned = assignedSubsByTradeId[trade.id] ?? [];
                       const expanded = expandedInviteTradeId === trade.id;
-                      const dueLabel = draft.due_date
-                        ? `${new Date(draft.due_date).toLocaleDateString()} ${draft.due_hour}:${draft.due_minute} ${draft.due_period.toUpperCase()}`
-                        : "No due date";
+                      const dueLabel = formatBidDueDateLabel(draft);
                       const recommended = subOptions.filter((option) => {
                         const assignedIds = new Set(assigned.map((item) => item.id));
                         if (assignedIds.has(option.id)) return false;
