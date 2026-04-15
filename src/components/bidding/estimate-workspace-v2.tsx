@@ -13,6 +13,7 @@ import {
 import { useSearchParams } from "next/navigation";
 import { getBidProjectDetail } from "@/lib/bidding/store";
 import { getBidProjectIdForProject } from "@/lib/bidding/project-links";
+import { getWorkspaceCostCodes } from "@/lib/settings/company-cost-codes";
 import {
   ESTIMATE_EXPORT_REQUEST_EVENT,
   writeEstimateExportSnapshot,
@@ -804,6 +805,52 @@ const INITIAL_GENERAL_CONDITIONS_ROWS: GeneralConditionsRow[] = [
   },
 ];
 
+const normalizeCostCodeKey = (value: string) => value.replace(/[^0-9]/g, "");
+
+const normalizeCostCodeDescription = (value: string) =>
+  value.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+const legacyGeneralConditionsRowsByCode = new Map(
+  INITIAL_GENERAL_CONDITIONS_ROWS.filter((row) => row.costCode.trim()).map((row) => [
+    normalizeCostCodeKey(row.costCode),
+    row,
+  ])
+);
+
+const legacyGeneralConditionsRowsByDescription = new Map(
+  INITIAL_GENERAL_CONDITIONS_ROWS.map((row) => [
+    normalizeCostCodeDescription(row.description),
+    row,
+  ])
+);
+
+function createGeneralConditionsRowsFromCostCodes(): GeneralConditionsRow[] {
+  return getWorkspaceCostCodes()
+    .filter((costCode) => {
+      const normalized = normalizeCostCodeKey(costCode.code);
+      return normalized.startsWith("0101") && normalized !== "01010000";
+    })
+    .map((costCode) => {
+      const normalized = normalizeCostCodeKey(costCode.code);
+      const sequence = normalized.slice(4);
+      const legacyRow =
+        legacyGeneralConditionsRowsByDescription.get(normalizeCostCodeDescription(costCode.description)) ??
+        legacyGeneralConditionsRowsByCode.get(`01${sequence.slice(0, 2)}00`) ??
+        null;
+      return {
+        id: `gc-${normalized}`,
+        costCode: costCode.code,
+        description: costCode.description,
+        percentage: legacyRow?.percentage ?? "",
+        unit: legacyRow?.unit ?? "l/s",
+        quantity: legacyRow?.quantity ?? "0",
+        unitPrice: legacyRow?.unitPrice ?? "-",
+        total: "-",
+        comments: legacyRow?.comments ?? "",
+      };
+    });
+}
+
 const formatCurrency = (value: number) =>
   value.toLocaleString(undefined, {
     minimumFractionDigits: 2,
@@ -1098,7 +1145,7 @@ export default function EstimateWorkspaceV2() {
   );
   const [costSummaryPercent, setCostSummaryPercent] = useState<string>("28");
   const [generalConditionsRows, setGeneralConditionsRows] = useState<GeneralConditionsRow[]>(
-    INITIAL_GENERAL_CONDITIONS_ROWS
+    () => createGeneralConditionsRowsFromCostCodes()
   );
   const [worksheetCostCodeGroups, setWorksheetCostCodeGroups] = useState<WorksheetCostCodeGroup[]>(
     []
@@ -2836,20 +2883,25 @@ export default function EstimateWorkspaceV2() {
                     </tr>
                     <tr className="bg-slate-200">
                       <td colSpan={5} className="border-b border-slate-300 px-2 py-2"></td>
-                      <td colSpan={3} className="border-b border-slate-300 px-4 py-2 text-right">
+                      <td className="border-b border-r border-slate-300 px-4 py-2 text-right align-top">
+                        <div className="space-y-1 text-2xl font-semibold leading-tight text-slate-900">
+                          <div>Wkly</div>
+                          <div>Monthly</div>
+                        </div>
+                      </td>
+                      <td className="border-b border-r border-slate-300 px-4 py-2 text-right align-top">
                         <div className="space-y-1 text-2xl leading-tight text-slate-900">
                           <div>
-                            <span className="mr-4 font-semibold">Wkly</span>
                             <span className="mr-3">$</span>
                             <span>{generalConditionsWeekly.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           </div>
                           <div>
-                            <span className="mr-4 font-semibold">Monthly</span>
                             <span className="mr-3">$</span>
                             <span>{generalConditionsMonthly.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           </div>
                         </div>
                       </td>
+                      <td className="border-b border-slate-300 px-2 py-2"></td>
                     </tr>
                   </tbody>
                 </table>
