@@ -12,11 +12,11 @@ export default function BidLevelingPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const layoutParam = searchParams.get("layout");
-  const activeLayout: LevelingLayoutMode = layoutParam === "v2" ? "v2" : "classic";
+  const activeLayout: LevelingLayoutMode = layoutParam === "classic" ? "classic" : "v2";
 
   const setLayout = (nextLayout: LevelingLayoutMode) => {
     const params = new URLSearchParams(searchParams.toString());
-    if (nextLayout === "classic") {
+    if (nextLayout === "v2") {
       params.delete("layout");
     } else {
       params.set("layout", nextLayout);

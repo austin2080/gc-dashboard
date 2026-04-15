@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type FormEvent as ReactFormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useSearchParams } from "next/navigation";
@@ -1606,6 +1607,61 @@ export default function EstimateWorkspaceV2() {
       prev.map((row) => (row.id === rowId ? { ...row, [key]: value } : row))
     );
   };
+  const focusGeneralConditionsCell = (rowIndex: number, columnIndex: number) => {
+    const cell = document.querySelector<HTMLInputElement>(
+      `[data-gc-row="${rowIndex}"][data-gc-col="${columnIndex}"]`
+    );
+    if (!cell) return false;
+    cell.focus();
+    const cursorPosition = cell.value.length;
+    cell.setSelectionRange(cursorPosition, cursorPosition);
+    return true;
+  };
+  const focusNearestGeneralConditionsCell = (rowIndex: number, columnIndex: number) => {
+    if (focusGeneralConditionsCell(rowIndex, columnIndex)) return true;
+    for (let offset = 1; offset <= 6; offset += 1) {
+      if (focusGeneralConditionsCell(rowIndex, columnIndex + offset)) return true;
+      if (focusGeneralConditionsCell(rowIndex, columnIndex - offset)) return true;
+    }
+    return false;
+  };
+  const moveGeneralConditionsFocus = (
+    rowIndex: number,
+    columnIndex: number,
+    direction: "left" | "right" | "up" | "down"
+  ) => {
+    if (direction === "left" || direction === "right") {
+      const step = direction === "right" ? 1 : -1;
+      for (let nextColumn = columnIndex + step; nextColumn >= 0 && nextColumn <= 6; nextColumn += step) {
+        if (focusGeneralConditionsCell(rowIndex, nextColumn)) return;
+      }
+      return;
+    }
+
+    const step = direction === "down" ? 1 : -1;
+    for (
+      let nextRow = rowIndex + step;
+      nextRow >= 0 && nextRow < computedGeneralConditionsRows.length;
+      nextRow += step
+    ) {
+      if (focusNearestGeneralConditionsCell(nextRow, columnIndex)) return;
+    }
+  };
+  const handleGeneralConditionsCellKeyDown =
+    (rowIndex: number, columnIndex: number) =>
+    (event: ReactKeyboardEvent<HTMLInputElement>) => {
+      const keyToDirection: Record<string, "left" | "right" | "up" | "down" | undefined> = {
+        ArrowLeft: "left",
+        ArrowRight: "right",
+        ArrowUp: "up",
+        ArrowDown: "down",
+        Enter: event.shiftKey ? "up" : "down",
+      };
+      const direction = keyToDirection[event.key];
+      if (!direction) return;
+      event.preventDefault();
+      moveGeneralConditionsFocus(rowIndex, columnIndex, direction);
+    };
   const toggleSection = (section: SectionKey) => {
     setOpenSections((prev) => ({ ...prev, [section]: !prev[section] }));
   };
@@ -2634,14 +2690,17 @@ export default function EstimateWorkspaceV2() {
                       <td className="border-b border-r border-slate-400 px-2 py-2 font-semibold text-center">Total</td>
                       <td className="border-b border-slate-400 px-2 py-2 font-semibold text-center">Comments</td>
                     </tr>
-                    {computedGeneralConditionsRows.map((row) => (
+                    {computedGeneralConditionsRows.map((row, rowIndex) => (
                       <tr key={row.id} className="bg-white">
                         <td className="border-b border-r border-slate-300 p-0">
                           <input
+                            data-gc-row={rowIndex}
+                            data-gc-col={0}
                             value={row.costCode}
                             onChange={(event) =>
                               updateGeneralConditionsCell(row.id, "costCode", event.target.value)
                             }
+                            onKeyDown={handleGeneralConditionsCellKeyDown(rowIndex, 0)}
                             className="h-8 w-full border-0 bg-transparent px-2 text-xs text-slate-600 focus:bg-white focus:outline-none"
                           />
                         </td>
@@ -2650,39 +2709,51 @@ export default function EstimateWorkspaceV2() {
                           className="border-b border-r border-slate-300 p-0"
                         >
                           <input
+                            data-gc-row={rowIndex}
+                            data-gc-col={1}
                             value={row.description}
                             onChange={(event) =>
                               updateGeneralConditionsCell(row.id, "description", event.target.value)
                             }
+                            onKeyDown={handleGeneralConditionsCellKeyDown(rowIndex, 1)}
                             className="h-8 w-full border-0 bg-transparent px-2 text-sm font-semibold text-slate-700 focus:bg-white focus:outline-none"
                           />
                         </td>
                         {row.percentage ? (
                           <td className="border-b border-r border-slate-300 bg-[#efdfd4] p-0">
                             <input
+                              data-gc-row={rowIndex}
+                              data-gc-col={2}
                               value={row.percentage}
                               onChange={(event) =>
                                 updateGeneralConditionsCell(row.id, "percentage", event.target.value)
                               }
+                              onKeyDown={handleGeneralConditionsCellKeyDown(rowIndex, 2)}
                               className="h-8 w-full border-0 bg-transparent px-2 text-right text-base font-semibold text-slate-700 focus:bg-[#f6e7dd] focus:outline-none"
                             />
                           </td>
                         ) : null}
                         <td className="border-b border-r border-slate-300 p-0">
                           <input
+                            data-gc-row={rowIndex}
+                            data-gc-col={3}
                             value={row.unit}
                             onChange={(event) =>
                               updateGeneralConditionsCell(row.id, "unit", event.target.value)
                             }
+                            onKeyDown={handleGeneralConditionsCellKeyDown(rowIndex, 3)}
                             className="h-8 w-full border-0 bg-transparent px-2 text-center text-sm text-slate-700 focus:bg-white focus:outline-none"
                           />
                         </td>
                         <td className="border-b border-r border-slate-300 p-0">
                           <input
+                            data-gc-row={rowIndex}
+                            data-gc-col={4}
                             value={row.quantity}
                             onChange={(event) =>
                               updateGeneralConditionsCell(row.id, "quantity", event.target.value)
                             }
+                            onKeyDown={handleGeneralConditionsCellKeyDown(rowIndex, 4)}
                             className={`h-8 w-full border-0 bg-transparent px-2 text-center text-sm font-semibold focus:bg-white focus:outline-none ${
                               row.quantity !== "0" && row.quantity !== "" ? "text-orange-600" : "text-slate-700"
                             }`}
@@ -2691,20 +2762,40 @@ export default function EstimateWorkspaceV2() {
                         <td className="border-b border-r border-slate-300 p-0">
                           {row.unitPrice === "-" || row.unitPrice === "" ? (
                             <input
+                              data-gc-row={rowIndex}
+                              data-gc-col={5}
                               value={row.unitPrice}
                               onChange={(event) =>
                                 updateGeneralConditionsCell(row.id, "unitPrice", event.target.value)
                               }
+                              onBlur={(event) =>
+                                updateGeneralConditionsCell(
+                                  row.id,
+                                  "unitPrice",
+                                  formatToTwoDecimals(event.target.value)
+                                )
+                              }
+                              onKeyDown={handleGeneralConditionsCellKeyDown(rowIndex, 5)}
                               className="h-8 w-full border-0 bg-transparent px-2 text-center text-sm text-slate-700 focus:bg-white focus:outline-none"
                             />
                           ) : (
                             <div className="flex h-8 items-center gap-2 px-2 text-sm">
                               <span className="text-slate-700">$</span>
                               <input
+                                data-gc-row={rowIndex}
+                                data-gc-col={5}
                                 value={row.unitPrice}
                                 onChange={(event) =>
                                   updateGeneralConditionsCell(row.id, "unitPrice", event.target.value)
                                 }
+                                onBlur={(event) =>
+                                  updateGeneralConditionsCell(
+                                    row.id,
+                                    "unitPrice",
+                                    formatToTwoDecimals(event.target.value)
+                                  )
+                                }
+                                onKeyDown={handleGeneralConditionsCellKeyDown(rowIndex, 5)}
                                 className="h-full w-full border-0 bg-transparent text-right text-sm text-slate-700 focus:bg-white focus:outline-none"
                               />
                             </div>
@@ -2726,10 +2817,13 @@ export default function EstimateWorkspaceV2() {
                         </td>
                         <td className="border-b border-slate-300 p-0">
                           <input
+                            data-gc-row={rowIndex}
+                            data-gc-col={6}
                             value={row.comments}
                             onChange={(event) =>
                               updateGeneralConditionsCell(row.id, "comments", event.target.value)
                             }
+                            onKeyDown={handleGeneralConditionsCellKeyDown(rowIndex, 6)}
                             className="h-8 w-full border-0 bg-transparent px-2 text-sm text-slate-700 focus:bg-white focus:outline-none"
                           />
                         </td>
