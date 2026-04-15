@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getTenantContext } from "@/lib/db/tenant";
 import { createAndSendBidInvites } from "@/lib/bid-invites/service";
+import { sanitizeEmailHtml } from "@/lib/email/html";
 
 type SendBidInvitesRequestBody = {
   bidPackageId?: string;
@@ -14,6 +15,16 @@ type SendBidInvitesRequestBody = {
     prebidInfo?: string;
     contactName?: string;
     contactEmail?: string;
+    projectAddress?: string;
+    primaryBidContact?: string;
+    secondaryBidContact?: string;
+    primaryBidContactEmail?: string;
+    secondaryBidContactEmail?: string;
+    constructionStartDate?: string;
+    constructionDuration?: string;
+    projectSize?: string;
+    projectSiteSize?: string;
+    primaryBidContactSignature?: string;
   };
   recipients?: Array<{
     contactName?: string;
@@ -58,7 +69,7 @@ export async function POST(request: Request) {
       bidPackageId: body.bidPackageId,
       projectId: body.projectId?.trim() || body.bidPackageId,
       subjectTemplate: body.subjectTemplate,
-      bodyTemplate: body.bodyTemplate,
+      bodyTemplate: sanitizeEmailHtml(body.bodyTemplate),
       templateContext: {
         projectName: body.templateContext.projectName?.trim() || "Project Name",
         bidPackageName: body.templateContext.bidPackageName?.trim() || "Bid Package Name",
@@ -66,6 +77,17 @@ export async function POST(request: Request) {
         prebidInfo: body.templateContext.prebidInfo?.trim() || "No pre-bid details available.",
         contactName: body.templateContext.contactName?.trim() || "Primary bidding contact",
         contactEmail: body.templateContext.contactEmail?.trim() || "",
+        projectAddress: body.templateContext.projectAddress?.trim() || "Project address",
+        primaryBidContact: body.templateContext.primaryBidContact?.trim() || "Primary bidding contact",
+        secondaryBidContact: body.templateContext.secondaryBidContact?.trim() || "Secondary bidding contact",
+        primaryBidContactEmail: body.templateContext.primaryBidContactEmail?.trim() || "",
+        secondaryBidContactEmail: body.templateContext.secondaryBidContactEmail?.trim() || "",
+        constructionStartDate: body.templateContext.constructionStartDate?.trim() || "TBD",
+        constructionDuration: body.templateContext.constructionDuration?.trim() || "TBD",
+        projectSize: body.templateContext.projectSize?.trim() || "TBD",
+        projectSiteSize: body.templateContext.projectSiteSize?.trim() || "TBD",
+        primaryBidContactSignature:
+          body.templateContext.primaryBidContactSignature?.trim() || "Primary bidding contact",
       },
       recipients,
     });

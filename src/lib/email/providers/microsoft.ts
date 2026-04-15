@@ -7,6 +7,7 @@ export type SendMicrosoftMailInput = {
   accessToken: string;
   subject: string;
   textBody: string;
+  htmlBody?: string | null;
   to: MicrosoftMailRecipient[];
 };
 
@@ -19,8 +20,10 @@ export async function sendMicrosoftMail({
   accessToken,
   subject,
   textBody,
+  htmlBody,
   to,
 }: SendMicrosoftMailInput): Promise<SendMicrosoftMailResult> {
+  const resolvedHtmlBody = htmlBody?.trim();
   const response = await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
     method: "POST",
     headers: {
@@ -31,8 +34,8 @@ export async function sendMicrosoftMail({
       message: {
         subject,
         body: {
-          contentType: "Text",
-          content: textBody,
+          contentType: resolvedHtmlBody ? "HTML" : "Text",
+          content: resolvedHtmlBody || textBody,
         },
         toRecipients: to.map((recipient) => ({
           emailAddress: {

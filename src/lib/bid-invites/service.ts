@@ -5,6 +5,7 @@ import {
   sendBidInviteViaMicrosoft,
   sendBidInviteViaSendgrid,
 } from "@/lib/email/sendBidInvite";
+import { sanitizeEmailHtml } from "@/lib/email/html";
 
 type BidInviteRecipientInput = {
   contactName: string;
@@ -20,6 +21,16 @@ type BidInviteTemplateContext = {
   prebidInfo: string;
   contactName: string;
   contactEmail: string;
+  projectAddress: string;
+  primaryBidContact: string;
+  secondaryBidContact: string;
+  primaryBidContactEmail: string;
+  secondaryBidContactEmail: string;
+  constructionStartDate: string;
+  constructionDuration: string;
+  projectSize: string;
+  projectSiteSize: string;
+  primaryBidContactSignature: string;
 };
 
 type CreateBidInvitesPayload = {
@@ -142,10 +153,21 @@ export async function createAndSendBidInvites(payload: CreateBidInvitesPayload) 
       "{portal_link}": inviteUrl,
       "{contact_name}": payload.templateContext.contactName,
       "{contact_email}": payload.templateContext.contactEmail,
+      "{project_addess}": payload.templateContext.projectAddress,
+      "{project_address}": payload.templateContext.projectAddress,
+      "{primary_bid_contact}": payload.templateContext.primaryBidContact,
+      "{secondary_bid_contact}": payload.templateContext.secondaryBidContact,
+      "{primary bid contact email}": payload.templateContext.primaryBidContactEmail,
+      "{secondary bid contact email}": payload.templateContext.secondaryBidContactEmail,
+      "{construction start date}": payload.templateContext.constructionStartDate,
+      "{construction_duration}": payload.templateContext.constructionDuration,
+      "{project_size}": payload.templateContext.projectSize,
+      "{project_site_size}": payload.templateContext.projectSiteSize,
+      "{Primary bid contact signature}": payload.templateContext.primaryBidContactSignature,
     };
 
     const subject = renderInviteTemplate(payload.subjectTemplate, templateValues);
-    const bodySnapshot = renderInviteTemplate(payload.bodyTemplate, templateValues);
+    const bodySnapshot = sanitizeEmailHtml(renderInviteTemplate(payload.bodyTemplate, templateValues));
     const recipientKey = `${recipient.companyName.trim().toLowerCase()}::${recipient.email.trim().toLowerCase()}`;
     const subcontractorId = subcontractorIdByRecipientKey.get(recipientKey) ?? null;
 

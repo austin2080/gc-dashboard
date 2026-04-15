@@ -30,6 +30,8 @@ create table if not exists bid_projects (
 );
 
 alter table bid_projects add column if not exists package_number text;
+alter table bid_projects add column if not exists bid_email_subject text;
+alter table bid_projects add column if not exists bid_email_body_html text;
 
 create table if not exists bid_trades (
   id uuid primary key default gen_random_uuid(),

@@ -46,6 +46,13 @@ export type ProjectTrade = ProjectTradeRow & {
 type BidProjectRowWithOptionalPackageNumber = Omit<BidProjectRow, "package_number"> & {
   package_number?: string | null;
 };
+type BidProjectRowWithOptionalEmailTemplate = Omit<
+  BidProjectRowWithOptionalPackageNumber,
+  "bid_email_subject" | "bid_email_body_html"
+> & {
+  bid_email_subject?: string | null;
+  bid_email_body_html?: string | null;
+};
 
 function isMissingPackageNumberColumn(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -62,11 +69,46 @@ function isMissingPackageNumberColumn(error: unknown): boolean {
   return details.includes("package_number");
 }
 
-function normalizeBidProjectRow(row: BidProjectRowWithOptionalPackageNumber): BidProjectRow {
+function isMissingBidEmailTemplateColumns(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const details = [error]
+    .flatMap((item) =>
+      typeof item === "object" && item !== null
+        ? [Reflect.get(item, "message"), Reflect.get(item, "details"), Reflect.get(item, "hint"), Reflect.get(item, "code")]
+        : []
+    )
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+
+  return details.includes("bid_email_subject") || details.includes("bid_email_body_html");
+}
+
+function normalizeBidProjectRow(row: BidProjectRowWithOptionalEmailTemplate): BidProjectRow {
   return {
     ...row,
     package_number: row.package_number ?? null,
+    bid_email_subject: row.bid_email_subject ?? null,
+    bid_email_body_html: row.bid_email_body_html ?? null,
   };
+}
+
+function omitMissingBidProjectColumns<
+  T extends {
+    package_number?: string | null;
+    bid_email_subject?: string | null;
+    bid_email_body_html?: string | null;
+  },
+>(payload: T, error: unknown) {
+  const next = { ...payload };
+  if (isMissingPackageNumberColumn(error)) {
+    delete next.package_number;
+  }
+  if (isMissingBidEmailTemplateColumns(error)) {
+    delete next.bid_email_subject;
+    delete next.bid_email_body_html;
+  }
+  return next;
 }
 
 function normalizeSubcontractor(
@@ -330,6 +372,8 @@ export async function createBidProject(payload: {
   location?: string | null;
   budget?: number | null;
   due_date?: string | null;
+  bid_email_subject?: string | null;
+  bid_email_body_html?: string | null;
 }): Promise<BidProjectSummary | null> {
   const supabase = createClient();
   const insertPayload = {
@@ -339,19 +383,21 @@ export async function createBidProject(payload: {
     location: payload.location ?? null,
     budget: payload.budget ?? null,
     due_date: payload.due_date ?? null,
+    bid_email_subject: payload.bid_email_subject ?? null,
+    bid_email_body_html: payload.bid_email_body_html ?? null,
   };
   const { data, error } = await supabase
     .from("bid_projects")
     .insert(insertPayload)
-    .select("id, project_name, package_number, owner, location, budget, due_date")
+    .select("id, project_name, package_number, owner, location, budget, due_date, bid_email_subject, bid_email_body_html")
     .single();
 
   if (!error && data) {
-    return normalizeBidProjectRow(data as BidProjectRowWithOptionalPackageNumber);
+    return normalizeBidProjectRow(data as BidProjectRowWithOptionalEmailTemplate);
   }
 
-  if (isMissingPackageNumberColumn(error)) {
-    const { package_number: _packageNumber, ...fallbackInsertPayload } = insertPayload;
+  if (isMissingPackageNumberColumn(error) || isMissingBidEmailTemplateColumns(error)) {
+    const fallbackInsertPayload = omitMissingBidProjectColumns(insertPayload, error);
     const { data: fallbackData, error: fallbackError } = await supabase
       .from("bid_projects")
       .insert(fallbackInsertPayload)
@@ -363,7 +409,7 @@ export async function createBidProject(payload: {
       return null;
     }
 
-    return normalizeBidProjectRow(fallbackData as BidProjectRowWithOptionalPackageNumber);
+    return normalizeBidProjectRow(fallbackData as BidProjectRowWithOptionalEmailTemplate);
   }
 
   if (error || !data) {
@@ -371,7 +417,7 @@ export async function createBidProject(payload: {
     return null;
   }
 
-  return normalizeBidProjectRow(data as BidProjectRowWithOptionalPackageNumber);
+  return normalizeBidProjectRow(data as BidProjectRowWithOptionalEmailTemplate);
 }
 
 export async function createBidTrades(
@@ -433,6 +479,8 @@ export async function updateBidProject(
     location?: string | null;
     budget?: number | null;
     due_date?: string | null;
+    bid_email_subject?: string | null;
+    bid_email_body_html?: string | null;
   }
 ): Promise<BidProjectSummary | null> {
   const supabase = createClient();
@@ -443,20 +491,22 @@ export async function updateBidProject(
     location: payload.location ?? null,
     budget: payload.budget ?? null,
     due_date: payload.due_date ?? null,
+    bid_email_subject: payload.bid_email_subject ?? null,
+    bid_email_body_html: payload.bid_email_body_html ?? null,
   };
   const { data, error } = await supabase
     .from("bid_projects")
     .update(updatePayload)
     .eq("id", projectId)
-    .select("id, project_name, package_number, owner, location, budget, due_date")
+    .select("id, project_name, package_number, owner, location, budget, due_date, bid_email_subject, bid_email_body_html")
     .single();
 
   if (!error && data) {
-    return normalizeBidProjectRow(data as BidProjectRowWithOptionalPackageNumber);
+    return normalizeBidProjectRow(data as BidProjectRowWithOptionalEmailTemplate);
   }
 
-  if (isMissingPackageNumberColumn(error)) {
-    const { package_number: _packageNumber, ...fallbackUpdatePayload } = updatePayload;
+  if (isMissingPackageNumberColumn(error) || isMissingBidEmailTemplateColumns(error)) {
+    const fallbackUpdatePayload = omitMissingBidProjectColumns(updatePayload, error);
     const { data: fallbackData, error: fallbackError } = await supabase
       .from("bid_projects")
       .update(fallbackUpdatePayload)
@@ -469,7 +519,7 @@ export async function updateBidProject(
       return null;
     }
 
-    return normalizeBidProjectRow(fallbackData as BidProjectRowWithOptionalPackageNumber);
+    return normalizeBidProjectRow(fallbackData as BidProjectRowWithOptionalEmailTemplate);
   }
 
   if (error || !data) {
@@ -477,7 +527,31 @@ export async function updateBidProject(
     return null;
   }
 
-  return normalizeBidProjectRow(data as BidProjectRowWithOptionalPackageNumber);
+  return normalizeBidProjectRow(data as BidProjectRowWithOptionalEmailTemplate);
+}
+
+export async function updateBidProjectEmailTemplate(
+  projectId: string,
+  payload: {
+    bid_email_subject: string | null;
+    bid_email_body_html: string | null;
+  }
+): Promise<boolean> {
+  if (!projectId) return false;
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("bid_projects")
+    .update({
+      bid_email_subject: payload.bid_email_subject,
+      bid_email_body_html: payload.bid_email_body_html,
+    })
+    .eq("id", projectId);
+
+  if (!error) return true;
+  if (isMissingBidEmailTemplateColumns(error)) return false;
+
+  console.error("Failed to update bid email template", error);
+  return false;
 }
 
 export async function getNextBidProjectPackageNumber(referenceDate = new Date()): Promise<string | null> {
@@ -758,11 +832,14 @@ export async function getBidProjectDetail(projectId: string): Promise<BidProject
 
   const { data: project, error: projectError } = await supabase
     .from("bid_projects")
-    .select("id, project_name, package_number, owner, location, budget, due_date")
+    .select("id, project_name, package_number, owner, location, budget, due_date, bid_email_subject, bid_email_body_html")
     .eq("id", projectId)
     .maybeSingle();
 
-  if (projectError && isMissingPackageNumberColumn(projectError)) {
+  if (
+    projectError &&
+    (isMissingPackageNumberColumn(projectError) || isMissingBidEmailTemplateColumns(projectError))
+  ) {
     const { data: fallbackProject, error: fallbackProjectError } = await supabase
       .from("bid_projects")
       .select("id, project_name, owner, location, budget, due_date")
@@ -809,7 +886,7 @@ export async function getBidProjectDetail(projectId: string): Promise<BidProject
     }
 
     return {
-      project: normalizeBidProjectRow(fallbackProject as BidProjectRowWithOptionalPackageNumber),
+      project: normalizeBidProjectRow(fallbackProject as BidProjectRowWithOptionalEmailTemplate),
       trades: (trades ?? []) as BidTradeRow[],
       projectSubs: (projectSubs ?? []).map((row) => ({
         ...(row as Omit<BidProjectSubRow, "subcontractor">),
@@ -861,7 +938,7 @@ export async function getBidProjectDetail(projectId: string): Promise<BidProject
   }
 
   return {
-    project: normalizeBidProjectRow(project as BidProjectRowWithOptionalPackageNumber),
+    project: normalizeBidProjectRow(project as BidProjectRowWithOptionalEmailTemplate),
     trades: (trades ?? []) as BidTradeRow[],
     projectSubs: (projectSubs ?? []).map((row) => ({
       ...(row as Omit<BidProjectSubRow, "subcontractor">),

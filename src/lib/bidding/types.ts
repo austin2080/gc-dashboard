@@ -8,6 +8,8 @@ export type BidProjectSummary = {
   location: string | null;
   budget: number | null;
   due_date: string | null;
+  bid_email_subject: string | null;
+  bid_email_body_html: string | null;
 };
 
 export type BidTrade = {

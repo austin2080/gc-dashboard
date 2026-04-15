@@ -6,6 +6,7 @@ import {
 } from "@/lib/email/connections";
 import { sendMicrosoftMail } from "@/lib/email/providers/microsoft";
 import { refreshMicrosoftAccessToken } from "@/lib/oauth/microsoft";
+import { emailHtmlToPlainText, normalizeEmailBodyHtml } from "@/lib/email/html";
 
 type StoredInviteRecord = {
   id: string;
@@ -114,10 +115,12 @@ export async function sendBidInviteViaMicrosoft(inviteId: string, origin: string
   }
 
   try {
+    const htmlBody = normalizeEmailBodyHtml(invite.body_snapshot);
     const sendResult = await sendMicrosoftMail({
       accessToken,
       subject: invite.subject,
-      textBody: invite.body_snapshot,
+      textBody: emailHtmlToPlainText(htmlBody),
+      htmlBody,
       to: [
         {
           email: invite.email,
@@ -177,14 +180,6 @@ export async function sendBidInviteViaMicrosoft(inviteId: string, origin: string
   }
 }
 
-function buildInviteHtml(bodySnapshot: string) {
-  return bodySnapshot
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/\n/g, "<br />");
-}
-
 export async function sendBidInviteViaSendgrid(inviteId: string) {
   const admin = createAdminClient();
   const { data: invite, error: inviteError } = await admin
@@ -198,6 +193,7 @@ export async function sendBidInviteViaSendgrid(inviteId: string) {
   }
 
   try {
+    const htmlBody = normalizeEmailBodyHtml(invite.body_snapshot);
     const sendResult = await sendSendgridMail({
       to: [
         {
@@ -206,8 +202,8 @@ export async function sendBidInviteViaSendgrid(inviteId: string) {
         },
       ],
       subject: invite.subject,
-      textBody: invite.body_snapshot,
-      htmlBody: buildInviteHtml(invite.body_snapshot),
+      textBody: emailHtmlToPlainText(htmlBody),
+      htmlBody,
     });
 
     await admin

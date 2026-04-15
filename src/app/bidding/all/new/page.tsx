@@ -15,6 +15,7 @@ import {
   isBidProjectPackageNumberAvailable,
   listBidSubcontractors,
   updateBidProject,
+  updateBidProjectEmailTemplate,
   updateBidTrades,
 } from "@/lib/bidding/store";
 import { getWorkspaceTaxRates, type WorkspaceTaxRate } from "@/lib/settings/tax-rates";
@@ -53,6 +54,15 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  EmailRichTextEditor,
+  type EmailRichTextEditorHandle,
+} from "@/components/email-rich-text-editor";
+import {
+  isLikelyHtml,
+  plainTextToEmailHtml,
+  sanitizeEmailHtml,
+} from "@/lib/email/html";
 import { CalendarIcon, Ellipsis, Info, Trash2Icon } from "lucide-react";
 
 type BidPackageDraft = {
@@ -211,6 +221,17 @@ const TOKEN_LIST = [
   "{portal_link}",
   "{contact_name}",
   "{contact_email}",
+  "{project_addess}",
+  "{project_address}",
+  "{primary_bid_contact}",
+  "{secondary_bid_contact}",
+  "{primary bid contact email}",
+  "{secondary bid contact email}",
+  "{construction start date}",
+  "{construction_duration}",
+  "{project_size}",
+  "{project_site_size}",
+  "{Primary bid contact signature}",
 ] as const;
 
 const LEGACY_INVITATION_SUBJECT = "Invitation to Bid: {bid_package_name} for {project_name}";
@@ -231,7 +252,33 @@ const LEGACY_INVITATION_MESSAGE = [
   "Thank you,",
   "{contact_name}",
 ].join("\n");
-const DEFAULT_INVITATION_MESSAGE = [
+const DEFAULT_INVITATION_MESSAGE = sanitizeEmailHtml(
+  [
+    '<p><span style="font-size:14px">Hello,</span></p>',
+    '<p><span style="font-size:14px">You are invited to bid on the {project_name} project! You can access the plans via the link below. Please let me know if you are interested in bidding on this project with us.</span></p>',
+    '<p><span style="font-size:14px"><strong>Location and Project Information</strong></span></p>',
+    "<ul>",
+    "<li><p>Hours are expected to be 7am-4pm</p></li>",
+    "<li><p>{project_address}</p></li>",
+    "<li><p>Building Area Square Footage: {project_size}</p></li>",
+    "<li><p>Net Site Area Square Footage: {project_site_size}</p></li>",
+    "</ul>",
+    '<p><span style="font-size:14px"><strong>Bid Information</strong></span></p>',
+    "<ul>",
+    "<li><p>Bids are due by {bid_due_date}</p></li>",
+    "<li><p>If proposing substitutions, please do not include in your base bid, please list as an add alt/ deduct.</p></li>",
+    "<li><p>Please send all question to {primary bid contact email} for discussion and distribution.</p></li>",
+    "<li><p>Start date is expected to be {construction start date}, please advise on your availability (manpower and material)</p></li>",
+    "<li><p>Project duration is expected to be {construction_duration} weeks.</p></li>",
+    "<li><p>All addendums, if any, will be distributed upon receipt</p></li>",
+    "</ul>",
+    "<p>Thank you, <br />{Primary bid contact signature}</p>",
+  ].join("")
+);
+const PROJECT_SITE_SIZE_LIST_ITEM = "<li><p>Net Site Area Square Footage: {project_site_size}</p></li>";
+const EMAIL_PREVIEW_CLASS =
+  "text-sm leading-6 [&_ol]:ml-5 [&_ol]:mb-3 [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:mb-3 [&_p:last-child]:mb-0 [&_ul]:ml-5 [&_ul]:mb-3 [&_ul]:list-disc [&_ul]:pl-4";
+const PREVIOUS_DEFAULT_INVITATION_MESSAGE = [
   "Hello,",
   "",
   "You are invited to bid on {project_name}.",
@@ -240,13 +287,31 @@ const DEFAULT_INVITATION_MESSAGE = [
   "Pre-bid information:",
   "{prebid_info}",
   "",
-  "Submit your bid here: {portal_link}",
-  "",
   "For questions, contact {contact_name} at {contact_email}.",
   "",
   "Thank you,",
   "{contact_name}",
 ].join("\n");
+
+function removeBidPortalLine(message: string) {
+  if (isLikelyHtml(message)) return sanitizeEmailHtml(message);
+  return message
+    .split("\n")
+    .filter((line) => !/^submit your bid here:\s*(?:\{portal_link\}|https?:\/\/\S+)?\s*$/i.test(line.trim()))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
+function normalizeInvitationMessage(message: string) {
+  const cleanMessage = removeBidPortalLine(message);
+  return isLikelyHtml(cleanMessage)
+    ? sanitizeEmailHtml(cleanMessage)
+    : plainTextToEmailHtml(cleanMessage);
+}
+
+function normalizeComparableSize(value: string) {
+  return value.trim().replace(/,/g, "").toLowerCase();
+}
 
 const PREBID_TIMEZONE_OPTIONS = ["EST", "CST", "MST", "PST"] as const;
 
@@ -943,7 +1008,6 @@ export default function NewBidPackagePage() {
   const [invitationDraftHydrated, setInvitationDraftHydrated] = useState(false);
   const [invitationSaving, setInvitationSaving] = useState(false);
   const [invitationSavedAt, setInvitationSavedAt] = useState<string | null>(null);
-  const [focusedInvitationField, setFocusedInvitationField] = useState<"subject" | "message">("subject");
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [tokenValuesOpen, setTokenValuesOpen] = useState(false);
   const [testDialogOpen, setTestDialogOpen] = useState(false);
@@ -961,8 +1025,7 @@ export default function NewBidPackagePage() {
   const constructionScheduleSyncSourceRef = useRef<
     "dates" | "construction-duration" | "project-duration" | null
   >(null);
-  const subjectInputRef = useRef<HTMLInputElement | null>(null);
-  const messageTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const messageEditorRef = useRef<EmailRichTextEditorHandle | null>(null);
   const autosaveStorageKey = useMemo(
     () => getBidPackageAutosaveStorageKey(editingProjectId),
     [editingProjectId]
@@ -1008,6 +1071,10 @@ export default function NewBidPackagePage() {
     );
     return matchingUser?.email || "test@builderos.com";
   }, [companyUserOptions, draft.primary_bidding_contact]);
+  const secondaryBiddingContact = useMemo(
+    () => companyUserOptions.find((user) => user.id === draft.bidding_cc_group) ?? null,
+    [companyUserOptions, draft.bidding_cc_group]
+  );
   const activeSenderEmail = mailboxConnection?.email || primaryBiddingContactEmail;
 
   useEffect(() => {
@@ -1335,6 +1402,15 @@ export default function NewBidPackagePage() {
         assignedByTrade[bid.trade_id] = current;
       });
       setAssignedSubsByTradeId(autosaveAssignedSubsByTradeId ?? assignedByTrade);
+      if (detail.project.bid_email_subject || detail.project.bid_email_body_html) {
+        setInvitationEmailDraft((prev) => ({
+          subject: detail.project.bid_email_subject ?? prev.subject,
+          message: detail.project.bid_email_body_html
+            ? normalizeInvitationMessage(detail.project.bid_email_body_html)
+            : prev.message,
+          requireAcknowledgement: prev.requireAcknowledgement,
+        }));
+      }
       setUploadedFiles(readBidPackageFilesMap()[projectId] ?? []);
       if (autosaveInviteQueryByTradeId) {
         setInviteQueryByTradeId(autosaveInviteQueryByTradeId);
@@ -1767,11 +1843,16 @@ export default function NewBidPackagePage() {
           typeof parsed.subject === "string" ? parsed.subject : DEFAULT_INVITATION_SUBJECT;
         const parsedMessage =
           typeof parsed.message === "string" ? parsed.message : DEFAULT_INVITATION_MESSAGE;
+        const normalizedParsedMessage = removeBidPortalLine(parsedMessage);
+        const shouldUseDefaultMessage =
+          parsedMessage === LEGACY_INVITATION_MESSAGE ||
+          normalizedParsedMessage === PREVIOUS_DEFAULT_INVITATION_MESSAGE;
         setInvitationEmailDraft({
           subject:
             parsedSubject === LEGACY_INVITATION_SUBJECT ? DEFAULT_INVITATION_SUBJECT : parsedSubject,
-          message:
-            parsedMessage === LEGACY_INVITATION_MESSAGE ? DEFAULT_INVITATION_MESSAGE : parsedMessage,
+          message: shouldUseDefaultMessage
+            ? DEFAULT_INVITATION_MESSAGE
+            : normalizeInvitationMessage(normalizedParsedMessage),
           requireAcknowledgement: Boolean(parsed.requireAcknowledgement),
         });
       }
@@ -1891,6 +1972,21 @@ export default function NewBidPackagePage() {
       );
     }
     const portalLink = typeof window !== "undefined" ? `${window.location.origin}/bidding/all` : "/bidding/all";
+    const projectAddress = formatProjectLocation({
+      project_address: draft.project_address,
+      project_city: draft.project_city,
+      project_state: draft.project_state,
+      project_zip: draft.project_zip,
+    });
+    const constructionStartDate = formatOptionalDateTimeLabel(
+      draft.construction_start_date,
+      "7",
+      "00",
+      "am",
+      false
+    );
+    const secondaryContactName = secondaryBiddingContact?.name ?? "";
+    const secondaryContactEmail = secondaryBiddingContact?.email ?? "";
     return {
       "{project_name}": draft.project_name.trim() || "Project Name",
       "{bid_package_name}": draft.project_name.trim() || "Bid Package Name",
@@ -1899,15 +1995,34 @@ export default function NewBidPackagePage() {
       "{portal_link}": portalLink,
       "{contact_name}": draft.primary_bidding_contact || "Primary bidding contact",
       "{contact_email}": primaryBiddingContactEmail,
+      "{project_addess}": projectAddress || "Project address",
+      "{project_address}": projectAddress || "Project address",
+      "{primary_bid_contact}": draft.primary_bidding_contact || "Primary bidding contact",
+      "{secondary_bid_contact}": secondaryContactName || "Secondary bidding contact",
+      "{primary bid contact email}": primaryBiddingContactEmail,
+      "{secondary bid contact email}": secondaryContactEmail,
+      "{construction start date}": constructionStartDate,
+      "{construction_duration}": draft.construction_duration_weeks.trim() || "TBD",
+      "{project_size}": draft.project_size_sqft.trim() || "TBD",
+      "{project_site_size}": draft.project_site_size_sqft.trim() || "TBD",
+      "{Primary bid contact signature}": draft.primary_bidding_contact || "Primary bidding contact",
     } as Record<(typeof TOKEN_LIST)[number], string>;
   }, [
+    draft.construction_duration_weeks,
+    draft.construction_start_date,
     draft.due_date,
     draft.due_hour,
     draft.due_minute,
     draft.due_period,
     draft.due_time_enabled,
     draft.primary_bidding_contact,
+    draft.project_address,
+    draft.project_city,
     draft.project_name,
+    draft.project_size_sqft,
+    draft.project_site_size_sqft,
+    draft.project_state,
+    draft.project_zip,
     draft.rfi_deadline_date,
     draft.rfi_deadline_enabled,
     draft.rfi_deadline_hour,
@@ -1921,6 +2036,8 @@ export default function NewBidPackagePage() {
     draft.site_walkthrough_period,
     draft.site_walkthrough_time_enabled,
     primaryBiddingContactEmail,
+    secondaryBiddingContact?.email,
+    secondaryBiddingContact?.name,
   ]);
 
   const handleDueDateChange = (next: string) => {
@@ -2087,38 +2204,49 @@ export default function NewBidPackagePage() {
     TOKEN_LIST.reduce((text, token) => text.split(token).join(tokenValues[token]), input);
 
   const renderedSubject = renderTokens(invitationEmailDraft.subject);
-  const renderedMessage = renderTokens(invitationEmailDraft.message);
+  const projectSizeValue = draft.project_size_sqft.trim();
+  const projectSiteSizeValue = draft.project_site_size_sqft.trim();
+  const shouldOmitProjectSiteSize =
+    Boolean(projectSizeValue) &&
+    normalizeComparableSize(projectSizeValue) === normalizeComparableSize(projectSiteSizeValue);
+  const invitationMessageHtml = sanitizeEmailHtml(
+    removeBidPortalLine(invitationEmailDraft.message).replace(
+      shouldOmitProjectSiteSize ? PROJECT_SITE_SIZE_LIST_ITEM : "",
+      ""
+    )
+  );
+  const renderedMessage = sanitizeEmailHtml(renderTokens(invitationMessageHtml));
 
-  const insertTokenAtCursor = (token: (typeof TOKEN_LIST)[number]) => {
-    const target = focusedInvitationField === "subject" ? subjectInputRef.current : messageTextareaRef.current;
-    if (!target) return;
-    const selectionStart = target.selectionStart ?? target.value.length;
-    const selectionEnd = target.selectionEnd ?? selectionStart;
-    const nextValue = `${target.value.slice(0, selectionStart)}${token}${target.value.slice(selectionEnd)}`;
-    const nextCursor = selectionStart + token.length;
-
-    if (focusedInvitationField === "subject") {
-      setInvitationEmailDraft((prev) => ({ ...prev, subject: nextValue }));
-      window.requestAnimationFrame(() => {
-        subjectInputRef.current?.focus();
-        subjectInputRef.current?.setSelectionRange(nextCursor, nextCursor);
-      });
-      return;
-    }
-
-    setInvitationEmailDraft((prev) => ({ ...prev, message: nextValue }));
-    window.requestAnimationFrame(() => {
-      messageTextareaRef.current?.focus();
-      messageTextareaRef.current?.setSelectionRange(nextCursor, nextCursor);
-    });
-  };
-
-  const saveInvitationDraftNow = () => {
+  const saveInvitationDraftNow = async () => {
     try {
-      localStorage.setItem(INVITATION_EMAIL_DRAFT_STORAGE_KEY, JSON.stringify(invitationEmailDraft));
+      localStorage.setItem(
+        INVITATION_EMAIL_DRAFT_STORAGE_KEY,
+        JSON.stringify({
+          ...invitationEmailDraft,
+          message: invitationMessageHtml,
+        })
+      );
+      if (editingProjectId) {
+        const savedToDatabase = await updateBidProjectEmailTemplate(editingProjectId, {
+          bid_email_subject: invitationEmailDraft.subject,
+          bid_email_body_html: invitationMessageHtml,
+        });
+        if (!savedToDatabase) {
+          setToast({
+            type: "error",
+            message: "Draft saved locally. Apply the bid email Supabase migration to save it to the database.",
+          });
+          return;
+        }
+      }
       const now = new Date().toISOString();
       setInvitationSavedAt(now);
-      setToast({ type: "success", message: "Draft saved." });
+      setToast({
+        type: "success",
+        message: editingProjectId
+          ? "Draft saved to this bid package."
+          : "Draft saved locally. It will save to the bid package when you create it.",
+      });
     } catch {
       setToast({ type: "error", message: "Unable to save draft." });
     }
@@ -2322,6 +2450,8 @@ export default function NewBidPackagePage() {
               location: locationValue || null,
               budget: Number.isFinite(budgetValue) ? budgetValue : null,
               due_date: draft.tbd_due_date ? null : draft.due_date.trim() || null,
+              bid_email_subject: invitationEmailDraft.subject,
+              bid_email_body_html: invitationMessageHtml,
             });
             if (!updated) {
               setError("Unable to save bid package changes. Please try again.");
@@ -2374,7 +2504,7 @@ export default function NewBidPackagePage() {
                   bidPackageId: editingProjectId,
                   projectId: editingProjectId,
                   subjectTemplate: invitationEmailDraft.subject,
-                  bodyTemplate: invitationEmailDraft.message,
+                  bodyTemplate: invitationMessageHtml,
                   templateContext: {
                     projectName: tokenValues["{project_name}"],
                     bidPackageName: tokenValues["{bid_package_name}"],
@@ -2382,6 +2512,16 @@ export default function NewBidPackagePage() {
                     prebidInfo: tokenValues["{prebid_info}"],
                     contactName: tokenValues["{contact_name}"],
                     contactEmail: tokenValues["{contact_email}"],
+                    projectAddress: tokenValues["{project_address}"],
+                    primaryBidContact: tokenValues["{primary_bid_contact}"],
+                    secondaryBidContact: tokenValues["{secondary_bid_contact}"],
+                    primaryBidContactEmail: tokenValues["{primary bid contact email}"],
+                    secondaryBidContactEmail: tokenValues["{secondary bid contact email}"],
+                    constructionStartDate: tokenValues["{construction start date}"],
+                    constructionDuration: tokenValues["{construction_duration}"],
+                    projectSize: tokenValues["{project_size}"],
+                    projectSiteSize: tokenValues["{project_site_size}"],
+                    primaryBidContactSignature: tokenValues["{Primary bid contact signature}"],
                   },
                   recipients: uniqueInviteRecipients,
                 }),
@@ -2434,6 +2574,8 @@ export default function NewBidPackagePage() {
             location: locationValue || null,
             budget: Number.isFinite(budgetValue) ? budgetValue : null,
             due_date: draft.tbd_due_date ? null : draft.due_date.trim() || null,
+            bid_email_subject: invitationEmailDraft.subject,
+            bid_email_body_html: invitationMessageHtml,
           });
 
           if (!created) {
@@ -2466,7 +2608,7 @@ export default function NewBidPackagePage() {
                 bidPackageId: created.id,
                 projectId: created.id,
                 subjectTemplate: invitationEmailDraft.subject,
-                bodyTemplate: invitationEmailDraft.message,
+                bodyTemplate: invitationMessageHtml,
                 templateContext: {
                   projectName: tokenValues["{project_name}"],
                   bidPackageName: tokenValues["{bid_package_name}"],
@@ -2474,6 +2616,16 @@ export default function NewBidPackagePage() {
                   prebidInfo: tokenValues["{prebid_info}"],
                   contactName: tokenValues["{contact_name}"],
                   contactEmail: tokenValues["{contact_email}"],
+                  projectAddress: tokenValues["{project_address}"],
+                  primaryBidContact: tokenValues["{primary_bid_contact}"],
+                  secondaryBidContact: tokenValues["{secondary_bid_contact}"],
+                  primaryBidContactEmail: tokenValues["{primary bid contact email}"],
+                  secondaryBidContactEmail: tokenValues["{secondary bid contact email}"],
+                  constructionStartDate: tokenValues["{construction start date}"],
+                  constructionDuration: tokenValues["{construction_duration}"],
+                  projectSize: tokenValues["{project_size}"],
+                  projectSiteSize: tokenValues["{project_site_size}"],
+                  primaryBidContactSignature: tokenValues["{Primary bid contact signature}"],
                 },
                 recipients: uniqueInviteRecipients,
               }),
@@ -3534,9 +3686,7 @@ export default function NewBidPackagePage() {
                     <label className="block">
                       <span className="text-sm font-semibold text-slate-700">Subject</span>
                       <input
-                        ref={subjectInputRef}
                         value={invitationEmailDraft.subject}
-                        onFocus={() => setFocusedInvitationField("subject")}
                         onChange={(event) => setInvitationEmailDraft((prev) => ({ ...prev, subject: event.target.value }))}
                         className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
                         placeholder="Invitation subject"
@@ -3544,48 +3694,19 @@ export default function NewBidPackagePage() {
                       <p className="mt-1 text-xs text-slate-500">Use tokens to auto-fill project details.</p>
                     </label>
 
-                    <label className="block">
+                    <div className="block">
                       <span className="text-sm font-semibold text-slate-700">Message</span>
-                      <textarea
-                        ref={messageTextareaRef}
-                        value={invitationEmailDraft.message}
-                        onFocus={() => setFocusedInvitationField("message")}
-                        onChange={(event) => setInvitationEmailDraft((prev) => ({ ...prev, message: event.target.value }))}
-                        className="mt-2 min-h-52 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
-                        placeholder="Invitation message"
-                      />
+                      <div className="mt-2">
+                        <EmailRichTextEditor
+                          ref={messageEditorRef}
+                          tokens={TOKEN_LIST}
+                          value={invitationEmailDraft.message}
+                          onChange={(html) => setInvitationEmailDraft((prev) => ({ ...prev, message: html }))}
+                          placeholder="Write your invitation email..."
+                        />
+                      </div>
                       <p className="mt-1 text-xs text-slate-500">Use tokens to auto-fill project details.</p>
-                    </label>
-                  </div>
-                </article>
-
-                <article className="rounded-xl border border-slate-200 bg-white p-5">
-                  <div className="mb-3 text-sm font-semibold text-slate-700">Insert Tokens</div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {TOKEN_LIST.map((token) => (
-                      <button
-                        key={token}
-                        type="button"
-                        onClick={() => insertTokenAtCursor(token)}
-                        className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                      >
-                        {token}
-                      </button>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(tokenValues["{portal_link}"]);
-                          setToast({ type: "success", message: "Portal link copied." });
-                        } catch {
-                          setToast({ type: "error", message: "Unable to copy portal link." });
-                        }
-                      }}
-                      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      Copy portal link
-                    </button>
+                    </div>
                   </div>
                 </article>
 
@@ -3602,28 +3723,6 @@ export default function NewBidPackagePage() {
                       Documents: <span className="font-semibold">{includedAttachments.documents || "None"}</span>
                     </div>
                   </div>
-                </article>
-
-                <article className="rounded-xl border border-slate-200 bg-white p-5">
-                  <label className="flex items-start gap-3">
-                    <input
-                      type="checkbox"
-                      checked={invitationEmailDraft.requireAcknowledgement}
-                      onChange={(event) =>
-                        setInvitationEmailDraft((prev) => ({
-                          ...prev,
-                          requireAcknowledgement: event.target.checked,
-                        }))
-                      }
-                      className="mt-0.5 size-4 rounded border-slate-300"
-                    />
-                    <span>
-                      <span className="text-sm font-semibold text-slate-700">Require acknowledgement</span>
-                      <span className="mt-1 block text-xs text-slate-500">
-                        Subs must acknowledge receipt before submitting.
-                      </span>
-                    </span>
-                  </label>
                 </article>
               </div>
 
@@ -3698,28 +3797,15 @@ export default function NewBidPackagePage() {
                     </div>
                     <div>
                       <span className="font-semibold">Message:</span>
-                      <p className="mt-1 whitespace-pre-wrap">{renderedMessage || "—"}</p>
-                    </div>
-                  </div>
-                </article>
-
-                <article className="rounded-xl border border-slate-200 bg-white p-5">
-                  <h4 className="text-sm font-semibold text-slate-800">Recipients</h4>
-                  <div className="mt-3 overflow-hidden rounded-md border border-slate-200">
-                    {uniqueInviteRecipients.length ? (
-                      uniqueInviteRecipients.map((recipient) => (
+                      {renderedMessage ? (
                         <div
-                          key={`${recipient.companyName}-${recipient.email}`}
-                          className="border-b border-slate-100 px-3 py-2 text-sm last:border-b-0"
-                        >
-                          <div className="font-semibold text-slate-900">{recipient.companyName}</div>
-                          <div className="text-slate-600">{recipient.email}</div>
-                          <div className="mt-1 text-xs text-slate-500">{recipient.tradeNames.join(", ")}</div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="px-3 py-4 text-sm text-slate-500">No recipients selected.</div>
-                    )}
+                          className={`mt-1 ${EMAIL_PREVIEW_CLASS}`}
+                          dangerouslySetInnerHTML={{ __html: renderedMessage }}
+                        />
+                      ) : (
+                        <p className="mt-1">—</p>
+                      )}
+                    </div>
                   </div>
                 </article>
 
@@ -3748,15 +3834,19 @@ export default function NewBidPackagePage() {
                       onClick={saveInvitationDraftNow}
                       className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                     >
-                      Save Draft
+                      {editingProjectId ? "Save Draft" : "Save Local Draft"}
                     </button>
                   </div>
                   <div className="mt-3 text-xs text-slate-500">
                     {invitationSaving
                       ? "Saving draft..."
                       : invitationSavedAt
-                        ? `Draft saved ${new Date(invitationSavedAt).toLocaleTimeString()}`
-                        : "Draft not saved yet."}
+                        ? editingProjectId
+                          ? `Draft saved to bid package ${new Date(invitationSavedAt).toLocaleTimeString()}`
+                          : `Local draft saved ${new Date(invitationSavedAt).toLocaleTimeString()}. It will save to the bid package when created.`
+                        : editingProjectId
+                          ? "Draft not saved yet."
+                          : "Local draft not saved yet. Database save is available after the bid package is created."}
                   </div>
                   <div className="mt-4 flex items-center justify-end gap-2 border-t border-slate-200 pt-4">
                     <button
@@ -3778,6 +3868,30 @@ export default function NewBidPackagePage() {
                 </article>
               </aside>
             </section>
+
+            <article className="rounded-xl border border-slate-200 bg-white p-5">
+              <h4 className="text-sm font-semibold text-slate-800">Recipients</h4>
+              {uniqueInviteRecipients.length ? (
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {uniqueInviteRecipients.map((recipient) => (
+                    <div
+                      key={`${recipient.companyName}-${recipient.email}`}
+                      className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+                    >
+                      <div className="truncate font-semibold text-slate-900">{recipient.companyName}</div>
+                      <div className="mt-0.5 break-words text-slate-600">{recipient.email}</div>
+                      <div className="mt-1 break-words text-xs leading-5 text-slate-500">
+                        {recipient.tradeNames.join(", ")}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
+                  No recipients selected.
+                </div>
+              )}
+            </article>
 
             {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
             {selectedSubsCount === 0 ? (
@@ -3922,7 +4036,10 @@ export default function NewBidPackagePage() {
               <div>
                 <span className="font-semibold">Subject:</span> {renderedSubject}
               </div>
-              <div className="rounded-md border border-slate-200 bg-slate-50 p-3 whitespace-pre-wrap">{renderedMessage}</div>
+              <div
+                className={`rounded-md border border-slate-200 bg-slate-50 p-3 ${EMAIL_PREVIEW_CLASS}`}
+                dangerouslySetInnerHTML={{ __html: renderedMessage || "—" }}
+              />
             </div>
             <div className="flex justify-end border-t border-slate-200 px-6 py-4">
               <button
