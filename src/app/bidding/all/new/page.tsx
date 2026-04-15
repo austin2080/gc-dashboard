@@ -3784,7 +3784,7 @@ export default function NewBidPackagePage() {
                   <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
                     <div>
                       <span className="font-semibold">From:</span>{" "}
-                      {activeSenderEmail}
+                      {primaryBiddingContactDisplay || "Primary bidding contact"}
                     </div>
                     <div>
                       <span className="font-semibold">To:</span> {uniqueInviteRecipients.length} recipient{uniqueInviteRecipients.length === 1 ? "" : "s"}
@@ -4028,7 +4028,8 @@ export default function NewBidPackagePage() {
             </div>
             <div className="space-y-3 px-6 py-5 text-sm text-slate-700">
               <div>
-                <span className="font-semibold">From:</span> Primary bidding contact
+                <span className="font-semibold">From:</span>{" "}
+                {primaryBiddingContactDisplay || "Primary bidding contact"}
               </div>
               <div>
                 <span className="font-semibold">To:</span> Selected subs across trades
