@@ -844,7 +844,21 @@ function createGeneralConditionsRowsFromCostCodes(): GeneralConditionsRow[] {
         description: costCode.description,
         percentage: legacyRow?.percentage ?? "",
         unit: legacyRow?.unit ?? "l/s",
-        quantity: legacyRow?.quantity ?? "0",
+        quantity:
+          legacyRow?.quantity ??
+          (isGeneralConditionsFeeTotalRow({
+            id: `gc-${normalized}`,
+            costCode: costCode.code,
+            description: costCode.description,
+            percentage: "",
+            unit: "l/s",
+            quantity: "0",
+            unitPrice: "-",
+            total: "-",
+            comments: "",
+          })
+            ? "1"
+            : "0"),
         unitPrice: legacyRow?.unitPrice ?? "-",
         total: "-",
         comments: legacyRow?.comments ?? "",
@@ -1271,9 +1285,25 @@ const isWeeksUnit = (unit: string) => {
 const shouldSyncGeneralConditionsWeeks = (row: GeneralConditionsRow) =>
   isWeeksUnit(row.unit) || GC_WEEKS_SYNC_ROW_IDS.has(row.id);
 
+const getGeneralConditionsFeeRowId = (row: GeneralConditionsRow) => {
+  const normalizedDescription = normalizeCostCodeDescription(row.description);
+  if (normalizedDescription === "warranties" || normalizedDescription === "warrantyprovision") {
+    return "fees-warranty";
+  }
+  if (normalizedDescription === "projectmanagementsoftware") {
+    return "fees-project-management";
+  }
+  return null;
+};
+
+const isGeneralConditionsFeeTotalRow = (row: GeneralConditionsRow) =>
+  getGeneralConditionsFeeRowId(row) !== null;
+
 const PRELIM_MARKUP_FEE_ROW_CONFIG = [
   { rowId: "fees-general-liability", costCode: "90 01 00", label: "GENERAL LIABILITY INSURANCE" },
   { rowId: "fees-builders-risk", costCode: "90 02 00", label: "BUILDERS RISK INSURANCE" },
+  { rowId: "fees-project-management", costCode: "90 08 00", label: "PROJECT MANAGEMENT SOFTWARE" },
+  { rowId: "fees-warranty", costCode: "90 09 00", label: "WARRANTY PROVISION" },
   { rowId: "fees-overhead", costCode: "90 03 00", label: "OVERHEAD" },
   { rowId: "fees-profit", costCode: "90 04 00", label: "PROFIT" },
   { rowId: "fees-performance-bond", costCode: "90 05 00", label: "PERFORMANCE BOND" },
@@ -1810,7 +1840,7 @@ export default function EstimateWorkspaceV2() {
       estimateProjectStorageIds
         .map((projectId) => savedOverrideRowsMap[projectId])
         .find((rowIds) => rowIds && rowIds.length > 0) ?? [];
-    const nextRows =
+    let nextRows =
       savedRows.length > 0 ? mergeGeneralConditionsRows(baseRows, savedRows) : baseRows;
     const baseQuantityById = new Map(baseRows.map((row) => [row.id, row.quantity.trim()]));
     const nextOverrideIds = new Set(savedOverrideRows);
@@ -1825,6 +1855,11 @@ export default function EstimateWorkspaceV2() {
         }
       }
     }
+    nextRows = nextRows.map((row) => {
+      if (!isGeneralConditionsFeeTotalRow(row)) return row;
+      if (nextOverrideIds.has(row.id)) return row;
+      return row.quantity.trim() === "1" ? row : { ...row, quantity: "1" };
+    });
     generalConditionsQuantityOverrideIdsRef.current = nextOverrideIds;
 
     setGeneralConditionsRows(nextRows);
@@ -2238,6 +2273,8 @@ export default function EstimateWorkspaceV2() {
     };
     const liabilityRate = getNumericValue("fees-general-liability");
     const buildersRiskRate = getNumericValue("fees-builders-risk");
+    const projectManagementRate = getNumericValue("fees-project-management");
+    const warrantyRate = getNumericValue("fees-warranty");
     const overheadRate = getNumericValue("fees-overhead");
     const profitRate = getNumericValue("fees-profit");
     const performanceBondRate = getNumericValue("fees-performance-bond");
@@ -2266,6 +2303,22 @@ export default function EstimateWorkspaceV2() {
       contingencyRate !== null && contingencyRate > 0
         ? (preliminarySubtotal * contingencyRate) / 100
         : null;
+    const projectAdminFeeBase =
+      preliminarySubtotal +
+      (liabilityInsurance ?? 0) +
+      (buildersRisk ?? 0) +
+      (overhead ?? 0) +
+      (profit ?? 0) +
+      (performanceBond ?? 0) +
+      (contingency ?? 0);
+    const projectManagementSoftware =
+      projectManagementRate !== null && projectManagementRate > 0
+        ? (projectAdminFeeBase * projectManagementRate) / 100
+        : null;
+    const warrantyProvision =
+      warrantyRate !== null && warrantyRate > 0
+        ? (projectAdminFeeBase * warrantyRate) / 100
+        : null;
 
     const amountByRowId: Record<string, number | null> = {
       "fees-general-liability":
@@ -2275,6 +2328,16 @@ export default function EstimateWorkspaceV2() {
       "fees-builders-risk":
         buildersRisk !== null && Number.isFinite(buildersRisk) && buildersRisk > 0
           ? buildersRisk
+          : null,
+      "fees-project-management":
+        projectManagementSoftware !== null &&
+        Number.isFinite(projectManagementSoftware) &&
+        projectManagementSoftware > 0
+          ? projectManagementSoftware
+          : null,
+      "fees-warranty":
+        warrantyProvision !== null && Number.isFinite(warrantyProvision) && warrantyProvision > 0
+          ? warrantyProvision
           : null,
       "fees-overhead":
         overhead !== null && Number.isFinite(overhead) && overhead > 0 ? overhead : null,
@@ -2302,6 +2365,36 @@ export default function EstimateWorkspaceV2() {
     });
     return next;
   }, [preliminaryMarkupRows]);
+  const displayedGeneralConditionsRows = useMemo(
+    () =>
+      computedGeneralConditionsRows.map((row) => {
+        const feeRowId = getGeneralConditionsFeeRowId(row);
+        if (!feeRowId) return row;
+        const feeAmount = preliminaryMarkupAmountByRowId[feeRowId] ?? null;
+        return {
+          ...row,
+          computedTotal: feeAmount,
+          computedTotalDisplay:
+            feeAmount !== null && Number.isFinite(feeAmount) && feeAmount > 0
+              ? formatCurrency(feeAmount)
+              : "-",
+        };
+      }),
+    [computedGeneralConditionsRows, preliminaryMarkupAmountByRowId]
+  );
+  const displayedGeneralConditionsTotal = useMemo(
+    () =>
+      displayedGeneralConditionsRows.reduce(
+        (sum, row) => sum + (row.computedTotal !== null ? row.computedTotal : 0),
+        0
+      ),
+    [displayedGeneralConditionsRows]
+  );
+  const displayedGeneralConditionsWeekly =
+    projectDurationWeeks && projectDurationWeeks > 0
+      ? displayedGeneralConditionsTotal / projectDurationWeeks
+      : 0;
+  const displayedGeneralConditionsMonthly = displayedGeneralConditionsWeekly * 4;
   const preliminaryMarkupTotal = useMemo(
     () =>
       preliminaryMarkupRows.reduce(
@@ -3128,7 +3221,7 @@ export default function EstimateWorkspaceV2() {
                       <td className="border-b border-r border-slate-400 px-2 py-2 font-semibold text-center">Total</td>
                       <td className="border-b border-slate-400 px-2 py-2 font-semibold text-center">Comments</td>
                     </tr>
-                    {computedGeneralConditionsRows.map((row, rowIndex) => (
+                    {displayedGeneralConditionsRows.map((row, rowIndex) => (
                       <tr key={row.id} className="bg-white">
                         <td className="border-b border-r border-slate-300 p-0">
                           <input
@@ -3257,7 +3350,7 @@ export default function EstimateWorkspaceV2() {
                     <tr className="bg-[#e8792e]">
                       <td colSpan={6} className="border-b border-[#c96420] px-4 py-2"></td>
                       <td className="border-b border-r border-[#c96420] px-4 py-2 text-right text-2xl font-semibold text-white">
-                        ${generalConditionsTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        ${displayedGeneralConditionsTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="border-b border-[#c96420] px-2 py-2"></td>
                     </tr>
@@ -3273,11 +3366,11 @@ export default function EstimateWorkspaceV2() {
                         <div className="space-y-1 text-2xl leading-tight text-slate-900">
                           <div>
                             <span className="mr-3">$</span>
-                            <span>{generalConditionsWeekly.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            <span>{displayedGeneralConditionsWeekly.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           </div>
                           <div>
                             <span className="mr-3">$</span>
-                            <span>{generalConditionsMonthly.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            <span>{displayedGeneralConditionsMonthly.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           </div>
                         </div>
                       </td>
