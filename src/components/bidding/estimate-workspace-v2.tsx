@@ -2877,9 +2877,11 @@ export default function EstimateWorkspaceV2() {
                       </tr>
                     ))}
                     <tr className="bg-[#e8792e]">
-                      <td colSpan={8} className="border-b border-[#c96420] px-4 py-2 text-right text-2xl font-semibold text-white">
+                      <td colSpan={6} className="border-b border-[#c96420] px-4 py-2"></td>
+                      <td className="border-b border-r border-[#c96420] px-4 py-2 text-right text-2xl font-semibold text-white">
                         ${generalConditionsTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
+                      <td className="border-b border-[#c96420] px-2 py-2"></td>
                     </tr>
                     <tr className="bg-slate-200">
                       <td colSpan={5} className="border-b border-slate-300 px-2 py-2"></td>
