@@ -835,6 +835,7 @@ function createGeneralConditionsRowsFromCostCodes(): GeneralConditionsRow[] {
       const sequence = normalized.slice(4);
       const legacyRow =
         legacyGeneralConditionsRowsByDescription.get(normalizeCostCodeDescription(costCode.description)) ??
+        legacyGeneralConditionsRowsByCode.get(normalized) ??
         legacyGeneralConditionsRowsByCode.get(`01${sequence.slice(0, 2)}00`) ??
         null;
       return {
@@ -922,12 +923,20 @@ const WORKSHEET_UNIT_OPTIONS = [
 
 const PRELIM_COLUMN_MIN_WIDTHS = [72, 220, 56, 64, 72, 90, 90, 120] as const;
 const PRELIM_DEFAULT_COLUMN_WIDTHS = [92, 340, 64, 78, 84, 118, 104, 150] as const;
+const BID_PACKAGE_AUTOSAVE_STORAGE_KEY = "bidding-all-new-package-autosave-v1";
 const BID_PROJECT_GENERAL_INFO_STORAGE_KEY = "bidding-project-general-info-v1";
+const ESTIMATE_GENERAL_CONDITIONS_STORAGE_KEY = "estimateGeneralConditionsRowsByProject";
+const ESTIMATE_GENERAL_CONDITIONS_QUANTITY_OVERRIDES_STORAGE_KEY =
+  "estimateGeneralConditionsQuantityOverridesByProject";
 
 type BidProjectGeneralInfoCacheRow = {
   projectName: string;
+  projectNumber: string;
   clientName: string;
   projectAddress: string;
+  projectCity: string;
+  projectState: string;
+  projectZip: string;
   architect: string;
   bidSetDate: string;
   clientPhone: string;
@@ -939,7 +948,12 @@ type BidProjectGeneralInfoCacheRow = {
   constructionCompletionDate: string;
   constructionDurationWeeks: string;
   projectDurationWeeks: string;
+  taxCityNumber: string;
+  taxCityName: string;
+  taxRate: string;
 };
+
+type ProjectPlanningScheduleSyncSource = "dates" | "construction-duration" | "project-duration";
 
 type CompanyUserOption = {
   id: string;
@@ -1051,8 +1065,12 @@ function readBidProjectGeneralInfoMap(): Record<string, BidProjectGeneralInfoCac
       const row = value as Partial<BidProjectGeneralInfoCacheRow>;
       next[key] = {
         projectName: typeof row.projectName === "string" ? row.projectName : "",
+        projectNumber: typeof row.projectNumber === "string" ? row.projectNumber : "",
         clientName: typeof row.clientName === "string" ? row.clientName : "",
         projectAddress: typeof row.projectAddress === "string" ? row.projectAddress : "",
+        projectCity: typeof row.projectCity === "string" ? row.projectCity : "",
+        projectState: typeof row.projectState === "string" ? row.projectState : "",
+        projectZip: typeof row.projectZip === "string" ? row.projectZip : "",
         architect: typeof row.architect === "string" ? row.architect : "",
         bidSetDate: typeof row.bidSetDate === "string" ? row.bidSetDate : "",
         clientPhone: typeof row.clientPhone === "string" ? row.clientPhone : "",
@@ -1070,12 +1088,166 @@ function readBidProjectGeneralInfoMap(): Record<string, BidProjectGeneralInfoCac
           typeof row.constructionDurationWeeks === "string" ? row.constructionDurationWeeks : "",
         projectDurationWeeks:
           typeof row.projectDurationWeeks === "string" ? row.projectDurationWeeks : "",
+        taxCityNumber: typeof row.taxCityNumber === "string" ? row.taxCityNumber : "",
+        taxCityName: typeof row.taxCityName === "string" ? row.taxCityName : "",
+        taxRate: typeof row.taxRate === "string" ? row.taxRate : "",
       };
     }
     return next;
   } catch {
     return {};
   }
+}
+
+function writeBidProjectGeneralInfoMap(map: Record<string, BidProjectGeneralInfoCacheRow>) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(BID_PROJECT_GENERAL_INFO_STORAGE_KEY, JSON.stringify(map));
+}
+
+function getBidPackageAutosaveStorageKey(projectId?: string | null): string {
+  return projectId
+    ? `${BID_PACKAGE_AUTOSAVE_STORAGE_KEY}:${projectId}`
+    : BID_PACKAGE_AUTOSAVE_STORAGE_KEY;
+}
+
+function updateBidPackageAutosaveSchedule(
+  projectId: string,
+  schedule: {
+    constructionStartDate: string;
+    constructionCompletionDate: string;
+    closeoutCompletionDate: string;
+    constructionDurationWeeks: string;
+    projectDurationWeeks: string;
+  }
+) {
+  if (typeof window === "undefined") return;
+  try {
+    const storageKey = getBidPackageAutosaveStorageKey(projectId);
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return;
+    const payload = parsed as { draft?: unknown };
+    if (!payload.draft || typeof payload.draft !== "object") return;
+    payload.draft = {
+      ...payload.draft,
+      construction_start_date: schedule.constructionStartDate,
+      construction_completion_date: schedule.constructionCompletionDate,
+      closeout_completion_date: schedule.closeoutCompletionDate,
+      construction_duration_weeks: schedule.constructionDurationWeeks,
+      project_duration_weeks: schedule.projectDurationWeeks,
+    };
+    localStorage.setItem(storageKey, JSON.stringify(payload));
+  } catch {
+    // Ignore malformed autosave payloads.
+  }
+}
+
+function isGeneralConditionsRow(value: unknown): value is GeneralConditionsRow {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Partial<GeneralConditionsRow>;
+  return (
+    typeof row.id === "string" &&
+    typeof row.costCode === "string" &&
+    typeof row.description === "string" &&
+    typeof row.percentage === "string" &&
+    typeof row.unit === "string" &&
+    typeof row.quantity === "string" &&
+    typeof row.unitPrice === "string" &&
+    typeof row.total === "string" &&
+    typeof row.comments === "string"
+  );
+}
+
+function readEstimateGeneralConditionsRowsMap(): Record<string, GeneralConditionsRow[]> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(ESTIMATE_GENERAL_CONDITIONS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, GeneralConditionsRow[]> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!Array.isArray(value)) continue;
+      next[key] = value.filter(isGeneralConditionsRow);
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function writeEstimateGeneralConditionsRows(
+  projectIds: string[],
+  rows: GeneralConditionsRow[]
+) {
+  if (typeof window === "undefined" || projectIds.length === 0) return;
+  const current = readEstimateGeneralConditionsRowsMap();
+  for (const projectId of projectIds) {
+    current[projectId] = rows;
+  }
+  localStorage.setItem(ESTIMATE_GENERAL_CONDITIONS_STORAGE_KEY, JSON.stringify(current));
+}
+
+function readEstimateGeneralConditionsQuantityOverridesMap(): Record<string, string[]> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(ESTIMATE_GENERAL_CONDITIONS_QUANTITY_OVERRIDES_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, string[]> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!Array.isArray(value)) continue;
+      next[key] = value.filter((rowId): rowId is string => typeof rowId === "string");
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function writeEstimateGeneralConditionsQuantityOverrides(
+  projectIds: string[],
+  rowIds: Set<string>
+) {
+  if (typeof window === "undefined" || projectIds.length === 0) return;
+  const current = readEstimateGeneralConditionsQuantityOverridesMap();
+  const rowIdList = Array.from(rowIds);
+  for (const projectId of projectIds) {
+    current[projectId] = rowIdList;
+  }
+  localStorage.setItem(
+    ESTIMATE_GENERAL_CONDITIONS_QUANTITY_OVERRIDES_STORAGE_KEY,
+    JSON.stringify(current)
+  );
+}
+
+function mergeGeneralConditionsRows(
+  baseRows: GeneralConditionsRow[],
+  savedRows: GeneralConditionsRow[]
+) {
+  const savedById = new Map(savedRows.map((row) => [row.id, row]));
+  const savedByCodeAndDescription = new Map(
+    savedRows.map((row) => [
+      `${normalizeCostCodeKey(row.costCode)}:${normalizeCostCodeDescription(row.description)}`,
+      row,
+    ])
+  );
+  const savedByDescription = new Map(
+    savedRows.map((row) => [normalizeCostCodeDescription(row.description), row])
+  );
+
+  return baseRows.map((baseRow) => {
+    const savedRow =
+      savedById.get(baseRow.id) ??
+      savedByCodeAndDescription.get(
+        `${normalizeCostCodeKey(baseRow.costCode)}:${normalizeCostCodeDescription(baseRow.description)}`
+      ) ??
+      savedByDescription.get(normalizeCostCodeDescription(baseRow.description)) ??
+      null;
+    return savedRow ? { ...baseRow, ...savedRow, id: baseRow.id } : baseRow;
+  });
 }
 
 const GC_WEEKS_SYNC_ROW_IDS = new Set([
@@ -1090,6 +1262,14 @@ const GC_WEEKS_SYNC_ROW_IDS = new Set([
   "gc-010600",
   "gc-010700",
 ]);
+
+const isWeeksUnit = (unit: string) => {
+  const normalized = unit.trim().toLowerCase();
+  return normalized === "wks" || normalized === "wk" || normalized === "weeks" || normalized === "week";
+};
+
+const shouldSyncGeneralConditionsWeeks = (row: GeneralConditionsRow) =>
+  isWeeksUnit(row.unit) || GC_WEEKS_SYNC_ROW_IDS.has(row.id);
 
 const PRELIM_MARKUP_FEE_ROW_CONFIG = [
   { rowId: "fees-general-liability", costCode: "90 01 00", label: "GENERAL LIABILITY INSURANCE" },
@@ -1119,6 +1299,8 @@ const calculateDurationWeeks = (startIsoDate: string, endIsoDate: string) => {
   const days = diffMs / (1000 * 60 * 60 * 24);
   return Math.ceil(days / 7);
 };
+
+const sanitizeWholeNumberInput = (value: string) => value.replace(/\D/g, "");
 
 export default function EstimateWorkspaceV2() {
   const searchParams = useSearchParams();
@@ -1156,6 +1338,9 @@ export default function EstimateWorkspaceV2() {
   const [activeWorksheetUnitPriceCell, setActiveWorksheetUnitPriceCell] = useState<string | null>(
     null
   );
+  const generalConditionsHydratedRef = useRef(false);
+  const generalConditionsQuantityOverrideIdsRef = useRef<Set<string>>(new Set());
+  const skipNextGeneralConditionsSaveRef = useRef(false);
   const [prelimColumnWidths, setPrelimColumnWidths] = useState<number[]>([
     ...PRELIM_DEFAULT_COLUMN_WIDTHS,
   ]);
@@ -1183,6 +1368,8 @@ export default function EstimateWorkspaceV2() {
     salesTax: true,
     costSummary: true,
   });
+  const projectPlanningScheduleSyncSourceRef =
+    useRef<ProjectPlanningScheduleSyncSource | null>(null);
   const feeRows = useMemo(() => rows.filter((row) => row.category === "Fees"), [rows]);
   const startDateValue =
     projectPlanningRows.find((row) => row.id === "pp-start-date")?.value ?? "";
@@ -1190,8 +1377,16 @@ export default function EstimateWorkspaceV2() {
     projectPlanningRows.find((row) => row.id === "pp-completion-date")?.value ?? "";
   const closeoutDateValue =
     projectPlanningRows.find((row) => row.id === "pp-closeout-date")?.value ?? "";
+  const constructionDurationWeeksValue =
+    projectPlanningRows.find((row) => row.id === "pp-construction-duration")?.value ?? "";
   const projectDurationWeeksValue =
     projectPlanningRows.find((row) => row.id === "pp-project-duration")?.value ?? "";
+  const estimateProjectStorageIds = useMemo(() => {
+    const mappedBidProjectId = getBidProjectIdForProject(queryProjectId ?? "");
+    return [mappedBidProjectId, queryProjectId].filter(
+      (id, index, list): id is string => Boolean(id) && list.indexOf(id) === index
+    );
+  }, [queryProjectId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1456,44 +1651,209 @@ export default function EstimateWorkspaceV2() {
     };
   }, []);
   useEffect(() => {
-    const nextCloseoutDate = addDaysToIsoDate(completionDateValue, 7);
-    if (!nextCloseoutDate) return;
-    setProjectPlanningRows((prev) => {
-      const currentCloseout = prev.find((row) => row.id === "pp-closeout-date")?.value ?? "";
-      if (currentCloseout === nextCloseoutDate) return prev;
-      return prev.map((row) =>
-        row.id === "pp-closeout-date" ? { ...row, value: nextCloseoutDate } : row
-      );
-    });
-  }, [completionDateValue]);
-  useEffect(() => {
+    if (projectPlanningScheduleSyncSourceRef.current === "construction-duration") {
+      const nextConstructionDuration = sanitizeWholeNumberInput(
+        constructionDurationWeeksValue
+      ).trim();
+      const durationWeeks = Number.parseInt(nextConstructionDuration, 10);
+      const nextCompletionDate =
+        startDateValue && Number.isFinite(durationWeeks) && durationWeeks >= 0
+          ? addDaysToIsoDate(startDateValue, durationWeeks * 7) ?? ""
+          : "";
+      const nextCloseoutDate = addDaysToIsoDate(nextCompletionDate, 7) ?? "";
+      const nextProjectDuration = nextCloseoutDate
+        ? calculateDurationWeeks(startDateValue, nextCloseoutDate)
+        : null;
+      const nextProjectDurationValue =
+        nextProjectDuration === null ? "" : String(nextProjectDuration);
+
+      setProjectPlanningRows((prev) => {
+        let changed = false;
+        const nextRows = prev.map((row) => {
+          let nextValue = row.value;
+          if (row.id === "pp-construction-duration") nextValue = nextConstructionDuration;
+          if (row.id === "pp-completion-date") nextValue = nextCompletionDate;
+          if (row.id === "pp-closeout-date") nextValue = nextCloseoutDate;
+          if (row.id === "pp-project-duration") nextValue = nextProjectDurationValue;
+          if (nextValue === row.value) return row;
+          changed = true;
+          return { ...row, value: nextValue };
+        });
+        return changed ? nextRows : prev;
+      });
+      return;
+    }
+
+    if (projectPlanningScheduleSyncSourceRef.current === "project-duration") {
+      const nextProjectDuration = sanitizeWholeNumberInput(projectDurationWeeksValue).trim();
+      const projectDurationWeeks = Number.parseInt(nextProjectDuration, 10);
+      const nextCloseoutDate =
+        startDateValue && Number.isFinite(projectDurationWeeks) && projectDurationWeeks >= 0
+          ? addDaysToIsoDate(startDateValue, projectDurationWeeks * 7) ?? ""
+          : "";
+      const nextCompletionDate = addDaysToIsoDate(nextCloseoutDate, -7) ?? "";
+      const nextConstructionDuration = calculateDurationWeeks(startDateValue, nextCompletionDate);
+      const nextConstructionDurationValue =
+        nextConstructionDuration === null ? "" : String(nextConstructionDuration);
+
+      setProjectPlanningRows((prev) => {
+        let changed = false;
+        const nextRows = prev.map((row) => {
+          let nextValue = row.value;
+          if (row.id === "pp-project-duration") nextValue = nextProjectDuration;
+          if (row.id === "pp-completion-date") nextValue = nextCompletionDate;
+          if (row.id === "pp-closeout-date") nextValue = nextCloseoutDate;
+          if (row.id === "pp-construction-duration") nextValue = nextConstructionDurationValue;
+          if (nextValue === row.value) return row;
+          changed = true;
+          return { ...row, value: nextValue };
+        });
+        return changed ? nextRows : prev;
+      });
+      return;
+    }
+
+    const nextCloseoutDate = addDaysToIsoDate(completionDateValue, 7) ?? "";
     const constructionWeeks = calculateDurationWeeks(startDateValue, completionDateValue);
-    const projectWeeks = calculateDurationWeeks(startDateValue, closeoutDateValue);
-    setProjectPlanningRows((prev) =>
-      prev.map((row) => {
-        if (row.id === "pp-construction-duration") {
-          const nextValue = constructionWeeks === null ? "" : String(constructionWeeks);
-          return row.value === nextValue ? row : { ...row, value: nextValue };
+    const projectWeeks = nextCloseoutDate
+      ? calculateDurationWeeks(startDateValue, nextCloseoutDate)
+      : null;
+    const nextConstructionDuration = constructionWeeks === null ? "" : String(constructionWeeks);
+    const nextProjectDuration = projectWeeks === null ? "" : String(projectWeeks);
+
+    setProjectPlanningRows((prev) => {
+      let changed = false;
+      const nextRows = prev.map((row) => {
+        let nextValue = row.value;
+        if (row.id === "pp-closeout-date") nextValue = nextCloseoutDate;
+        if (row.id === "pp-construction-duration") nextValue = nextConstructionDuration;
+        if (row.id === "pp-project-duration") nextValue = nextProjectDuration;
+        if (nextValue === row.value) return row;
+        changed = true;
+        return { ...row, value: nextValue };
+      });
+      return changed ? nextRows : prev;
+    });
+  }, [
+    startDateValue,
+    completionDateValue,
+    constructionDurationWeeksValue,
+    projectDurationWeeksValue,
+  ]);
+  useEffect(() => {
+    if (!queryProjectId || projectPlanningScheduleSyncSourceRef.current === null) return;
+
+    const timeoutId = window.setTimeout(() => {
+      const mappedBidProjectId = getBidProjectIdForProject(queryProjectId);
+      const projectIds = [mappedBidProjectId, queryProjectId].filter(
+        (id, index, list): id is string => Boolean(id) && list.indexOf(id) === index
+      );
+      if (projectIds.length === 0) return;
+
+      const current = readBidProjectGeneralInfoMap();
+      for (const projectId of projectIds) {
+        const previous = current[projectId];
+        current[projectId] = {
+          projectName: previous?.projectName ?? "",
+          projectNumber: previous?.projectNumber ?? "",
+          clientName: previous?.clientName ?? "",
+          projectAddress: previous?.projectAddress ?? "",
+          projectCity: previous?.projectCity ?? "",
+          projectState: previous?.projectState ?? "",
+          projectZip: previous?.projectZip ?? "",
+          architect: previous?.architect ?? "",
+          bidSetDate: previous?.bidSetDate ?? "",
+          clientPhone: previous?.clientPhone ?? "",
+          clientEmail: previous?.clientEmail ?? "",
+          primaryBiddingContact: previous?.primaryBiddingContact ?? "",
+          projectSizeSqft: previous?.projectSizeSqft ?? "",
+          projectSiteSizeSqft: previous?.projectSiteSizeSqft ?? "",
+          constructionStartDate: startDateValue.trim(),
+          constructionCompletionDate: completionDateValue.trim(),
+          constructionDurationWeeks: constructionDurationWeeksValue.trim(),
+          projectDurationWeeks: projectDurationWeeksValue.trim(),
+          taxCityNumber: previous?.taxCityNumber ?? "",
+          taxCityName: previous?.taxCityName ?? "",
+          taxRate: previous?.taxRate ?? "",
+        };
+        updateBidPackageAutosaveSchedule(projectId, {
+          constructionStartDate: startDateValue.trim(),
+          constructionCompletionDate: completionDateValue.trim(),
+          closeoutCompletionDate: closeoutDateValue.trim(),
+          constructionDurationWeeks: constructionDurationWeeksValue.trim(),
+          projectDurationWeeks: projectDurationWeeksValue.trim(),
+        });
+      }
+      writeBidProjectGeneralInfoMap(current);
+    }, 0);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [
+    closeoutDateValue,
+    completionDateValue,
+    constructionDurationWeeksValue,
+    projectDurationWeeksValue,
+    queryProjectId,
+    startDateValue,
+  ]);
+  useEffect(() => {
+    generalConditionsHydratedRef.current = false;
+    skipNextGeneralConditionsSaveRef.current = true;
+    const baseRows = createGeneralConditionsRowsFromCostCodes();
+    const savedRowsMap = readEstimateGeneralConditionsRowsMap();
+    const savedOverrideRowsMap = readEstimateGeneralConditionsQuantityOverridesMap();
+    const savedRows =
+      estimateProjectStorageIds
+        .map((projectId) => savedRowsMap[projectId])
+        .find((rowsForProject) => rowsForProject && rowsForProject.length > 0) ?? [];
+    const savedOverrideRows =
+      estimateProjectStorageIds
+        .map((projectId) => savedOverrideRowsMap[projectId])
+        .find((rowIds) => rowIds && rowIds.length > 0) ?? [];
+    const nextRows =
+      savedRows.length > 0 ? mergeGeneralConditionsRows(baseRows, savedRows) : baseRows;
+    const baseQuantityById = new Map(baseRows.map((row) => [row.id, row.quantity.trim()]));
+    const nextOverrideIds = new Set(savedOverrideRows);
+    const weeksValue = projectDurationWeeksValue.trim();
+    if (savedOverrideRows.length === 0 && savedRows.length > 0) {
+      for (const row of nextRows) {
+        if (!shouldSyncGeneralConditionsWeeks(row)) continue;
+        const quantity = row.quantity.trim();
+        if (!quantity) continue;
+        if (quantity !== baseQuantityById.get(row.id) && quantity !== weeksValue) {
+          nextOverrideIds.add(row.id);
         }
-        if (row.id === "pp-project-duration") {
-          const nextValue = projectWeeks === null ? "" : String(projectWeeks);
-          return row.value === nextValue ? row : { ...row, value: nextValue };
-        }
-        return row;
-      })
-    );
-  }, [startDateValue, completionDateValue, closeoutDateValue]);
+      }
+    }
+    generalConditionsQuantityOverrideIdsRef.current = nextOverrideIds;
+
+    setGeneralConditionsRows(nextRows);
+    generalConditionsHydratedRef.current = true;
+  }, [estimateProjectStorageIds]);
+
   useEffect(() => {
     const weeksValue = projectDurationWeeksValue.trim();
     if (!weeksValue) return;
     setGeneralConditionsRows((prev) =>
       prev.map((row) => {
-        if (!GC_WEEKS_SYNC_ROW_IDS.has(row.id)) return row;
-        if (row.unit !== "wks") return row;
+        if (!shouldSyncGeneralConditionsWeeks(row)) return row;
+        if (generalConditionsQuantityOverrideIdsRef.current.has(row.id)) return row;
         return row.quantity === weeksValue ? row : { ...row, quantity: weeksValue };
       })
     );
   }, [projectDurationWeeksValue]);
+  useEffect(() => {
+    if (!generalConditionsHydratedRef.current || estimateProjectStorageIds.length === 0) return;
+    if (skipNextGeneralConditionsSaveRef.current) {
+      skipNextGeneralConditionsSaveRef.current = false;
+      return;
+    }
+    writeEstimateGeneralConditionsRows(estimateProjectStorageIds, generalConditionsRows);
+    writeEstimateGeneralConditionsQuantityOverrides(
+      estimateProjectStorageIds,
+      generalConditionsQuantityOverrideIdsRef.current
+    );
+  }, [estimateProjectStorageIds, generalConditionsRows]);
 
   const updateCell = (rowId: string, key: keyof FactorRow, value: string) => {
     setRows((prev) =>
@@ -1611,6 +1971,28 @@ export default function EstimateWorkspaceV2() {
   const coverPageView = selectedItem === "Preliminary Estimate Cover Page";
   const preliminaryWorksheetView = selectedItem === "Preliminary Estimate Worksheet";
   const updateProjectPlanningValue = (rowId: string, value: string) => {
+    if (rowId === "pp-start-date") {
+      const hasProjectDurationValue =
+        sanitizeWholeNumberInput(projectDurationWeeksValue).trim().length > 0;
+      const hasConstructionDurationValue =
+        sanitizeWholeNumberInput(constructionDurationWeeksValue).trim().length > 0;
+      projectPlanningScheduleSyncSourceRef.current =
+        projectPlanningScheduleSyncSourceRef.current === "project-duration" ||
+        (!completionDateValue && hasProjectDurationValue)
+          ? "project-duration"
+          : projectPlanningScheduleSyncSourceRef.current === "construction-duration" ||
+              (!completionDateValue && hasConstructionDurationValue)
+            ? "construction-duration"
+            : "dates";
+    } else if (rowId === "pp-completion-date") {
+      projectPlanningScheduleSyncSourceRef.current = "dates";
+    } else if (rowId === "pp-construction-duration") {
+      projectPlanningScheduleSyncSourceRef.current = "construction-duration";
+      value = sanitizeWholeNumberInput(value);
+    } else if (rowId === "pp-project-duration") {
+      projectPlanningScheduleSyncSourceRef.current = "project-duration";
+      value = sanitizeWholeNumberInput(value);
+    }
     setProjectPlanningRows((prev) =>
       prev.map((row) => (row.id === rowId ? { ...row, value } : row))
     );
@@ -1650,6 +2032,19 @@ export default function EstimateWorkspaceV2() {
     key: keyof GeneralConditionsRow,
     value: string
   ) => {
+    if (key === "quantity") {
+      const nextOverrideIds = new Set(generalConditionsQuantityOverrideIdsRef.current);
+      if (value.trim() === projectDurationWeeksValue.trim()) {
+        nextOverrideIds.delete(rowId);
+      } else {
+        nextOverrideIds.add(rowId);
+      }
+      generalConditionsQuantityOverrideIdsRef.current = nextOverrideIds;
+      writeEstimateGeneralConditionsQuantityOverrides(
+        estimateProjectStorageIds,
+        generalConditionsQuantityOverrideIdsRef.current
+      );
+    }
     setGeneralConditionsRows((prev) =>
       prev.map((row) => (row.id === rowId ? { ...row, [key]: value } : row))
     );
@@ -2303,10 +2698,6 @@ export default function EstimateWorkspaceV2() {
                                 onChange={(event) =>
                                   updateProjectPlanningValue(row.id, event.target.value)
                                 }
-                                readOnly={
-                                  row.id === "pp-construction-duration" ||
-                                  row.id === "pp-project-duration"
-                                }
                                 className="h-11 w-full border-0 bg-transparent px-3 text-right text-base text-slate-900 focus:bg-white focus:outline-none"
                               />
                             )}
@@ -2796,25 +3187,32 @@ export default function EstimateWorkspaceV2() {
                           <input
                             data-gc-row={rowIndex}
                             data-gc-col={4}
-                            value={row.quantity}
+                            value={row.quantity === "0" ? "" : row.quantity}
                             onChange={(event) =>
                               updateGeneralConditionsCell(row.id, "quantity", event.target.value)
                             }
                             onKeyDown={handleGeneralConditionsCellKeyDown(rowIndex, 4)}
+                            placeholder="0"
                             className={`h-8 w-full border-0 bg-transparent px-2 text-center text-sm font-semibold focus:bg-white focus:outline-none ${
                               row.quantity !== "0" && row.quantity !== "" ? "text-orange-600" : "text-slate-700"
                             }`}
                           />
                         </td>
                         <td className="border-b border-r border-slate-300 p-0">
-                          {row.unitPrice === "-" || row.unitPrice === "" ? (
+                          <div className="flex h-8 items-center gap-2 px-2 text-sm">
+                            <span className="text-slate-700">$</span>
                             <input
                               data-gc-row={rowIndex}
                               data-gc-col={5}
-                              value={row.unitPrice}
+                              value={row.unitPrice === "-" ? "" : row.unitPrice}
                               onChange={(event) =>
                                 updateGeneralConditionsCell(row.id, "unitPrice", event.target.value)
                               }
+                              onFocus={() => {
+                                if (row.unitPrice === "-") {
+                                  updateGeneralConditionsCell(row.id, "unitPrice", "");
+                                }
+                              }}
                               onBlur={(event) =>
                                 updateGeneralConditionsCell(
                                   row.id,
@@ -2823,30 +3221,10 @@ export default function EstimateWorkspaceV2() {
                                 )
                               }
                               onKeyDown={handleGeneralConditionsCellKeyDown(rowIndex, 5)}
-                              className="h-8 w-full border-0 bg-transparent px-2 text-center text-sm text-slate-700 focus:bg-white focus:outline-none"
+                              placeholder="-"
+                              className="h-full w-full border-0 bg-transparent text-right text-sm text-slate-700 focus:bg-white focus:outline-none"
                             />
-                          ) : (
-                            <div className="flex h-8 items-center gap-2 px-2 text-sm">
-                              <span className="text-slate-700">$</span>
-                              <input
-                                data-gc-row={rowIndex}
-                                data-gc-col={5}
-                                value={row.unitPrice}
-                                onChange={(event) =>
-                                  updateGeneralConditionsCell(row.id, "unitPrice", event.target.value)
-                                }
-                                onBlur={(event) =>
-                                  updateGeneralConditionsCell(
-                                    row.id,
-                                    "unitPrice",
-                                    formatToTwoDecimals(event.target.value)
-                                  )
-                                }
-                                onKeyDown={handleGeneralConditionsCellKeyDown(rowIndex, 5)}
-                                className="h-full w-full border-0 bg-transparent text-right text-sm text-slate-700 focus:bg-white focus:outline-none"
-                              />
-                            </div>
-                          )}
+                          </div>
                         </td>
                         <td className="border-b border-r border-slate-300 p-0">
                           {row.computedTotal === null ? (
