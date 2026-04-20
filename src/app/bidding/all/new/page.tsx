@@ -636,6 +636,7 @@ function mapSettingsCostCodeOptions(settingsRows: ReturnType<typeof getWorkspace
   const seenCodes = new Set<string>();
 
   for (const row of settingsRows) {
+    if (!row.usedIn.prelimEstimate) continue;
     const normalizedCode = row.code.trim().toLowerCase();
     if (!normalizedCode || seenCodes.has(normalizedCode)) continue;
     seenCodes.add(normalizedCode);

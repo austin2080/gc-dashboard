@@ -7,6 +7,7 @@ import { EmptyState } from "./EmptyState";
 import { SettingsCard } from "./SettingsCard";
 import { SettingsLayout } from "./SettingsLayout";
 import { SettingsSectionHeader } from "./SettingsSectionHeader";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import {
   getWorkspaceTimezone,
   setWorkspaceTimezone,
@@ -22,6 +23,8 @@ import {
   DEFAULT_WORKSPACE_COST_CODES,
   getWorkspaceCostCodes,
   setWorkspaceCostCodes,
+  type WorkspaceCostCode,
+  type WorkspaceCostCodeUsage,
 } from "@/lib/settings/company-cost-codes";
 import type {
   PermissionModule,
@@ -181,6 +184,76 @@ function getDefaultCostCodeRows() {
     code: item.code,
     description: item.description,
   }));
+}
+
+const usedInColumns: Array<{
+  key: keyof WorkspaceCostCodeUsage;
+  label: string;
+}> = [
+  { key: "generalConditions", label: "General Conditions" },
+  { key: "prelimEstimate", label: "Prelim Estimate" },
+  { key: "divisionTitle", label: "Division Title" },
+];
+
+function normalizeCostCodeKey(value: string) {
+  return value.replace(/[^0-9]/g, "");
+}
+
+function getCostCodeDivisionKey(code: string) {
+  return normalizeCostCodeKey(code).slice(0, 2) || "other";
+}
+
+function getCostCodeSortValue(code: string) {
+  return Number(normalizeCostCodeKey(code)) || Number.MAX_SAFE_INTEGER;
+}
+
+function isCostCodeDivisionTitle(row: WorkspaceCostCode) {
+  const normalized = normalizeCostCodeKey(row.code);
+  if (row.usedIn.divisionTitle) return true;
+  if (/^\d{2}$/.test(normalized)) return true;
+  return /^\d{8}$/.test(normalized) && normalized.slice(2, 4) === normalized.slice(0, 2) && normalized.slice(4) === "0000";
+}
+
+function groupCostCodeRows(rows: WorkspaceCostCode[]) {
+  const groups = new Map<
+    string,
+    {
+      key: string;
+      minSort: number;
+      titleRow: WorkspaceCostCode | null;
+      rows: WorkspaceCostCode[];
+    }
+  >();
+
+  for (const row of rows) {
+    const key = getCostCodeDivisionKey(row.code);
+    const sortValue = getCostCodeSortValue(row.code);
+    const existing =
+      groups.get(key) ??
+      ({
+        key,
+        minSort: sortValue,
+        titleRow: null,
+        rows: [],
+      } satisfies {
+        key: string;
+        minSort: number;
+        titleRow: WorkspaceCostCode | null;
+        rows: WorkspaceCostCode[];
+      });
+
+    existing.minSort = Math.min(existing.minSort, sortValue);
+    existing.rows.push(row);
+    if (isCostCodeDivisionTitle(row)) {
+      const currentSort = existing.titleRow ? getCostCodeSortValue(existing.titleRow.code) : Number.MAX_SAFE_INTEGER;
+      if (!existing.titleRow || sortValue < currentSort) {
+        existing.titleRow = row;
+      }
+    }
+    groups.set(key, existing);
+  }
+
+  return Array.from(groups.values()).sort((left, right) => left.minSort - right.minSort);
 }
 
 export function SettingsShell() {
@@ -405,6 +478,41 @@ export function SettingsShell() {
 
   const removeTaxRateRow = (rowId: string) => {
     setTaxRateRows((prev) => prev.filter((row) => row.id !== rowId));
+    markUnsaved();
+  };
+
+  const costCodeGroups = useMemo(() => groupCostCodeRows(costCodeRows), [costCodeRows]);
+
+  const updateCostCodeRow = (rowId: string, patch: Partial<WorkspaceCostCode>) => {
+    setCostCodeRows((prev) =>
+      prev.map((row) => (row.id === rowId ? { ...row, ...patch } : row))
+    );
+    markUnsaved();
+  };
+
+  const updateCostCodeUsage = (
+    rowId: string,
+    usageKey: keyof WorkspaceCostCodeUsage,
+    checked: boolean
+  ) => {
+    setCostCodeRows((prev) =>
+      prev.map((row) =>
+        row.id === rowId
+          ? {
+              ...row,
+              usedIn: {
+                ...row.usedIn,
+                [usageKey]: checked,
+              },
+            }
+          : row
+      )
+    );
+    markUnsaved();
+  };
+
+  const removeCostCodeRow = (rowId: string) => {
+    setCostCodeRows((prev) => prev.filter((item) => item.id !== rowId));
     markUnsaved();
   };
 
@@ -1078,7 +1186,16 @@ export function SettingsShell() {
             onClick={() => {
               setCostCodeRows((prev) => [
                 ...prev,
-                { id: `cc-${prev.length + 1}`, code: "", description: "" },
+                {
+                  id: `cc-custom-${Date.now()}`,
+                  code: "",
+                  description: "",
+                  usedIn: {
+                    generalConditions: false,
+                    prelimEstimate: true,
+                    divisionTitle: false,
+                  },
+                },
               ]);
               markUnsaved();
             }}
@@ -1087,45 +1204,107 @@ export function SettingsShell() {
           </button>
         }
       >
-        <div className="space-y-2">
-          {costCodeRows.map((row) => (
-            <div key={row.id} className="grid gap-2 md:grid-cols-[160px_minmax(0,1fr)_90px]">
-              <input
-                value={row.code}
-                className="rounded-lg border border-slate-300 p-2 text-sm"
-                placeholder="Code"
-                onChange={(event) => {
-                  const nextValue = event.target.value;
-                  setCostCodeRows((prev) =>
-                    prev.map((item) => (item.id === row.id ? { ...item, code: nextValue } : item))
-                  );
-                  markUnsaved();
-                }}
-              />
-              <input
-                value={row.description}
-                className="rounded-lg border border-slate-300 p-2 text-sm"
-                placeholder="Description"
-                onChange={(event) => {
-                  const nextValue = event.target.value;
-                  setCostCodeRows((prev) =>
-                    prev.map((item) => (item.id === row.id ? { ...item, description: nextValue } : item))
-                  );
-                  markUnsaved();
-                }}
-              />
-              <button
-                type="button"
-                className="rounded-lg border border-rose-200 bg-rose-50 px-3 text-sm text-rose-700"
-                onClick={() => {
-                  setCostCodeRows((prev) => prev.filter((item) => item.id !== row.id));
-                  markUnsaved();
-                }}
-              >
-                Remove
-              </button>
+        <div className="overflow-x-auto rounded-lg border border-slate-200">
+          <div className="min-w-[860px]">
+            <div className="grid grid-cols-[170px_minmax(220px,1fr)_360px_90px] border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <div className="px-3 py-3">Code</div>
+              <div className="px-3 py-3">Description</div>
+              <div className="border-l border-slate-200">
+                <div className="border-b border-slate-200 px-3 py-2 text-center">Used In</div>
+                <div className="grid grid-cols-3">
+                  {usedInColumns.map((column) => (
+                    <div key={column.key} className="px-2 py-2 text-center">
+                      {column.label}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="px-3 py-3">Action</div>
             </div>
-          ))}
+            <Accordion
+              type="multiple"
+              defaultValue={costCodeGroups.map((group) => group.key)}
+              className="divide-y divide-slate-200"
+            >
+              {costCodeGroups.map((group) => {
+                const titleRow = group.titleRow ?? group.rows[0];
+                const title = titleRow
+                  ? `${titleRow.code}${titleRow.description ? ` ${titleRow.description}` : ""}`
+                  : `Division ${group.key}`;
+
+                return (
+                  <AccordionItem key={group.key} value={group.key} className="border-b-0">
+                    <AccordionTrigger className="rounded-none bg-white px-3 py-3 text-sm font-bold text-slate-900 hover:no-underline">
+                      <span>{title}</span>
+                    </AccordionTrigger>
+                    <AccordionContent className="pb-0">
+                      <div className="divide-y divide-slate-100">
+                        {group.rows
+                          .slice()
+                          .sort((left, right) => getCostCodeSortValue(left.code) - getCostCodeSortValue(right.code))
+                          .map((row) => (
+                            <div
+                              key={row.id}
+                              className="grid grid-cols-[170px_minmax(220px,1fr)_360px_90px] items-center gap-0 bg-white"
+                            >
+                              <div className="px-3 py-2">
+                                <input
+                                  value={row.code}
+                                  className="w-full rounded-lg border border-slate-300 p-2 text-sm"
+                                  placeholder="Code"
+                                  onChange={(event) => {
+                                    updateCostCodeRow(row.id, { code: event.target.value });
+                                  }}
+                                />
+                              </div>
+                              <div className="px-3 py-2">
+                                <input
+                                  value={row.description}
+                                  className="w-full rounded-lg border border-slate-300 p-2 text-sm"
+                                  placeholder="Description"
+                                  onChange={(event) => {
+                                    updateCostCodeRow(row.id, { description: event.target.value });
+                                  }}
+                                />
+                              </div>
+                              <div className="grid grid-cols-3 border-l border-slate-100">
+                                {usedInColumns.map((column) => (
+                                  <label
+                                    key={column.key}
+                                    className="flex h-full min-h-12 items-center justify-center px-2 py-2"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      className="h-4 w-4"
+                                      checked={row.usedIn[column.key]}
+                                      aria-label={`${row.code || "Cost code"} used in ${column.label}`}
+                                      onChange={(event) => {
+                                        updateCostCodeUsage(row.id, column.key, event.target.checked);
+                                      }}
+                                    />
+                                  </label>
+                                ))}
+                              </div>
+                              <div className="px-3 py-2">
+                                <button
+                                  type="button"
+                                  className="w-full rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"
+                                  onClick={() => {
+                                    removeCostCodeRow(row.id);
+                                  }}
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                );
+              })}
+            </Accordion>
+          </div>
         </div>
       </SettingsCard>
       <SettingsCard title="Bid settings">

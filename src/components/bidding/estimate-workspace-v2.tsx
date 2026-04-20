@@ -826,10 +826,7 @@ const legacyGeneralConditionsRowsByDescription = new Map(
 
 function createGeneralConditionsRowsFromCostCodes(): GeneralConditionsRow[] {
   return getWorkspaceCostCodes()
-    .filter((costCode) => {
-      const normalized = normalizeCostCodeKey(costCode.code);
-      return normalized.startsWith("0101") && normalized !== "01010000";
-    })
+    .filter((costCode) => costCode.usedIn.generalConditions)
     .map((costCode) => {
       const normalized = normalizeCostCodeKey(costCode.code);
       const sequence = normalized.slice(4);

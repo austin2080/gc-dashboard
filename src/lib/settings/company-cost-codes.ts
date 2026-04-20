@@ -4,12 +4,20 @@ export type WorkspaceCostCode = {
   id: string;
   code: string;
   description: string;
+  usedIn: WorkspaceCostCodeUsage;
+};
+
+export type WorkspaceCostCodeUsage = {
+  generalConditions: boolean;
+  prelimEstimate: boolean;
+  divisionTitle: boolean;
 };
 
 type WorkspaceCostCodeInput = {
   id?: string;
   code: string;
   description: string;
+  usedIn?: Partial<WorkspaceCostCodeUsage>;
 };
 
 export const WORKSPACE_COST_CODES_STORAGE_KEY = "builderos.settings.company-cost-codes";
@@ -238,6 +246,47 @@ export const DEFAULT_WORKSPACE_COST_CODES: Array<{ code: string; description: st
   { code: "54", description: "Slush Fund" },
 ];
 
+function normalizeCostCodeKey(value: string) {
+  return value.replace(/[^0-9]/g, "");
+}
+
+function isDefaultDivisionTitle(code: string) {
+  const normalized = normalizeCostCodeKey(code);
+  if (/^\d{2}$/.test(normalized)) return true;
+  return /^\d{8}$/.test(normalized) && normalized.slice(2, 4) === normalized.slice(0, 2) && normalized.slice(4) === "0000";
+}
+
+function getDefaultUsage(code: string): WorkspaceCostCodeUsage {
+  const normalized = normalizeCostCodeKey(code);
+  const divisionTitle = isDefaultDivisionTitle(code);
+
+  return {
+    generalConditions: normalized.startsWith("0101") && normalized !== "01010000",
+    prelimEstimate: !divisionTitle,
+    divisionTitle,
+  };
+}
+
+function normalizeCostCodeUsage(
+  value: Partial<WorkspaceCostCodeUsage> | undefined,
+  code: string
+): WorkspaceCostCodeUsage {
+  const fallback = getDefaultUsage(code);
+
+  if (!value || typeof value !== "object") return fallback;
+
+  return {
+    generalConditions:
+      typeof value.generalConditions === "boolean"
+        ? value.generalConditions
+        : fallback.generalConditions,
+    prelimEstimate:
+      typeof value.prelimEstimate === "boolean" ? value.prelimEstimate : fallback.prelimEstimate,
+    divisionTitle:
+      typeof value.divisionTitle === "boolean" ? value.divisionTitle : fallback.divisionTitle,
+  };
+}
+
 function normalizeCostCodeRow(value: unknown, index: number): WorkspaceCostCode | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Partial<WorkspaceCostCode>;
@@ -249,6 +298,7 @@ function normalizeCostCodeRow(value: unknown, index: number): WorkspaceCostCode 
     id: typeof row.id === "string" && row.id.trim() ? row.id : `cc-${index + 1}`,
     code,
     description,
+    usedIn: normalizeCostCodeUsage(row.usedIn, code),
   };
 }
 
