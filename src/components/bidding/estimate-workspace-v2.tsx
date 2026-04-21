@@ -1072,6 +1072,7 @@ const normalizeUnitPriceInput = (value: string) => {
 
 const WORKSHEET_UNIT_OPTIONS = [
   "",
+  "excluded",
   "allow",
   "ls",
   "ea",
@@ -1086,8 +1087,8 @@ const WORKSHEET_UNIT_OPTIONS = [
   "mo",
 ] as const;
 
-const PRELIM_COLUMN_MIN_WIDTHS = [72, 220, 56, 64, 72, 90, 90, 120] as const;
-const PRELIM_DEFAULT_COLUMN_WIDTHS = [92, 520, 64, 78, 84, 118, 104, 150] as const;
+const PRELIM_COLUMN_MIN_WIDTHS = [72, 220, 96, 64, 72, 90, 90, 120] as const;
+const PRELIM_DEFAULT_COLUMN_WIDTHS = [92, 520, 104, 78, 84, 118, 104, 150] as const;
 const BID_PACKAGE_AUTOSAVE_STORAGE_KEY = "bidding-all-new-package-autosave-v1";
 const BID_PROJECT_GENERAL_INFO_STORAGE_KEY = "bidding-project-general-info-v1";
 const ESTIMATE_GENERAL_CONDITIONS_STORAGE_KEY = "estimateGeneralConditionsRowsByProject";
@@ -1525,6 +1526,8 @@ const isWeeksUnit = (unit: string) => {
   const normalized = unit.trim().toLowerCase();
   return normalized === "wks" || normalized === "wk" || normalized === "weeks" || normalized === "week";
 };
+
+const isExcludedWorksheetUnit = (unit: string) => unit.trim().toLowerCase() === "excluded";
 
 const shouldSyncGeneralConditionsWeeks = (row: GeneralConditionsRow) =>
   isWeeksUnit(row.unit) || GC_WEEKS_SYNC_ROW_IDS.has(row.id);
@@ -2472,6 +2475,7 @@ export default function EstimateWorkspaceV2() {
             : trimmedDivision;
         const groupsWithTotals: WorksheetRenderedCostCodeGroup[] = sortedGroups.map((group) => {
           const total = group.lineItems.reduce((sum, line) => {
+            if (isExcludedWorksheetUnit(line.unit)) return sum;
             const quantity = parseNumericInput(line.quantity);
             const unitPrice = parseNumericInput(line.unitPrice);
             const gcMarkup = parseNumericInput(line.gcMarkup);
@@ -2701,6 +2705,9 @@ export default function EstimateWorkspaceV2() {
             }
 
             const filteredLineItems = costCodeGroup.lineItems.filter((lineItem) => {
+              if (isExcludedWorksheetUnit(lineItem.unit)) {
+                return true;
+              }
               const quantity = parseNumericInput(lineItem.quantity);
               const unitPrice = parseNumericInput(lineItem.unitPrice);
               const gcMarkup = parseNumericInput(lineItem.gcMarkup);
@@ -2743,6 +2750,7 @@ export default function EstimateWorkspaceV2() {
         (sum, group) =>
           sum +
           group.lineItems.reduce((lineSum, lineItem) => {
+            if (isExcludedWorksheetUnit(lineItem.unit)) return lineSum;
             if (lineItem.unit.trim().toLowerCase() !== "allow") return lineSum;
             const quantity = parseNumericInput(lineItem.quantity);
             const unitPrice = parseNumericInput(lineItem.unitPrice);
@@ -2855,10 +2863,11 @@ export default function EstimateWorkspaceV2() {
           ];
         }
         return costCodeGroup.lineItems.map((lineItem) => {
+          const isExcluded = isExcludedWorksheetUnit(lineItem.unit);
           const quantity = parseNumericInput(lineItem.quantity);
           const unitPrice = parseNumericInput(lineItem.unitPrice);
           const gcMarkup = parseNumericInput(lineItem.gcMarkup);
-          const total = quantity * unitPrice + gcMarkup;
+          const total = isExcluded ? 0 : quantity * unitPrice + gcMarkup;
           return {
             costCode: costCodeGroup.code,
             description: lineItem.description || costCodeGroup.title,
@@ -4217,18 +4226,26 @@ export default function EstimateWorkspaceV2() {
                                     const originalLineIndex = costCodeGroup.lineItems.findIndex(
                                       (candidate) => candidate.id === lineItem.id
                                     );
+                                    const isExcluded = isExcludedWorksheetUnit(lineItem.unit);
                                     const quantity = parseNumericInput(lineItem.quantity);
                                     const unitPrice = parseNumericInput(lineItem.unitPrice);
                                     const gcMarkup = parseNumericInput(lineItem.gcMarkup);
-                                    const lineTotal = quantity * unitPrice + gcMarkup;
+                                    const lineTotal = isExcluded ? 0 : quantity * unitPrice + gcMarkup;
                                     const parsedUnitPrice = parseDerivedNumericInput(lineItem.unitPrice);
                                     const canEditGcMarkup =
-                                      parsedUnitPrice !== null && parsedUnitPrice > 0;
+                                      !isExcluded && parsedUnitPrice !== null && parsedUnitPrice > 0;
                                     const canRemoveLineItem = originalLineIndex > 0;
                                     return (
-                                      <tr key={lineItem.id} className="bg-white">
+                                      <tr
+                                        key={lineItem.id}
+                                        className={isExcluded ? "bg-slate-100 text-slate-500" : "bg-white"}
+                                      >
                                         <td className="border-b border-r border-slate-300 p-0 align-top">
-                                          <div className="px-2 py-0 text-xs text-transparent">
+                                          <div
+                                            className={`px-2 py-0 text-xs ${
+                                              isExcluded ? "text-slate-400" : "text-transparent"
+                                            }`}
+                                          >
                                             {costCodeGroup.code}
                                           </div>
                                         </td>
@@ -4244,7 +4261,11 @@ export default function EstimateWorkspaceV2() {
                                                     label: lineItem.description.trim(),
                                                   })
                                                 }
-                                                className="absolute left-1 top-1 z-10 inline-flex h-6 w-6 items-center justify-center rounded text-sm font-semibold text-slate-500 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-900 group-hover/worksheet-line:opacity-100"
+                                                className={`absolute left-1 top-1 z-10 inline-flex h-6 w-6 items-center justify-center rounded text-sm font-semibold opacity-0 transition-opacity group-hover/worksheet-line:opacity-100 ${
+                                                  isExcluded
+                                                    ? "text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                                                    : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                                                }`}
                                                 aria-label="Remove line item"
                                                 title="Remove line item"
                                               >
@@ -4263,7 +4284,11 @@ export default function EstimateWorkspaceV2() {
                                               }
                                               onInput={autoResizeWorksheetTextarea}
                                               rows={1}
-                                              className={`min-h-8 w-full resize-none border-0 bg-transparent py-1 pr-2 text-sm font-semibold leading-5 text-slate-700 focus:bg-white focus:outline-none ${
+                                              className={`min-h-8 w-full resize-none border-0 bg-transparent py-1 pr-2 text-sm font-semibold leading-5 focus:outline-none ${
+                                                isExcluded
+                                                  ? "text-slate-500 focus:bg-slate-50"
+                                                  : "text-slate-700 focus:bg-white"
+                                              } ${
                                                 canRemoveLineItem
                                                   ? "pl-6 transition-[padding] group-hover/worksheet-line:pl-9"
                                                   : "px-6"
@@ -4271,7 +4296,11 @@ export default function EstimateWorkspaceV2() {
                                             />
                                           </div>
                                         </td>
-                                        <td className="border-b border-r border-slate-300 bg-[#efdfd4] p-0 align-top">
+                                        <td
+                                          className={`border-b border-r border-slate-300 p-0 align-top ${
+                                            isExcluded ? "bg-slate-200" : "bg-[#efdfd4]"
+                                          }`}
+                                        >
                                           <select
                                             value={lineItem.unit}
                                             onChange={(event) =>
@@ -4282,16 +4311,28 @@ export default function EstimateWorkspaceV2() {
                                                 event.target.value
                                               )
                                             }
-                                            className="h-8 w-full border-0 bg-transparent px-1 text-center text-xs text-slate-700 focus:bg-[#f6e7dd] focus:outline-none"
+                                            className={`h-8 w-full border-0 bg-transparent px-1 text-center text-xs focus:outline-none ${
+                                              isExcluded
+                                                ? "text-slate-600 focus:bg-slate-100"
+                                                : "text-slate-700 focus:bg-[#f6e7dd]"
+                                            }`}
                                           >
                                             {WORKSHEET_UNIT_OPTIONS.map((unitOption) => (
                                               <option key={unitOption || "blank"} value={unitOption}>
-                                                {unitOption || "Select"}
+                                                {unitOption === ""
+                                                  ? "Select"
+                                                  : unitOption === "excluded"
+                                                    ? "Excluded"
+                                                    : unitOption}
                                               </option>
                                             ))}
                                           </select>
                                         </td>
-                                        <td className="border-b border-r border-slate-300 bg-[#efdfd4] p-0 align-top">
+                                        <td
+                                          className={`border-b border-r border-slate-300 p-0 align-top ${
+                                            isExcluded ? "bg-slate-200" : "bg-[#efdfd4]"
+                                          }`}
+                                        >
                                           <div className="flex h-8 items-center">
                                             <button
                                               type="button"
@@ -4302,7 +4343,11 @@ export default function EstimateWorkspaceV2() {
                                                   -1
                                                 )
                                               }
-                                              className="h-full w-6 border-r border-slate-300 text-xs font-semibold text-slate-700 hover:bg-[#ead9cf]"
+                                              className={`h-full w-6 border-r border-slate-300 text-xs font-semibold ${
+                                                isExcluded
+                                                  ? "text-slate-500 hover:bg-slate-300"
+                                                  : "text-slate-700 hover:bg-[#ead9cf]"
+                                              }`}
                                             >
                                               -
                                             </button>
@@ -4316,7 +4361,11 @@ export default function EstimateWorkspaceV2() {
                                                   event.target.value
                                                 )
                                               }
-                                              className="h-8 w-full border-0 bg-transparent px-1 text-center text-sm font-semibold text-slate-700 focus:bg-[#f6e7dd] focus:outline-none"
+                                              className={`h-8 w-full border-0 bg-transparent px-1 text-center text-sm font-semibold focus:outline-none ${
+                                                isExcluded
+                                                  ? "text-slate-500 focus:bg-slate-100"
+                                                  : "text-slate-700 focus:bg-[#f6e7dd]"
+                                              }`}
                                             />
                                             <button
                                               type="button"
@@ -4327,7 +4376,11 @@ export default function EstimateWorkspaceV2() {
                                                   1
                                                 )
                                               }
-                                              className="h-full w-6 border-l border-slate-300 text-xs font-semibold text-slate-700 hover:bg-[#ead9cf]"
+                                              className={`h-full w-6 border-l border-slate-300 text-xs font-semibold ${
+                                                isExcluded
+                                                  ? "text-slate-500 hover:bg-slate-300"
+                                                  : "text-slate-700 hover:bg-[#ead9cf]"
+                                              }`}
                                             >
                                               +
                                             </button>
@@ -4335,7 +4388,9 @@ export default function EstimateWorkspaceV2() {
                                         </td>
                                         <td className="border-b border-r border-slate-300 p-0 align-top">
                                           <div className="flex h-8 items-center gap-1 px-1 text-sm">
-                                            <span className="w-2 text-slate-700">$</span>
+                                            <span className={`w-2 ${isExcluded ? "text-slate-400" : "text-slate-700"}`}>
+                                              $
+                                            </span>
                                             <input
                                               value={
                                                 activeWorksheetUnitPriceCell ===
@@ -4423,13 +4478,23 @@ export default function EstimateWorkspaceV2() {
                                                 );
                                               }}
                                               placeholder="0.00"
-                                              className="h-full w-full border-0 bg-transparent text-right text-sm text-slate-700 focus:bg-white focus:outline-none"
+                                              className={`h-full w-full border-0 bg-transparent text-right text-sm focus:outline-none ${
+                                                isExcluded
+                                                  ? "text-slate-500 focus:bg-slate-50"
+                                                  : "text-slate-700 focus:bg-white"
+                                              }`}
                                             />
                                           </div>
                                         </td>
-                                        <td className="border-b border-r border-slate-300 bg-[#f9e3ae] p-0 align-top">
+                                        <td
+                                          className={`border-b border-r border-slate-300 p-0 align-top ${
+                                            isExcluded ? "bg-slate-200" : "bg-[#f9e3ae]"
+                                          }`}
+                                        >
                                           <div className="flex h-8 items-center gap-1 px-1 text-sm">
-                                            <span className="w-2 text-slate-700">$</span>
+                                            <span className={`w-2 ${isExcluded ? "text-slate-400" : "text-slate-700"}`}>
+                                              $
+                                            </span>
                                             <input
                                               value={lineItem.gcMarkup}
                                               onChange={(event) =>
@@ -4463,17 +4528,23 @@ export default function EstimateWorkspaceV2() {
                                               }}
                                               readOnly={!canEditGcMarkup}
                                               placeholder="0.00"
-                                              className={`h-full w-full border-0 bg-transparent text-right text-sm text-slate-700 focus:outline-none ${
+                                              className={`h-full w-full border-0 bg-transparent text-right text-sm focus:outline-none ${
                                                 canEditGcMarkup
-                                                  ? "focus:bg-[#faedca]"
-                                                  : "cursor-not-allowed"
+                                                  ? "text-slate-700 focus:bg-[#faedca]"
+                                                  : isExcluded
+                                                    ? "cursor-not-allowed text-slate-400"
+                                                    : "cursor-not-allowed text-slate-700"
                                               }`}
                                             />
                                           </div>
                                         </td>
                                         <td className="border-b border-r border-slate-300 p-0 align-top">
-                                          <div className="flex h-8 items-center justify-end px-1 text-sm text-slate-700">
-                                            ${formatCurrency(lineTotal)}
+                                          <div
+                                            className={`flex h-8 items-center justify-end px-1 text-sm ${
+                                              isExcluded ? "text-slate-500" : "text-slate-700"
+                                            }`}
+                                          >
+                                            {isExcluded ? "Excluded" : `$${formatCurrency(lineTotal)}`}
                                           </div>
                                         </td>
                                         <td className="border-b border-slate-300 p-0 align-top">
@@ -4489,7 +4560,11 @@ export default function EstimateWorkspaceV2() {
                                             }
                                             onInput={autoResizeWorksheetTextarea}
                                             rows={1}
-                                            className="min-h-8 w-full resize-none border-0 bg-transparent px-2 py-1 text-sm leading-5 text-slate-700 focus:bg-white focus:outline-none"
+                                            className={`min-h-8 w-full resize-none border-0 bg-transparent px-2 py-1 text-sm leading-5 focus:outline-none ${
+                                              isExcluded
+                                                ? "text-slate-500 focus:bg-slate-50"
+                                                : "text-slate-700 focus:bg-white"
+                                            }`}
                                           />
                                         </td>
                                       </tr>
