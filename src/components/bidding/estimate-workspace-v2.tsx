@@ -15,6 +15,10 @@ import { getBidProjectDetail } from "@/lib/bidding/store";
 import { getBidProjectIdForProject } from "@/lib/bidding/project-links";
 import { getWorkspaceCostCodes } from "@/lib/settings/company-cost-codes";
 import {
+  PRELIM_COST_CODE_MAPPING_ITEMS,
+  getWorkspacePrelimCostCodeMappings,
+} from "@/lib/settings/prelim-cost-code-mappings";
+import {
   ESTIMATE_EXPORT_REQUEST_EVENT,
   writeEstimateExportSnapshot,
   type EstimateExportSnapshot,
@@ -807,6 +811,81 @@ const INITIAL_GENERAL_CONDITIONS_ROWS: GeneralConditionsRow[] = [
 
 const normalizeCostCodeKey = (value: string) => value.replace(/[^0-9]/g, "");
 
+function isStandardDivisionNumber(normalizedCode: string) {
+  if (!/^\d{2}$/.test(normalizedCode)) return false;
+  const divisionNumber = Number.parseInt(normalizedCode, 10);
+  return divisionNumber >= 0 && divisionNumber <= 49;
+}
+
+function isDivisionTitleCostCode(code: string) {
+  const normalized = normalizeCostCodeKey(code);
+  if (isStandardDivisionNumber(normalized)) return true;
+  return (
+    /^\d{8}$/.test(normalized) &&
+    isStandardDivisionNumber(normalized.slice(0, 2)) &&
+    normalized.slice(2, 4) === normalized.slice(0, 2) &&
+    normalized.slice(4) === "0000"
+  );
+}
+
+function getDivisionCodeFromCostCode(code: string) {
+  return normalizeCostCodeKey(code).slice(0, 2);
+}
+
+function buildWorksheetDivisionLabel(divisionCode: string, title: string) {
+  const trimmedTitle = title.trim();
+  if (!divisionCode) return trimmedTitle || "Other";
+  if (!trimmedTitle) return divisionCode;
+  return `${divisionCode} ${trimmedTitle}`.trim();
+}
+
+function mapWorkspaceCostCodesToWorksheetCostCodes(): WorksheetCostCode[] {
+  const settingsRows = getWorkspaceCostCodes();
+  const divisionTitleByCode = new Map<string, string>();
+
+  for (const row of settingsRows) {
+    if (!row.usedIn.divisionTitle && !isDivisionTitleCostCode(row.code)) continue;
+    const divisionCode = getDivisionCodeFromCostCode(row.code);
+    if (!divisionCode || divisionTitleByCode.has(divisionCode)) continue;
+    divisionTitleByCode.set(divisionCode, row.description.trim());
+  }
+
+  return settingsRows
+    .filter((row) => row.usedIn.prelimEstimate)
+    .map((row) => {
+      const divisionCode = getDivisionCodeFromCostCode(row.code);
+      const divisionTitle = divisionTitleByCode.get(divisionCode) ?? row.description.trim();
+      return {
+        id: row.id,
+        code: row.code,
+        description: row.description,
+        division: buildWorksheetDivisionLabel(divisionCode, divisionTitle),
+      } satisfies WorksheetCostCode;
+    })
+    .sort((left, right) =>
+      left.code.localeCompare(right.code, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      })
+    );
+}
+
+function getPrelimMarkupFeeRowConfig() {
+  const workspaceCostCodes = getWorkspaceCostCodes();
+  const mappings = getWorkspacePrelimCostCodeMappings(workspaceCostCodes);
+  const costCodeById = new Map(workspaceCostCodes.map((costCode) => [costCode.id, costCode]));
+  const mappingByRowId = new Map(mappings.map((mapping) => [mapping.rowId, mapping.costCodeRowId]));
+
+  return PRELIM_COST_CODE_MAPPING_ITEMS.map((item) => {
+    const mappedCostCode = costCodeById.get(mappingByRowId.get(item.rowId) ?? "");
+    return {
+      rowId: item.rowId,
+      costCode: mappedCostCode?.code ?? "",
+      label: item.label.toUpperCase(),
+    };
+  });
+}
+
 const normalizeCostCodeDescription = (value: string) =>
   value.toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -1296,18 +1375,6 @@ const getGeneralConditionsFeeRowId = (row: GeneralConditionsRow) => {
 const isGeneralConditionsFeeTotalRow = (row: GeneralConditionsRow) =>
   getGeneralConditionsFeeRowId(row) !== null;
 
-const PRELIM_MARKUP_FEE_ROW_CONFIG = [
-  { rowId: "fees-general-liability", costCode: "90 01 00", label: "GENERAL LIABILITY INSURANCE" },
-  { rowId: "fees-builders-risk", costCode: "90 02 00", label: "BUILDERS RISK INSURANCE" },
-  { rowId: "fees-project-management", costCode: "90 08 00", label: "PROJECT MANAGEMENT SOFTWARE" },
-  { rowId: "fees-warranty", costCode: "90 09 00", label: "WARRANTY PROVISION" },
-  { rowId: "fees-overhead", costCode: "90 03 00", label: "OVERHEAD" },
-  { rowId: "fees-profit", costCode: "90 04 00", label: "PROFIT" },
-  { rowId: "fees-performance-bond", costCode: "90 05 00", label: "PERFORMANCE BOND" },
-  { rowId: "fees-contingency", costCode: "90 06 00", label: "CONTINGENCY" },
-  { rowId: "__tax__", costCode: "90 07 00", label: "TAX" },
-] as const;
-
 const calculateDurationWeeks = (startIsoDate: string, endIsoDate: string) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(startIsoDate) || !/^\d{4}-\d{2}-\d{2}$/.test(endIsoDate)) {
     return null;
@@ -1414,6 +1481,7 @@ export default function EstimateWorkspaceV2() {
       (id, index, list): id is string => Boolean(id) && list.indexOf(id) === index
     );
   }, [queryProjectId]);
+  const prelimMarkupFeeRowConfig = useMemo(() => getPrelimMarkupFeeRowConfig(), []);
 
   useEffect(() => {
     let isMounted = true;
@@ -1422,17 +1490,25 @@ export default function EstimateWorkspaceV2() {
       setWorksheetLoading(true);
       setWorksheetError(null);
       try {
-        const response = await fetch("/api/cost-codes", { cache: "no-store" });
-        const payload = (await response.json()) as {
-          costCodes?: WorksheetCostCode[];
-          error?: string;
-        };
+        const settingsCostCodes = mapWorkspaceCostCodesToWorksheetCostCodes();
+        const worksheetCostCodes =
+          settingsCostCodes.length > 0
+            ? settingsCostCodes
+            : await (async () => {
+                const response = await fetch("/api/cost-codes", { cache: "no-store" });
+                const payload = (await response.json()) as {
+                  costCodes?: WorksheetCostCode[];
+                  error?: string;
+                };
 
-        if (!response.ok) {
-          throw new Error(payload.error ?? "Unable to load cost codes.");
-        }
+                if (!response.ok) {
+                  throw new Error(payload.error ?? "Unable to load cost codes.");
+                }
 
-        const groupsFromCodes = (payload.costCodes ?? []).map((costCode) => ({
+                return payload.costCodes ?? [];
+              })();
+
+        const groupsFromCodes = worksheetCostCodes.map((costCode) => ({
           id: costCode.id,
           code: costCode.code ?? "",
           title: costCode.description ?? "",
@@ -2348,20 +2424,20 @@ export default function EstimateWorkspaceV2() {
       __tax__: null,
     };
 
-    return PRELIM_MARKUP_FEE_ROW_CONFIG.map((config) => ({
+    return prelimMarkupFeeRowConfig.map((config) => ({
       costCode: config.costCode,
       label: config.label,
       amount: amountByRowId[config.rowId] ?? null,
     }));
-  }, [feeRows, preliminarySubtotal]);
+  }, [feeRows, prelimMarkupFeeRowConfig, preliminarySubtotal]);
   const preliminaryMarkupAmountByRowId = useMemo(() => {
     const next: Record<string, number | null> = {};
-    PRELIM_MARKUP_FEE_ROW_CONFIG.forEach((config, index) => {
+    prelimMarkupFeeRowConfig.forEach((config, index) => {
       if (config.rowId === "__tax__") return;
       next[config.rowId] = preliminaryMarkupRows[index]?.amount ?? null;
     });
     return next;
-  }, [preliminaryMarkupRows]);
+  }, [prelimMarkupFeeRowConfig, preliminaryMarkupRows]);
   const displayedGeneralConditionsRows = useMemo(
     () =>
       computedGeneralConditionsRows.map((row) => {

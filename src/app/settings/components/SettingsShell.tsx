@@ -21,11 +21,19 @@ import {
 } from "@/lib/settings/tax-rates";
 import {
   DEFAULT_WORKSPACE_COST_CODES,
+  getDefaultWorkspaceCostCodes,
   getWorkspaceCostCodes,
   setWorkspaceCostCodes,
   type WorkspaceCostCode,
   type WorkspaceCostCodeUsage,
 } from "@/lib/settings/company-cost-codes";
+import {
+  PRELIM_COST_CODE_MAPPING_ITEMS,
+  getDefaultWorkspacePrelimCostCodeMappings,
+  getWorkspacePrelimCostCodeMappings,
+  setWorkspacePrelimCostCodeMappings,
+  type WorkspacePrelimCostCodeMapping,
+} from "@/lib/settings/prelim-cost-code-mappings";
 import type {
   PermissionModule,
   RoleDefinition,
@@ -199,19 +207,65 @@ function normalizeCostCodeKey(value: string) {
   return value.replace(/[^0-9]/g, "");
 }
 
+function isStandardDivisionNumber(normalizedCode: string) {
+  if (!/^\d{2}$/.test(normalizedCode)) return false;
+  const divisionNumber = Number.parseInt(normalizedCode, 10);
+  return divisionNumber >= 0 && divisionNumber <= 49;
+}
+
 function getCostCodeDivisionKey(code: string) {
   return normalizeCostCodeKey(code).slice(0, 2) || "other";
 }
 
-function getCostCodeSortValue(code: string) {
-  return Number(normalizeCostCodeKey(code)) || Number.MAX_SAFE_INTEGER;
+function getCostCodeSegments(code: string) {
+  const segments = code.match(/\d+/g) ?? [];
+  return segments.map((segment) => Number.parseInt(segment, 10));
+}
+
+function getCostCodeDivisionSortValue(key: string) {
+  const sortValue = Number.parseInt(key, 10);
+  return Number.isFinite(sortValue) ? sortValue : Number.MAX_SAFE_INTEGER;
+}
+
+function compareCostCodeStrings(left: string, right: string) {
+  const leftSegments = getCostCodeSegments(left);
+  const rightSegments = getCostCodeSegments(right);
+  const length = Math.max(leftSegments.length, rightSegments.length);
+
+  for (let index = 0; index < length; index += 1) {
+    const leftValue = leftSegments[index] ?? -1;
+    const rightValue = rightSegments[index] ?? -1;
+    if (leftValue !== rightValue) return leftValue - rightValue;
+  }
+
+  return left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function compareCostCodeRows(left: WorkspaceCostCode, right: WorkspaceCostCode) {
+  return compareCostCodeStrings(left.code, right.code);
 }
 
 function isCostCodeDivisionTitle(row: WorkspaceCostCode) {
   const normalized = normalizeCostCodeKey(row.code);
   if (row.usedIn.divisionTitle) return true;
-  if (/^\d{2}$/.test(normalized)) return true;
-  return /^\d{8}$/.test(normalized) && normalized.slice(2, 4) === normalized.slice(0, 2) && normalized.slice(4) === "0000";
+  if (isStandardDivisionNumber(normalized)) return true;
+  return (
+    /^\d{8}$/.test(normalized) &&
+    isStandardDivisionNumber(normalized.slice(0, 2)) &&
+    normalized.slice(2, 4) === normalized.slice(0, 2) &&
+    normalized.slice(4) === "0000"
+  );
+}
+
+function isStructuredDivisionTitleCode(code: string) {
+  const normalized = normalizeCostCodeKey(code);
+  if (isStandardDivisionNumber(normalized)) return true;
+  return (
+    /^\d{8}$/.test(normalized) &&
+    isStandardDivisionNumber(normalized.slice(0, 2)) &&
+    normalized.slice(2, 4) === normalized.slice(0, 2) &&
+    normalized.slice(4) === "0000"
+  );
 }
 
 function groupCostCodeRows(rows: WorkspaceCostCode[]) {
@@ -219,7 +273,6 @@ function groupCostCodeRows(rows: WorkspaceCostCode[]) {
     string,
     {
       key: string;
-      minSort: number;
       titleRow: WorkspaceCostCode | null;
       rows: WorkspaceCostCode[];
     }
@@ -227,33 +280,32 @@ function groupCostCodeRows(rows: WorkspaceCostCode[]) {
 
   for (const row of rows) {
     const key = getCostCodeDivisionKey(row.code);
-    const sortValue = getCostCodeSortValue(row.code);
     const existing =
       groups.get(key) ??
       ({
         key,
-        minSort: sortValue,
         titleRow: null,
         rows: [],
       } satisfies {
         key: string;
-        minSort: number;
         titleRow: WorkspaceCostCode | null;
         rows: WorkspaceCostCode[];
       });
 
-    existing.minSort = Math.min(existing.minSort, sortValue);
     existing.rows.push(row);
     if (isCostCodeDivisionTitle(row)) {
-      const currentSort = existing.titleRow ? getCostCodeSortValue(existing.titleRow.code) : Number.MAX_SAFE_INTEGER;
-      if (!existing.titleRow || sortValue < currentSort) {
+      if (!existing.titleRow || compareCostCodeStrings(row.code, existing.titleRow.code) < 0) {
         existing.titleRow = row;
       }
     }
     groups.set(key, existing);
   }
 
-  return Array.from(groups.values()).sort((left, right) => left.minSort - right.minSort);
+  return Array.from(groups.values()).sort((left, right) => {
+    const divisionCompare =
+      getCostCodeDivisionSortValue(left.key) - getCostCodeDivisionSortValue(right.key);
+    return divisionCompare || left.key.localeCompare(right.key, undefined, { numeric: true });
+  });
 }
 
 export function SettingsShell() {
@@ -302,13 +354,21 @@ export function SettingsShell() {
     key: "city",
     direction: "asc",
   });
-  const [costCodeRows, setCostCodeRows] = useState(() => getWorkspaceCostCodes(getDefaultCostCodeRows()));
+  const [costCodeRows, setCostCodeRows] = useState(() => getDefaultWorkspaceCostCodes(getDefaultCostCodeRows()));
+  const [prelimCostCodeMappings, setPrelimCostCodeMappings] = useState<WorkspacePrelimCostCodeMapping[]>(
+    () => getDefaultWorkspacePrelimCostCodeMappings(getDefaultWorkspaceCostCodes(getDefaultCostCodeRows()))
+  );
+  const [expandedCostCodeGroupKeys, setExpandedCostCodeGroupKeys] = useState<string[]>([]);
+  const [pendingCostCodeScrollRowId, setPendingCostCodeScrollRowId] = useState<string | null>(null);
+  const costCodeRowRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   useEffect(() => {
+    const workspaceCostCodes = getWorkspaceCostCodes(getDefaultCostCodeRows());
     setWorkspaceTimezoneDraft(getWorkspaceTimezone());
     setTaxRateRows(getWorkspaceTaxRates());
-    setCostCodeRows(getWorkspaceCostCodes(getDefaultCostCodeRows()));
-    setWorkspaceCostCodes(getWorkspaceCostCodes(getDefaultCostCodeRows()));
+    setCostCodeRows(workspaceCostCodes);
+    setPrelimCostCodeMappings(getWorkspacePrelimCostCodeMappings(workspaceCostCodes));
+    setWorkspaceCostCodes(workspaceCostCodes);
   }, []);
 
   useEffect(() => {
@@ -400,9 +460,11 @@ export function SettingsShell() {
   }, [roleFilter, search, statusFilter, teamUsers]);
 
   const resetSettingsDrafts = () => {
+    const workspaceCostCodes = getWorkspaceCostCodes(getDefaultCostCodeRows());
     setWorkspaceTimezoneDraft(getWorkspaceTimezone());
     setTaxRateRows(getWorkspaceTaxRates());
-    setCostCodeRows(getWorkspaceCostCodes(getDefaultCostCodeRows()));
+    setCostCodeRows(workspaceCostCodes);
+    setPrelimCostCodeMappings(getWorkspacePrelimCostCodeMappings(workspaceCostCodes));
     setSaveStatus("saved");
   };
 
@@ -482,11 +544,80 @@ export function SettingsShell() {
   };
 
   const costCodeGroups = useMemo(() => groupCostCodeRows(costCodeRows), [costCodeRows]);
+  const selectablePrelimCostCodes = useMemo(
+    () =>
+      [...costCodeRows].sort((left, right) => compareCostCodeRows(left, right)).filter((row) => {
+        return !isStructuredDivisionTitleCode(row.code);
+      }),
+    [costCodeRows]
+  );
+  const prelimCostCodeMappingsByRowId = useMemo(
+    () => new Map(prelimCostCodeMappings.map((row) => [row.rowId, row.costCodeRowId])),
+    [prelimCostCodeMappings]
+  );
+
+  useEffect(() => {
+    setExpandedCostCodeGroupKeys((prev) => {
+      const merged = new Set(prev);
+      costCodeGroups.forEach((group) => merged.add(group.key));
+      return Array.from(merged);
+    });
+  }, [costCodeGroups]);
+
+  useEffect(() => {
+    if (!pendingCostCodeScrollRowId) return;
+
+    let frameId = 0;
+
+    const scrollToRow = () => {
+      const target =
+        costCodeRowRefs.current[pendingCostCodeScrollRowId] ??
+        document.querySelector<HTMLElement>(`[data-cost-code-row-id="${pendingCostCodeScrollRowId}"]`);
+
+      if (!target) {
+        frameId = window.requestAnimationFrame(scrollToRow);
+        return;
+      }
+
+      target.scrollIntoView({
+        block: "center",
+        inline: "nearest",
+        behavior: "smooth",
+      });
+      setPendingCostCodeScrollRowId(null);
+    };
+
+    frameId = window.requestAnimationFrame(scrollToRow);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [costCodeGroups, pendingCostCodeScrollRowId]);
+
+  useEffect(() => {
+    const validCostCodeIds = new Set(costCodeRows.map((row) => row.id));
+    const defaultMappingsByRowId = new Map(
+      getDefaultWorkspacePrelimCostCodeMappings(costCodeRows).map((mapping) => [
+        mapping.rowId,
+        mapping.costCodeRowId,
+      ])
+    );
+
+    setPrelimCostCodeMappings((prev) =>
+      prev.map((mapping) => ({
+        ...mapping,
+        costCodeRowId:
+          mapping.costCodeRowId && validCostCodeIds.has(mapping.costCodeRowId)
+            ? mapping.costCodeRowId
+            : defaultMappingsByRowId.get(mapping.rowId) ?? null,
+      }))
+    );
+  }, [costCodeRows]);
 
   const updateCostCodeRow = (rowId: string, patch: Partial<WorkspaceCostCode>) => {
     setCostCodeRows((prev) =>
       prev.map((row) => (row.id === rowId ? { ...row, ...patch } : row))
     );
+    if (typeof patch.code === "string") {
+      setPendingCostCodeScrollRowId(rowId);
+    }
     markUnsaved();
   };
 
@@ -513,6 +644,17 @@ export function SettingsShell() {
 
   const removeCostCodeRow = (rowId: string) => {
     setCostCodeRows((prev) => prev.filter((item) => item.id !== rowId));
+    markUnsaved();
+  };
+
+  const updatePrelimCostCodeMapping = (rowId: string, costCodeRowId: string) => {
+    setPrelimCostCodeMappings((prev) =>
+      prev.map((row) =>
+        row.rowId === rowId
+          ? { ...row, costCodeRowId: costCodeRowId || null }
+          : row
+      )
+    );
     markUnsaved();
   };
 
@@ -1223,7 +1365,10 @@ export function SettingsShell() {
             </div>
             <Accordion
               type="multiple"
-              defaultValue={costCodeGroups.map((group) => group.key)}
+              value={expandedCostCodeGroupKeys}
+              onValueChange={(value) => {
+                setExpandedCostCodeGroupKeys(value);
+              }}
               className="divide-y divide-slate-200"
             >
               {costCodeGroups.map((group) => {
@@ -1241,10 +1386,14 @@ export function SettingsShell() {
                       <div className="divide-y divide-slate-100">
                         {group.rows
                           .slice()
-                          .sort((left, right) => getCostCodeSortValue(left.code) - getCostCodeSortValue(right.code))
+                          .sort(compareCostCodeRows)
                           .map((row) => (
                             <div
                               key={row.id}
+                              data-cost-code-row-id={row.id}
+                              ref={(element) => {
+                                costCodeRowRefs.current[row.id] = element;
+                              }}
                               className="grid grid-cols-[170px_minmax(220px,1fr)_360px_90px] items-center gap-0 bg-white"
                             >
                               <div className="px-3 py-2">
@@ -1254,6 +1403,9 @@ export function SettingsShell() {
                                   placeholder="Code"
                                   onChange={(event) => {
                                     updateCostCodeRow(row.id, { code: event.target.value });
+                                  }}
+                                  onBlur={() => {
+                                    setPendingCostCodeScrollRowId(row.id);
                                   }}
                                 />
                               </div>
@@ -1304,6 +1456,56 @@ export function SettingsShell() {
                 );
               })}
             </Accordion>
+          </div>
+        </div>
+      </SettingsCard>
+      <SettingsCard
+        title="Preliminary Estimate Cost Code Mapping"
+        subtitle="Assign existing company cost codes to the fixed preliminary estimate fee lines."
+      >
+        <div className="overflow-x-auto rounded-lg border border-slate-200">
+          <div className="min-w-[760px]">
+            <div className="grid grid-cols-[220px_220px_minmax(220px,1fr)] border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <div className="px-3 py-3">Estimate Line</div>
+              <div className="px-3 py-3">Assigned Cost Code</div>
+              <div className="px-3 py-3">Description</div>
+            </div>
+            <div className="divide-y divide-slate-100">
+              {PRELIM_COST_CODE_MAPPING_ITEMS.map((item) => {
+                const selectedCostCodeId = prelimCostCodeMappingsByRowId.get(item.rowId) ?? "";
+                const selectedCostCode =
+                  selectablePrelimCostCodes.find((costCode) => costCode.id === selectedCostCodeId) ??
+                  null;
+
+                return (
+                  <div
+                    key={item.rowId}
+                    className="grid grid-cols-[220px_220px_minmax(220px,1fr)] items-center"
+                  >
+                    <div className="px-3 py-3 text-sm font-medium text-slate-800">{item.label}</div>
+                    <div className="px-3 py-2">
+                      <select
+                        className="w-full rounded-lg border border-slate-300 p-2 text-sm"
+                        value={selectedCostCodeId}
+                        onChange={(event) => {
+                          updatePrelimCostCodeMapping(item.rowId, event.target.value);
+                        }}
+                      >
+                        <option value="">Select cost code</option>
+                        {selectablePrelimCostCodes.map((costCode) => (
+                          <option key={costCode.id} value={costCode.id}>
+                            {costCode.code}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="px-3 py-3 text-sm text-slate-600">
+                      {selectedCostCode?.description || "-"}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       </SettingsCard>
@@ -1673,6 +1875,7 @@ export function SettingsShell() {
           setWorkspaceTimezone(workspaceTimezone);
           setWorkspaceTaxRates(taxRateRows);
           setWorkspaceCostCodes(costCodeRows);
+          setWorkspacePrelimCostCodeMappings(prelimCostCodeMappings);
           bypassUnsavedGuardRef.current = false;
           setSaveStatus("saved");
         }}

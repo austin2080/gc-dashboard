@@ -250,10 +250,21 @@ function normalizeCostCodeKey(value: string) {
   return value.replace(/[^0-9]/g, "");
 }
 
+function isStandardDivisionNumber(normalizedCode: string) {
+  if (!/^\d{2}$/.test(normalizedCode)) return false;
+  const divisionNumber = Number.parseInt(normalizedCode, 10);
+  return divisionNumber >= 0 && divisionNumber <= 49;
+}
+
 function isDefaultDivisionTitle(code: string) {
   const normalized = normalizeCostCodeKey(code);
-  if (/^\d{2}$/.test(normalized)) return true;
-  return /^\d{8}$/.test(normalized) && normalized.slice(2, 4) === normalized.slice(0, 2) && normalized.slice(4) === "0000";
+  if (isStandardDivisionNumber(normalized)) return true;
+  return (
+    /^\d{8}$/.test(normalized) &&
+    isStandardDivisionNumber(normalized.slice(0, 2)) &&
+    normalized.slice(2, 4) === normalized.slice(0, 2) &&
+    normalized.slice(4) === "0000"
+  );
 }
 
 function getDefaultUsage(code: string): WorkspaceCostCodeUsage {
@@ -305,9 +316,7 @@ function normalizeCostCodeRow(value: unknown, index: number): WorkspaceCostCode 
 export function getWorkspaceCostCodes(
   fallback: WorkspaceCostCodeInput[] = DEFAULT_WORKSPACE_COST_CODES
 ): WorkspaceCostCode[] {
-  const normalizedFallback = fallback
-    .map((row, index) => normalizeCostCodeRow(row, index))
-    .filter((row): row is WorkspaceCostCode => Boolean(row));
+  const normalizedFallback = getDefaultWorkspaceCostCodes(fallback);
   if (typeof window === "undefined") return normalizedFallback;
   try {
     const raw = window.localStorage.getItem(WORKSPACE_COST_CODES_STORAGE_KEY);
@@ -321,6 +330,14 @@ export function getWorkspaceCostCodes(
   } catch {
     return normalizedFallback;
   }
+}
+
+export function getDefaultWorkspaceCostCodes(
+  fallback: WorkspaceCostCodeInput[] = DEFAULT_WORKSPACE_COST_CODES
+): WorkspaceCostCode[] {
+  return fallback
+    .map((row, index) => normalizeCostCodeRow(row, index))
+    .filter((row): row is WorkspaceCostCode => Boolean(row));
 }
 
 export function setWorkspaceCostCodes(rows: WorkspaceCostCode[]) {
