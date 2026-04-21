@@ -78,6 +78,7 @@ type DisplayedGeneralConditionsRow = GeneralConditionsRow & {
   autoCalculated: boolean;
   autoCalculatedComment: string;
 };
+type RowVisibilityFilter = "all" | "with-values" | "without-values";
 type WorksheetCostCode = {
   id: string;
   code: string;
@@ -113,6 +114,18 @@ type WorksheetLineItemPendingDelete = {
 type WorksheetRenderedCostCodeGroup = WorksheetCostCodeGroup & {
   total: number;
   readOnlyRollup?: boolean;
+};
+type FilteredWorksheetRenderedCostCodeGroup = WorksheetRenderedCostCodeGroup & {
+  filteredLineItems?: WorksheetLineItem[];
+  hasVisibleLines?: boolean;
+};
+type FilteredWorksheetDivisionGroup = {
+  division: string;
+  divisionCode: string;
+  divisionTitle: string;
+  sortCode?: string;
+  costCodeGroups: FilteredWorksheetRenderedCostCodeGroup[];
+  subtotal: number;
 };
 type SectionKey =
   | "projectInfo"
@@ -816,6 +829,12 @@ const INITIAL_GENERAL_CONDITIONS_ROWS: GeneralConditionsRow[] = [
 ];
 
 const normalizeCostCodeKey = (value: string) => value.replace(/[^0-9]/g, "");
+
+function matchesRowVisibilityFilter(hasValue: boolean, filter: RowVisibilityFilter) {
+  if (filter === "with-values") return hasValue;
+  if (filter === "without-values") return !hasValue;
+  return true;
+}
 
 function isStandardDivisionNumber(normalizedCode: string) {
   if (!/^\d{2}$/.test(normalizedCode)) return false;
@@ -1599,6 +1618,12 @@ export default function EstimateWorkspaceV2() {
   const [worksheetGcMarkupMessage, setWorksheetGcMarkupMessage] = useState<string | null>(null);
   const [worksheetLineItemPendingDelete, setWorksheetLineItemPendingDelete] =
     useState<WorksheetLineItemPendingDelete | null>(null);
+  const [generalConditionsRowVisibilityFilter, setGeneralConditionsRowVisibilityFilter] =
+    useState<RowVisibilityFilter>("all");
+  const [prelimWorksheetRowVisibilityFilter, setPrelimWorksheetRowVisibilityFilter] =
+    useState<RowVisibilityFilter>("all");
+  const [coverRowVisibilityFilter, setCoverRowVisibilityFilter] =
+    useState<RowVisibilityFilter>("all");
   const prelimResizeRef = useRef<{
     columnIndex: number;
     startX: number;
@@ -2644,6 +2669,14 @@ export default function EstimateWorkspaceV2() {
       }),
     [computedGeneralConditionsRows, preliminaryMarkupAmountByRowId]
   );
+  const filteredGeneralConditionsRows = useMemo(
+    () =>
+      displayedGeneralConditionsRows.filter((row) => {
+        const hasValue = row.computedTotal !== null && row.computedTotal > 0;
+        return matchesRowVisibilityFilter(hasValue, generalConditionsRowVisibilityFilter);
+      }),
+    [displayedGeneralConditionsRows, generalConditionsRowVisibilityFilter]
+  );
   const displayedGeneralConditionsTotal = useMemo(
     () =>
       displayedGeneralConditionsRows.reduce(
@@ -2657,6 +2690,44 @@ export default function EstimateWorkspaceV2() {
       ? displayedGeneralConditionsTotal / projectDurationWeeks
       : 0;
   const displayedGeneralConditionsMonthly = displayedGeneralConditionsWeekly * 4;
+  const filteredWorksheetDivisionGroups = useMemo<FilteredWorksheetDivisionGroup[]>(() => {
+    return worksheetDivisionGroups.reduce<FilteredWorksheetDivisionGroup[]>((acc, group) => {
+        const filteredCostCodeGroups: FilteredWorksheetRenderedCostCodeGroup[] = group.costCodeGroups
+          .map((costCodeGroup) => {
+            if (costCodeGroup.readOnlyRollup) {
+              const hasValue = costCodeGroup.total > 0;
+              if (!matchesRowVisibilityFilter(hasValue, prelimWorksheetRowVisibilityFilter)) return null;
+              return costCodeGroup;
+            }
+
+            const filteredLineItems = costCodeGroup.lineItems.filter((lineItem) => {
+              const quantity = parseNumericInput(lineItem.quantity);
+              const unitPrice = parseNumericInput(lineItem.unitPrice);
+              const gcMarkup = parseNumericInput(lineItem.gcMarkup);
+              const lineTotal = quantity * unitPrice + gcMarkup;
+              const hasValue = lineTotal > 0;
+              return matchesRowVisibilityFilter(hasValue, prelimWorksheetRowVisibilityFilter);
+            });
+
+            if (filteredLineItems.length === 0) return null;
+
+            return {
+              ...costCodeGroup,
+              filteredLineItems,
+              hasVisibleLines: true,
+            };
+          })
+          .filter((group): group is FilteredWorksheetRenderedCostCodeGroup => Boolean(group));
+
+        if (filteredCostCodeGroups.length === 0) return acc;
+
+        acc.push({
+          ...group,
+          costCodeGroups: filteredCostCodeGroups,
+        } satisfies FilteredWorksheetDivisionGroup);
+        return acc;
+      }, []);
+  }, [prelimWorksheetRowVisibilityFilter, worksheetDivisionGroups]);
   const preliminaryMarkupTotal = useMemo(
     () =>
       preliminaryMarkupRows.reduce(
@@ -2735,7 +2806,8 @@ export default function EstimateWorkspaceV2() {
     [derivedProjectDataValueById, projectDataRows]
   );
   const coverDivisionRows = useMemo(() => {
-    return worksheetDivisionGroups.map((group) => {
+    return worksheetDivisionGroups
+      .map((group) => {
       const summaryDescription = group.costCodeGroups
         .flatMap((costCodeGroup) => costCodeGroup.lineItems.map((line) => line.description.trim()))
         .filter((line) => line.length > 0)
@@ -2755,8 +2827,9 @@ export default function EstimateWorkspaceV2() {
         scopePercent,
         summaryDescription,
       };
-    });
-  }, [worksheetDivisionGroups, coverProjectSquareFeet, preliminarySubtotal]);
+      })
+      .filter((row) => matchesRowVisibilityFilter(row.subtotal > 0, coverRowVisibilityFilter));
+  }, [worksheetDivisionGroups, coverProjectSquareFeet, preliminarySubtotal, coverRowVisibilityFilter]);
   const exportProjectId = useMemo(
     () => getBidProjectIdForProject(queryProjectId ?? "") ?? queryProjectId ?? "",
     [queryProjectId]
@@ -2832,6 +2905,30 @@ export default function EstimateWorkspaceV2() {
     projectPlanningRows,
     worksheetDivisionGroups,
   ]);
+  const renderRowVisibilityFilterControl = (
+    filterId: string,
+    value: RowVisibilityFilter,
+    onChange: (value: RowVisibilityFilter) => void
+  ) => (
+    <div className="mb-3 flex items-center justify-end gap-2">
+      <label
+        htmlFor={filterId}
+        className="text-sm font-medium text-slate-600"
+      >
+        View / Hide
+      </label>
+      <select
+        id={filterId}
+        value={value}
+        onChange={(event) => onChange(event.target.value as RowVisibilityFilter)}
+        className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-700"
+      >
+        <option value="all">All rows</option>
+        <option value="with-values">Rows with values</option>
+        <option value="without-values">Rows without values</option>
+      </select>
+    </div>
+  );
 
   useEffect(() => {
     const handleExportRequest = () => {
@@ -3460,6 +3557,11 @@ export default function EstimateWorkspaceV2() {
             </div>
           ) : generalConditionsView ? (
             <div className="p-3">
+              {renderRowVisibilityFilterControl(
+                "general-conditions-row-visibility-filter",
+                generalConditionsRowVisibilityFilter,
+                setGeneralConditionsRowVisibilityFilter
+              )}
               <div className="overflow-x-auto rounded-lg border border-slate-300 bg-white">
                 <table className="w-full min-w-[1200px] border-separate border-spacing-0 text-sm text-slate-800">
                   <colgroup>
@@ -3483,7 +3585,7 @@ export default function EstimateWorkspaceV2() {
                       <td className="border-b border-r border-slate-400 px-2 py-2 font-semibold text-center">Total</td>
                       <td className="border-b border-slate-400 px-2 py-2 font-semibold text-center">Comments</td>
                     </tr>
-                    {displayedGeneralConditionsRows.map((row, rowIndex) => (
+                    {filteredGeneralConditionsRows.map((row, rowIndex) => (
                       <tr
                         key={row.id}
                         className={row.autoCalculated ? "bg-orange-50" : "bg-white"}
@@ -3655,6 +3757,11 @@ export default function EstimateWorkspaceV2() {
             </div>
           ) : coverPageView ? (
             <div className="p-3">
+              {renderRowVisibilityFilterControl(
+                "cover-row-visibility-filter",
+                coverRowVisibilityFilter,
+                setCoverRowVisibilityFilter
+              )}
               <div className="overflow-x-auto rounded-lg border border-slate-300 bg-white">
                 <table className="w-full border-separate border-spacing-0 text-sm text-slate-900">
                   <colgroup>
@@ -3926,6 +4033,11 @@ export default function EstimateWorkspaceV2() {
             </div>
           ) : preliminaryWorksheetView ? (
             <div className="p-3">
+              {renderRowVisibilityFilterControl(
+                "prelim-worksheet-row-visibility-filter",
+                prelimWorksheetRowVisibilityFilter,
+                setPrelimWorksheetRowVisibilityFilter
+              )}
               {worksheetGcMarkupMessage ? (
                 <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
                   {worksheetGcMarkupMessage}
@@ -4020,7 +4132,7 @@ export default function EstimateWorkspaceV2() {
                     ) : null}
                     {!worksheetLoading &&
                     !worksheetError &&
-                    worksheetDivisionGroups.length === 0 ? (
+                    filteredWorksheetDivisionGroups.length === 0 ? (
                       <tr className="bg-white">
                         <td colSpan={8} className="px-4 py-4 text-base font-medium text-slate-700">
                           No cost codes found.
@@ -4029,7 +4141,7 @@ export default function EstimateWorkspaceV2() {
                     ) : null}
                     {!worksheetLoading &&
                       !worksheetError &&
-                      worksheetDivisionGroups.map((group) => (
+                      filteredWorksheetDivisionGroups.map((group) => (
                         <Fragment key={group.division}>
                           <tr key={`division-${group.division}`} className="bg-[#bcbcbc]">
                             <td
@@ -4101,7 +4213,10 @@ export default function EstimateWorkspaceV2() {
                               </tr>
                               {!costCodeGroup.readOnlyRollup &&
                               expandedWorksheetCostCodeIds[costCodeGroup.id]
-                                ? costCodeGroup.lineItems.map((lineItem, lineIndex) => {
+                                ? (costCodeGroup.filteredLineItems ?? costCodeGroup.lineItems).map((lineItem) => {
+                                    const originalLineIndex = costCodeGroup.lineItems.findIndex(
+                                      (candidate) => candidate.id === lineItem.id
+                                    );
                                     const quantity = parseNumericInput(lineItem.quantity);
                                     const unitPrice = parseNumericInput(lineItem.unitPrice);
                                     const gcMarkup = parseNumericInput(lineItem.gcMarkup);
@@ -4109,7 +4224,7 @@ export default function EstimateWorkspaceV2() {
                                     const parsedUnitPrice = parseDerivedNumericInput(lineItem.unitPrice);
                                     const canEditGcMarkup =
                                       parsedUnitPrice !== null && parsedUnitPrice > 0;
-                                    const canRemoveLineItem = lineIndex > 0;
+                                    const canRemoveLineItem = originalLineIndex > 0;
                                     return (
                                       <tr key={lineItem.id} className="bg-white">
                                         <td className="border-b border-r border-slate-300 p-0 align-top">
@@ -4421,7 +4536,7 @@ export default function EstimateWorkspaceV2() {
                       ))}
                     {!worksheetLoading &&
                     !worksheetError &&
-                    worksheetDivisionGroups.length > 0 ? (
+                    filteredWorksheetDivisionGroups.length > 0 ? (
                       <>
                         <tr className="bg-[#e8792e]">
                           <td colSpan={5} className="border-b border-[#c96420] px-2 py-2 text-right text-sm font-semibold text-white">
