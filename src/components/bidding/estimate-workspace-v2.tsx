@@ -72,6 +72,12 @@ type GeneralConditionsRow = {
   total: string;
   comments: string;
 };
+type DisplayedGeneralConditionsRow = GeneralConditionsRow & {
+  computedTotal: number | null;
+  computedTotalDisplay: string;
+  autoCalculated: boolean;
+  autoCalculatedComment: string;
+};
 type WorksheetCostCode = {
   id: string;
   code: string;
@@ -968,6 +974,41 @@ const formatToTwoDecimals = (value: string) => {
   return parsed.toFixed(2);
 };
 
+const formatCurrencyDisplayString = (value: string) => {
+  const parsed = Number.parseFloat(value.replace(/[$,]/g, "").trim());
+  if (!Number.isFinite(parsed)) return "";
+  return parsed.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+};
+
+const formatCurrencyInputWhileTyping = (value: string) => {
+  const trimmed = value.trim();
+  if (!trimmed) return "";
+
+  const negative = trimmed.startsWith("-");
+  const sanitized = trimmed.replace(/[$,\s-]/g, "");
+  if (!sanitized) return negative ? "-" : "";
+
+  const [rawIntegerPart, rawDecimalPart] = sanitized.split(".");
+  const integerDigits = rawIntegerPart.replace(/\D/g, "");
+  const decimalDigits = (rawDecimalPart ?? "").replace(/\D/g, "");
+  const integerValue = integerDigits || "0";
+  const formattedInteger = Number.parseInt(integerValue, 10).toLocaleString(undefined, {
+    maximumFractionDigits: 0,
+  });
+
+  const prefix = negative ? "-" : "";
+  if (sanitized.endsWith(".") && rawDecimalPart === "") {
+    return `${prefix}${formattedInteger}.`;
+  }
+  if (rawDecimalPart !== undefined) {
+    return `${prefix}${formattedInteger}.${decimalDigits.slice(0, 2)}`;
+  }
+  return `${prefix}${formattedInteger}`;
+};
+
 const evaluateUnitPriceFormula = (value: string) => {
   const trimmed = value.trim();
   if (!trimmed.startsWith("=")) return null;
@@ -985,12 +1026,15 @@ const normalizeUnitPriceInput = (value: string) => {
   const formulaResult = evaluateUnitPriceFormula(value);
   if (formulaResult !== null) {
     return {
-      normalizedValue: formulaResult.toFixed(2),
+      normalizedValue: formulaResult.toLocaleString(undefined, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }),
       formula: value.trim(),
     };
   }
   return {
-    normalizedValue: formatToTwoDecimals(value),
+    normalizedValue: formatCurrencyDisplayString(value),
     formula: null,
   };
 };
@@ -1012,7 +1056,7 @@ const WORKSHEET_UNIT_OPTIONS = [
 ] as const;
 
 const PRELIM_COLUMN_MIN_WIDTHS = [72, 220, 56, 64, 72, 90, 90, 120] as const;
-const PRELIM_DEFAULT_COLUMN_WIDTHS = [92, 340, 64, 78, 84, 118, 104, 150] as const;
+const PRELIM_DEFAULT_COLUMN_WIDTHS = [92, 520, 64, 78, 84, 118, 104, 150] as const;
 const BID_PACKAGE_AUTOSAVE_STORAGE_KEY = "bidding-all-new-package-autosave-v1";
 const BID_PROJECT_GENERAL_INFO_STORAGE_KEY = "bidding-project-general-info-v1";
 const ESTIMATE_GENERAL_CONDITIONS_STORAGE_KEY = "estimateGeneralConditionsRowsByProject";
@@ -1102,6 +1146,8 @@ const addDaysToIsoDate = (isoDate: string, days: number) => {
 const normalizeContactName = (value: string) =>
   value.toLowerCase().replace(/[^a-z0-9]/g, "");
 const ESTIMATE_UNIT_PRICE_IMPORTS_STORAGE_KEY = "estimateUnitPriceImportsByProject";
+const ESTIMATE_WORKSHEET_COST_CODE_GROUPS_STORAGE_KEY =
+  "estimateWorksheetCostCodeGroupsByProject";
 
 function normalizeCostCodeCode(value: string) {
   return value.replace(/\D/g, "");
@@ -1140,6 +1186,84 @@ function readEstimateUnitPriceImportsMap(): Record<string, ImportedEstimateUnitP
   } catch {
     return {};
   }
+}
+
+function isWorksheetLineItem(value: unknown): value is WorksheetLineItem {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Partial<WorksheetLineItem>;
+  return (
+    typeof row.id === "string" &&
+    typeof row.description === "string" &&
+    typeof row.unit === "string" &&
+    typeof row.quantity === "string" &&
+    typeof row.unitPrice === "string" &&
+    typeof row.gcMarkup === "string" &&
+    typeof row.comments === "string"
+  );
+}
+
+function isWorksheetCostCodeGroup(value: unknown): value is WorksheetCostCodeGroup {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Partial<WorksheetCostCodeGroup>;
+  return (
+    typeof row.id === "string" &&
+    typeof row.code === "string" &&
+    typeof row.title === "string" &&
+    typeof row.division === "string" &&
+    Array.isArray(row.lineItems) &&
+    row.lineItems.every((lineItem) => isWorksheetLineItem(lineItem))
+  );
+}
+
+function readEstimateWorksheetCostCodeGroupsMap(): Record<string, WorksheetCostCodeGroup[]> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(ESTIMATE_WORKSHEET_COST_CODE_GROUPS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, WorksheetCostCodeGroup[]> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!Array.isArray(value)) continue;
+      next[key] = value.filter((item): item is WorksheetCostCodeGroup =>
+        isWorksheetCostCodeGroup(item)
+      );
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function writeEstimateWorksheetCostCodeGroups(
+  projectIds: string[],
+  groups: WorksheetCostCodeGroup[]
+) {
+  if (typeof window === "undefined" || projectIds.length === 0) return;
+  const current = readEstimateWorksheetCostCodeGroupsMap();
+  projectIds.forEach((projectId) => {
+    current[projectId] = groups;
+  });
+  localStorage.setItem(
+    ESTIMATE_WORKSHEET_COST_CODE_GROUPS_STORAGE_KEY,
+    JSON.stringify(current)
+  );
+}
+
+function mergeWorksheetCostCodeGroups(
+  baseGroups: WorksheetCostCodeGroup[],
+  savedGroups: WorksheetCostCodeGroup[]
+) {
+  const savedById = new Map(savedGroups.map((group) => [group.id, group]));
+  return baseGroups.map((group) => {
+    const saved = savedById.get(group.id);
+    if (!saved) return group;
+    return {
+      ...group,
+      title: saved.title || group.title,
+      lineItems: saved.lineItems.length > 0 ? saved.lineItems : group.lineItems,
+    };
+  });
 }
 
 function readBidProjectGeneralInfoMap(): Record<string, BidProjectGeneralInfoCacheRow> {
@@ -1432,6 +1556,7 @@ export default function EstimateWorkspaceV2() {
   const [activeWorksheetUnitPriceCell, setActiveWorksheetUnitPriceCell] = useState<string | null>(
     null
   );
+  const worksheetHydratedRef = useRef(false);
   const generalConditionsHydratedRef = useRef(false);
   const generalConditionsQuantityOverrideIdsRef = useRef<Set<string>>(new Set());
   const skipNextGeneralConditionsSaveRef = useRef(false);
@@ -1546,11 +1671,20 @@ export default function EstimateWorkspaceV2() {
             ),
           };
         });
+        const savedWorksheetGroupsMap = readEstimateWorksheetCostCodeGroupsMap();
+        const savedWorksheetGroups =
+          estimateProjectStorageIds
+            .map((projectId) => savedWorksheetGroupsMap[projectId] ?? [])
+            .find((groups) => groups.length > 0) ?? [];
+        const mergedGroups = mergeWorksheetCostCodeGroups(
+          hydratedGroups,
+          savedWorksheetGroups
+        );
 
         if (isMounted) {
-          setWorksheetCostCodeGroups(hydratedGroups);
+          setWorksheetCostCodeGroups(mergedGroups);
           setExpandedWorksheetDivisionKeys(
-            hydratedGroups.reduce<Record<string, boolean>>((acc, group) => {
+            mergedGroups.reduce<Record<string, boolean>>((acc, group) => {
               const divisionKey = group.division?.trim() || "Other";
               if (acc[divisionKey] === undefined) {
                 acc[divisionKey] = true;
@@ -1559,11 +1693,12 @@ export default function EstimateWorkspaceV2() {
             }, {})
           );
           setExpandedWorksheetCostCodeIds(
-            hydratedGroups.reduce<Record<string, boolean>>((acc, group) => {
+            mergedGroups.reduce<Record<string, boolean>>((acc, group) => {
               acc[group.id] = true;
               return acc;
             }, {})
           );
+          worksheetHydratedRef.current = true;
         }
       } catch (error) {
         if (isMounted) {
@@ -1583,6 +1718,13 @@ export default function EstimateWorkspaceV2() {
       isMounted = false;
     };
   }, []);
+  useEffect(() => {
+    if (!worksheetHydratedRef.current || estimateProjectStorageIds.length === 0) return;
+    writeEstimateWorksheetCostCodeGroups(
+      estimateProjectStorageIds,
+      worksheetCostCodeGroups
+    );
+  }, [estimateProjectStorageIds, worksheetCostCodeGroups]);
   useEffect(() => {
     if (!queryProjectId) return;
     const queryProjectIdValue: string = queryProjectId;
@@ -2334,7 +2476,7 @@ export default function EstimateWorkspaceV2() {
       ),
     [worksheetCostCodeGroups]
   );
-  const preliminaryMarkupRows = useMemo(() => {
+  const preliminaryMarkupCalculations = useMemo(() => {
     const feeValueById = feeRows.reduce<Record<string, string>>((acc, row) => {
       acc[row.id] = row.value;
       return acc;
@@ -2424,33 +2566,46 @@ export default function EstimateWorkspaceV2() {
       __tax__: null,
     };
 
-    return prelimMarkupFeeRowConfig.map((config) => ({
-      costCode: config.costCode,
-      label: config.label,
-      amount: amountByRowId[config.rowId] ?? null,
-    }));
+    return amountByRowId;
   }, [feeRows, prelimMarkupFeeRowConfig, preliminarySubtotal]);
+  const preliminaryMarkupRows = useMemo(
+    () =>
+      prelimMarkupFeeRowConfig.map((config) => ({
+        costCode: config.costCode,
+        label: config.label,
+        amount: preliminaryMarkupCalculations[config.rowId] ?? null,
+      })),
+    [preliminaryMarkupCalculations, prelimMarkupFeeRowConfig]
+  );
   const preliminaryMarkupAmountByRowId = useMemo(() => {
-    const next: Record<string, number | null> = {};
-    prelimMarkupFeeRowConfig.forEach((config, index) => {
-      if (config.rowId === "__tax__") return;
-      next[config.rowId] = preliminaryMarkupRows[index]?.amount ?? null;
-    });
-    return next;
-  }, [prelimMarkupFeeRowConfig, preliminaryMarkupRows]);
-  const displayedGeneralConditionsRows = useMemo(
+    return preliminaryMarkupCalculations;
+  }, [preliminaryMarkupCalculations]);
+  const displayedGeneralConditionsRows = useMemo<DisplayedGeneralConditionsRow[]>(
     () =>
       computedGeneralConditionsRows.map((row) => {
         const feeRowId = getGeneralConditionsFeeRowId(row);
-        if (!feeRowId) return row;
+        if (!feeRowId) {
+          return {
+            ...row,
+            autoCalculated: false,
+            autoCalculatedComment: "",
+          };
+        }
         const feeAmount = preliminaryMarkupAmountByRowId[feeRowId] ?? null;
+        const autoCalculatedUnitPrice =
+          feeAmount !== null && Number.isFinite(feeAmount) && feeAmount > 0
+            ? formatCurrency(feeAmount)
+            : "-";
         return {
           ...row,
+          unitPrice: autoCalculatedUnitPrice,
           computedTotal: feeAmount,
           computedTotalDisplay:
             feeAmount !== null && Number.isFinite(feeAmount) && feeAmount > 0
               ? formatCurrency(feeAmount)
               : "-",
+          autoCalculated: true,
+          autoCalculatedComment: "Auto Calculated",
         };
       }),
     [computedGeneralConditionsRows, preliminaryMarkupAmountByRowId]
@@ -3295,7 +3450,10 @@ export default function EstimateWorkspaceV2() {
                       <td className="border-b border-slate-400 px-2 py-2 font-semibold text-center">Comments</td>
                     </tr>
                     {displayedGeneralConditionsRows.map((row, rowIndex) => (
-                      <tr key={row.id} className="bg-white">
+                      <tr
+                        key={row.id}
+                        className={row.autoCalculated ? "bg-orange-50" : "bg-white"}
+                      >
                         <td className="border-b border-r border-slate-300 p-0">
                           <input
                             data-gc-row={rowIndex}
@@ -3374,21 +3532,26 @@ export default function EstimateWorkspaceV2() {
                               onChange={(event) =>
                                 updateGeneralConditionsCell(row.id, "unitPrice", event.target.value)
                               }
+                              readOnly={Boolean(row.autoCalculated)}
                               onFocus={() => {
+                                if (row.autoCalculated) return;
                                 if (row.unitPrice === "-") {
                                   updateGeneralConditionsCell(row.id, "unitPrice", "");
                                 }
                               }}
-                              onBlur={(event) =>
+                              onBlur={(event) => {
+                                if (row.autoCalculated) return;
                                 updateGeneralConditionsCell(
                                   row.id,
                                   "unitPrice",
                                   formatToTwoDecimals(event.target.value)
-                                )
-                              }
+                                );
+                              }}
                               onKeyDown={handleGeneralConditionsCellKeyDown(rowIndex, 5)}
                               placeholder="-"
-                              className="h-full w-full border-0 bg-transparent text-right text-sm text-slate-700 focus:bg-white focus:outline-none"
+                              className={`h-full w-full border-0 bg-transparent text-right text-sm text-slate-700 focus:outline-none ${
+                                row.autoCalculated ? "font-semibold text-orange-700" : "focus:bg-white"
+                              }`}
                             />
                           </div>
                         </td>
@@ -3410,12 +3573,15 @@ export default function EstimateWorkspaceV2() {
                           <input
                             data-gc-row={rowIndex}
                             data-gc-col={6}
-                            value={row.comments}
+                            value={row.autoCalculated ? row.autoCalculatedComment : row.comments}
                             onChange={(event) =>
                               updateGeneralConditionsCell(row.id, "comments", event.target.value)
                             }
+                            readOnly={Boolean(row.autoCalculated)}
                             onKeyDown={handleGeneralConditionsCellKeyDown(rowIndex, 6)}
-                            className="h-8 w-full border-0 bg-transparent px-2 text-sm text-slate-700 focus:bg-white focus:outline-none"
+                            className={`h-8 w-full border-0 bg-transparent px-2 text-sm text-slate-700 focus:outline-none ${
+                              row.autoCalculated ? "font-semibold text-orange-700" : "focus:bg-white"
+                            }`}
                           />
                         </td>
                       </tr>
@@ -3731,7 +3897,7 @@ export default function EstimateWorkspaceV2() {
                   {worksheetGcMarkupMessage}
                 </div>
               ) : null}
-              <div className="max-h-[75vh] overflow-auto rounded-lg border border-slate-300 bg-white">
+              <div className="max-h-[75vh] overflow-auto rounded-lg border border-slate-300 bg-white pb-6">
                 <table
                   className="w-full border-separate border-spacing-0 text-sm text-slate-800"
                   style={{
@@ -4049,11 +4215,14 @@ export default function EstimateWorkspaceV2() {
                                                     lineItem.id
                                                   );
                                                   const nextValue = event.target.value;
+                                                  const formattedValue = nextValue.trim().startsWith("=")
+                                                    ? nextValue
+                                                    : formatCurrencyInputWhileTyping(nextValue);
                                                   updateWorksheetLineItemCell(
                                                     costCodeGroup.id,
                                                     lineItem.id,
                                                     "unitPrice",
-                                                    nextValue
+                                                    formattedValue
                                                   );
                                                   if (nextValue.trim().startsWith("=")) {
                                                     setWorksheetUnitPriceFormulas((prev) => ({
@@ -4120,7 +4289,7 @@ export default function EstimateWorkspaceV2() {
                                                       costCodeGroup.id,
                                                       lineItem.id,
                                                       "gcMarkup",
-                                                      event.target.value
+                                                      formatCurrencyInputWhileTyping(event.target.value)
                                                     )
                                                   : undefined
                                               }
@@ -4130,7 +4299,7 @@ export default function EstimateWorkspaceV2() {
                                                   costCodeGroup.id,
                                                   lineItem.id,
                                                   "gcMarkup",
-                                                  formatToTwoDecimals(event.target.value)
+                                                  formatCurrencyDisplayString(event.target.value)
                                                 );
                                               }}
                                               onMouseDown={(event) => {
