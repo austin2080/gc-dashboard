@@ -845,6 +845,18 @@ function buildWorksheetDivisionLabel(divisionCode: string, title: string) {
   return `${divisionCode} ${trimmedTitle}`.trim();
 }
 
+function getWorksheetDivisionLabelForCostCode(row: {
+  code: string;
+  description: string;
+  usedIn: { divisionTitle: boolean };
+}, divisionTitleByCode: Map<string, string>) {
+  const divisionCode = getDivisionCodeFromCostCode(row.code);
+  const divisionTitle = row.usedIn.divisionTitle
+    ? row.description.trim()
+    : divisionTitleByCode.get(divisionCode) ?? row.description.trim();
+  return buildWorksheetDivisionLabel(divisionCode, divisionTitle);
+}
+
 function mapWorkspaceCostCodesToWorksheetCostCodes(): WorksheetCostCode[] {
   const settingsRows = getWorkspaceCostCodes();
   const divisionTitleByCode = new Map<string, string>();
@@ -859,13 +871,11 @@ function mapWorkspaceCostCodesToWorksheetCostCodes(): WorksheetCostCode[] {
   return settingsRows
     .filter((row) => row.usedIn.prelimEstimate)
     .map((row) => {
-      const divisionCode = getDivisionCodeFromCostCode(row.code);
-      const divisionTitle = divisionTitleByCode.get(divisionCode) ?? row.description.trim();
       return {
-        id: row.id,
+        id: normalizeCostCodeKey(row.code) || row.id,
         code: row.code,
         description: row.description,
-        division: buildWorksheetDivisionLabel(divisionCode, divisionTitle),
+        division: getWorksheetDivisionLabelForCostCode(row, divisionTitleByCode),
       } satisfies WorksheetCostCode;
     })
     .sort((left, right) =>
@@ -911,7 +921,9 @@ const legacyGeneralConditionsRowsByDescription = new Map(
 
 function createGeneralConditionsRowsFromCostCodes(): GeneralConditionsRow[] {
   return getWorkspaceCostCodes()
-    .filter((costCode) => costCode.usedIn.generalConditions)
+    .filter(
+      (costCode) => costCode.usedIn.generalConditions && !costCode.usedIn.prelimEstimate
+    )
     .map((costCode) => {
       const normalized = normalizeCostCodeKey(costCode.code);
       const sequence = normalized.slice(4);
@@ -1242,7 +1254,16 @@ function writeEstimateWorksheetCostCodeGroups(
   if (typeof window === "undefined" || projectIds.length === 0) return;
   const current = readEstimateWorksheetCostCodeGroupsMap();
   projectIds.forEach((projectId) => {
-    current[projectId] = groups;
+    const existingGroups = current[projectId] ?? [];
+    const nextByCode = new Map(
+      existingGroups.map((group) => [normalizeCostCodeKey(group.code), group])
+    );
+
+    for (const group of groups) {
+      nextByCode.set(normalizeCostCodeKey(group.code), group);
+    }
+
+    current[projectId] = Array.from(nextByCode.values());
   });
   localStorage.setItem(
     ESTIMATE_WORKSHEET_COST_CODE_GROUPS_STORAGE_KEY,
@@ -1255,8 +1276,12 @@ function mergeWorksheetCostCodeGroups(
   savedGroups: WorksheetCostCodeGroup[]
 ) {
   const savedById = new Map(savedGroups.map((group) => [group.id, group]));
+  const savedByCode = new Map(
+    savedGroups.map((group) => [normalizeCostCodeKey(group.code), group])
+  );
   return baseGroups.map((group) => {
-    const saved = savedById.get(group.id);
+    const saved =
+      savedByCode.get(normalizeCostCodeKey(group.code)) ?? savedById.get(group.id);
     if (!saved) return group;
     return {
       ...group,
@@ -2430,7 +2455,7 @@ export default function EstimateWorkspaceV2() {
           return { ...group, total };
         });
         const renderedCostCodeGroups =
-          divisionCode === "01"
+          divisionCode === "01" && normalizeCostCodeDescription(divisionTitle) === "generalconditions"
             ? [
                 {
                   id: "__division-01-rollup__",
@@ -2443,11 +2468,15 @@ export default function EstimateWorkspaceV2() {
                 } satisfies WorksheetRenderedCostCodeGroup,
               ]
             : groupsWithTotals;
-        const subtotal = renderedCostCodeGroups.reduce((sum, group) => sum + group.total, 0);
+        const subtotal =
+          divisionCode === "01" && normalizeCostCodeDescription(divisionTitle) === "generalconditions"
+            ? generalConditionsTotal
+            : renderedCostCodeGroups.reduce((sum, group) => sum + group.total, 0);
         return {
           division,
           divisionCode,
           divisionTitle,
+          sortCode: firstCostCode,
           costCodeGroups: renderedCostCodeGroups,
           subtotal,
         };
@@ -2456,6 +2485,11 @@ export default function EstimateWorkspaceV2() {
         const aRank = a.divisionCode ? Number.parseInt(a.divisionCode, 10) : Number.MAX_SAFE_INTEGER;
         const bRank = b.divisionCode ? Number.parseInt(b.divisionCode, 10) : Number.MAX_SAFE_INTEGER;
         if (aRank !== bRank) return aRank - bRank;
+        const sortByCode = (a.sortCode || "").localeCompare(b.sortCode || "", undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+        if (sortByCode !== 0) return sortByCode;
         return a.divisionTitle.localeCompare(b.divisionTitle, undefined, { numeric: true });
       });
   }, [worksheetCostCodeGroups, generalConditionsTotal]);
@@ -4385,7 +4419,9 @@ export default function EstimateWorkspaceV2() {
                           ) : null}
                         </Fragment>
                       ))}
-                    {!worksheetLoading && !worksheetError && worksheetDivisionGroups.length > 0 ? (
+                    {!worksheetLoading &&
+                    !worksheetError &&
+                    worksheetDivisionGroups.length > 0 ? (
                       <>
                         <tr className="bg-[#e8792e]">
                           <td colSpan={5} className="border-b border-[#c96420] px-2 py-2 text-right text-sm font-semibold text-white">

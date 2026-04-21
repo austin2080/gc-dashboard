@@ -217,6 +217,10 @@ function getCostCodeDivisionKey(code: string) {
   return normalizeCostCodeKey(code).slice(0, 2) || "other";
 }
 
+function isGeneralConditionsDivisionCode(code: string) {
+  return getCostCodeDivisionKey(code) === "01";
+}
+
 function getCostCodeSegments(code: string) {
   const segments = code.match(/\d+/g) ?? [];
   return segments.map((segment) => Number.parseInt(segment, 10));
@@ -631,10 +635,26 @@ export function SettingsShell() {
         row.id === rowId
           ? {
               ...row,
-              usedIn: {
-                ...row.usedIn,
-                [usageKey]: checked,
-              },
+              usedIn: (() => {
+                const nextUsage = {
+                  ...row.usedIn,
+                  [usageKey]: checked,
+                };
+
+                if (!isGeneralConditionsDivisionCode(row.code)) {
+                  return nextUsage;
+                }
+
+                if (usageKey === "prelimEstimate" && checked) {
+                  nextUsage.generalConditions = false;
+                }
+
+                if (usageKey === "generalConditions" && checked) {
+                  nextUsage.prelimEstimate = false;
+                }
+
+                return nextUsage;
+              })(),
             }
           : row
       )
