@@ -1093,6 +1093,7 @@ const PRELIM_DEFAULT_COLUMN_WIDTHS = [92, 520, 104, 78, 84, 118, 104, 150] as co
 const BID_PACKAGE_AUTOSAVE_STORAGE_KEY = "bidding-all-new-package-autosave-v1";
 const BID_PROJECT_GENERAL_INFO_STORAGE_KEY = "bidding-project-general-info-v1";
 const ESTIMATE_FACTOR_ROWS_STORAGE_KEY = "estimateFactorRowsByProject";
+const ESTIMATE_COVER_DIVISION_EDITS_STORAGE_KEY = "estimateCoverDivisionEditsByProject";
 const ESTIMATE_GENERAL_CONDITIONS_STORAGE_KEY = "estimateGeneralConditionsRowsByProject";
 const ESTIMATE_GENERAL_CONDITIONS_QUANTITY_OVERRIDES_STORAGE_KEY =
   "estimateGeneralConditionsQuantityOverridesByProject";
@@ -1319,6 +1320,54 @@ function mergeFactorRows(baseRows: FactorRow[], savedRows: FactorRow[]) {
     const savedRow = savedById.get(baseRow.id);
     return savedRow ? { ...baseRow, ...savedRow, id: baseRow.id } : baseRow;
   });
+}
+
+function readEstimateCoverDivisionEditsMap(): Record<
+  string,
+  Record<string, { item: string; summaryDescription: string }>
+> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(ESTIMATE_COVER_DIVISION_EDITS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, Record<string, { item: string; summaryDescription: string }>> = {};
+
+    for (const [projectId, value] of Object.entries(parsed)) {
+      if (!value || typeof value !== "object") continue;
+      const edits: Record<string, { item: string; summaryDescription: string }> = {};
+      for (const [divisionLabel, edit] of Object.entries(value)) {
+        if (!edit || typeof edit !== "object") continue;
+        const row = edit as Partial<{ item: string; summaryDescription: string }>;
+        edits[divisionLabel] = {
+          item: typeof row.item === "string" ? row.item : "",
+          summaryDescription:
+            typeof row.summaryDescription === "string" ? row.summaryDescription : "",
+        };
+      }
+      next[projectId] = edits;
+    }
+
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function writeEstimateCoverDivisionEdits(
+  projectIds: string[],
+  edits: Record<string, { item: string; summaryDescription: string }>
+) {
+  if (typeof window === "undefined" || projectIds.length === 0) return;
+  const current = readEstimateCoverDivisionEditsMap();
+  for (const projectId of projectIds) {
+    current[projectId] = edits;
+  }
+  localStorage.setItem(
+    ESTIMATE_COVER_DIVISION_EDITS_STORAGE_KEY,
+    JSON.stringify(current)
+  );
 }
 
 function writeEstimateWorksheetCostCodeGroups(
@@ -1621,6 +1670,99 @@ const calculateDurationWeeks = (startIsoDate: string, endIsoDate: string) => {
 
 const sanitizeWholeNumberInput = (value: string) => value.replace(/\D/g, "");
 
+const COVER_DIVISION_OVERRIDES: Record<
+  string,
+  {
+    item: string;
+    summaryDescription?: string;
+  }
+> = {
+  "01": {
+    item: "GENERAL CONDITIONS",
+    summaryDescription:
+      "Supervision, Project Managerment, Labor, Port-a-let, Dumpsters, Cleaning, Testing & Inspections, etc.",
+  },
+  "02": {
+    item: "EXISTING CONDITIONS",
+    summaryDescription: "Testing & Demolition Services",
+  },
+  "03": {
+    item: "CONCRETE",
+  },
+  "04": {
+    item: "MASONRY",
+  },
+  "05": {
+    item: "METALS",
+  },
+  "06": {
+    item: "WOODS & PLASTICS",
+    summaryDescription: "Carpentry & Millwork",
+  },
+  "07": {
+    item: "THERMAL & MOISTURE PROTECTION",
+    summaryDescription: "Waterproofing, Insulation, Roofing, Fireproofing, Caulking",
+  },
+  "08": {
+    item: "OPENINGS",
+    summaryDescription: "Doors & Glazing",
+  },
+  "09": {
+    item: "FINISHES",
+    summaryDescription: "Flooring, Tile, Framing & Drywall, ACT, Paint, etc.",
+  },
+  "10": {
+    item: "SPECIALTIES",
+    summaryDescription: "Partitions & Accessories",
+  },
+  "11": {
+    item: "EQUIPMENT & APPLIANCES",
+  },
+  "12": {
+    item: "FURNISHINGS",
+    summaryDescription: "Furniture & Window Coverings",
+  },
+  "13": {
+    item: "SPECIAL CONSTRUCTION",
+  },
+  "14": {
+    item: "CONVEYING EQUIPMENT",
+  },
+  "21": {
+    item: "FIRE SUPPRESSION",
+    summaryDescription: "Sprinklers & Extingushers",
+  },
+  "22": {
+    item: "PLUMBING",
+  },
+  "23": {
+    item: "HVAC",
+  },
+  "25": {
+    item: "INTEGRATED AUTOMATION",
+  },
+  "26": {
+    item: "ELECTRICAL",
+  },
+  "27": {
+    item: "COMMUNICATIONS",
+  },
+  "28": {
+    item: "ELECTRONIC SAFETY & SECURITY",
+  },
+  "31": {
+    item: "EARTHWORK",
+  },
+  "32": {
+    item: "EXTERIOR IMPROVEMENTS",
+    summaryDescription: "Paving, Singage, Landcsape & Irrigation, etc.",
+  },
+  "33": {
+    item: "UTILITIES",
+    summaryDescription: "Utilities, Drywells, etc.",
+  },
+};
+
 const resolveSelectedSalesTaxRow = (
   cityNumber: string,
   salesTaxRows: SalesTaxRow[],
@@ -1659,6 +1801,9 @@ export default function EstimateWorkspaceV2() {
   const [coverPageFields, setCoverPageFields] = useState<CoverPageField[]>(
     INITIAL_COVER_PAGE_FIELDS
   );
+  const [coverDivisionEdits, setCoverDivisionEdits] = useState<
+    Record<string, { item: string; summaryDescription: string }>
+  >({});
   const [costSummaryPercent, setCostSummaryPercent] = useState<string>("28");
   const [generalConditionsRows, setGeneralConditionsRows] = useState<GeneralConditionsRow[]>(
     () => createGeneralConditionsRowsFromCostCodes()
@@ -1879,6 +2024,19 @@ export default function EstimateWorkspaceV2() {
     if (estimateProjectStorageIds.length === 0) return;
     writeEstimateFactorRows(estimateProjectStorageIds, rows);
   }, [estimateProjectStorageIds, rows]);
+  useEffect(() => {
+    const savedEditsMap = readEstimateCoverDivisionEditsMap();
+    const savedEdits =
+      estimateProjectStorageIds
+        .map((projectId) => savedEditsMap[projectId])
+        .find((editsForProject) => editsForProject && Object.keys(editsForProject).length > 0) ??
+      {};
+    setCoverDivisionEdits(savedEdits);
+  }, [estimateProjectStorageIds]);
+  useEffect(() => {
+    if (estimateProjectStorageIds.length === 0) return;
+    writeEstimateCoverDivisionEdits(estimateProjectStorageIds, coverDivisionEdits);
+  }, [coverDivisionEdits, estimateProjectStorageIds]);
   useEffect(() => {
     if (!queryProjectId) return;
     const queryProjectIdValue: string = queryProjectId;
@@ -2976,29 +3134,95 @@ export default function EstimateWorkspaceV2() {
   );
   const coverDivisionRows = useMemo(() => {
     return worksheetDivisionGroups
-      .map((group) => {
-      const summaryDescription = group.costCodeGroups
-        .flatMap((costCodeGroup) => costCodeGroup.lineItems.map((line) => line.description.trim()))
-        .filter((line) => line.length > 0)
-        .slice(0, 2)
-        .join(", ");
-      const dollarsPerSf =
-        coverProjectSquareFeet && coverProjectSquareFeet > 0
-          ? group.subtotal / coverProjectSquareFeet
-          : null;
-      const scopePercent =
-        preliminarySubtotal > 0 ? (group.subtotal / preliminarySubtotal) * 100 : null;
-      return {
-        divisionLabel: group.divisionCode ? `DIVISION ${group.divisionCode}` : group.division,
-        item: group.divisionTitle.toUpperCase(),
-        subtotal: group.subtotal,
-        dollarsPerSf,
-        scopePercent,
-        summaryDescription,
-      };
+      .reduce<
+        Array<{
+          divisionLabel: string;
+          item: string;
+          subtotal: number;
+          dollarsPerSf: number | null;
+          scopePercent: number | null;
+          summaryDescription: string;
+        }>
+      >((rows, group) => {
+        const divisionLabel = group.divisionCode ? `DIVISION ${group.divisionCode}` : group.division;
+        const coverDivisionOverride = group.divisionCode
+          ? COVER_DIVISION_OVERRIDES[group.divisionCode]
+          : undefined;
+        const itemTitles = group.costCodeGroups
+          .map((costCodeGroup) => costCodeGroup.title.trim())
+          .filter((title) => title.length > 0);
+        const lineDescriptions = group.costCodeGroups
+          .flatMap((costCodeGroup) => costCodeGroup.lineItems.map((line) => line.description.trim()))
+          .filter((line) => line.length > 0);
+        const existingRow = rows.find((row) => row.divisionLabel === divisionLabel);
+
+        if (!existingRow) {
+          const summaryDescription = lineDescriptions.slice(0, 2).join(", ");
+          const dollarsPerSf =
+            coverProjectSquareFeet && coverProjectSquareFeet > 0
+              ? group.subtotal / coverProjectSquareFeet
+              : null;
+          const scopePercent =
+            preliminarySubtotal > 0 ? (group.subtotal / preliminarySubtotal) * 100 : null;
+
+          rows.push({
+            divisionLabel,
+            item:
+              coverDivisionOverride?.item ??
+              Array.from(new Set(itemTitles)).join(", ").toUpperCase(),
+            subtotal: group.subtotal,
+            dollarsPerSf,
+            scopePercent,
+            summaryDescription: coverDivisionOverride?.summaryDescription ?? summaryDescription,
+          });
+          return rows;
+        }
+
+        const mergedItemTitles = Array.from(
+          new Set(
+            [existingRow.item, ...itemTitles.map((title) => title.toUpperCase())].filter(Boolean)
+          )
+        );
+        const mergedDescriptions = Array.from(
+          new Set(
+            [existingRow.summaryDescription, ...lineDescriptions]
+              .flatMap((value) => value.split(","))
+              .map((value) => value.trim())
+              .filter(Boolean)
+          )
+        );
+        existingRow.item = mergedItemTitles.join(", ");
+        existingRow.subtotal += group.subtotal;
+        existingRow.summaryDescription = mergedDescriptions.slice(0, 2).join(", ");
+        existingRow.dollarsPerSf =
+          coverProjectSquareFeet && coverProjectSquareFeet > 0
+            ? existingRow.subtotal / coverProjectSquareFeet
+            : null;
+        existingRow.scopePercent =
+          preliminarySubtotal > 0 ? (existingRow.subtotal / preliminarySubtotal) * 100 : null;
+        if (coverDivisionOverride) {
+          existingRow.item = coverDivisionOverride.item;
+          existingRow.summaryDescription = coverDivisionOverride.summaryDescription ?? "";
+        }
+        return rows;
+      }, [])
+      .map((row) => {
+        const edit = coverDivisionEdits[row.divisionLabel];
+        if (!edit) return row;
+        return {
+          ...row,
+          item: edit.item || row.item,
+          summaryDescription: edit.summaryDescription,
+        };
       })
       .filter((row) => matchesRowVisibilityFilter(row.subtotal > 0, coverRowVisibilityFilter));
-  }, [worksheetDivisionGroups, coverProjectSquareFeet, preliminarySubtotal, coverRowVisibilityFilter]);
+  }, [
+    coverDivisionEdits,
+    worksheetDivisionGroups,
+    coverProjectSquareFeet,
+    preliminarySubtotal,
+    coverRowVisibilityFilter,
+  ]);
   const exportProjectId = useMemo(
     () => getBidProjectIdForProject(queryProjectId ?? "") ?? queryProjectId ?? "",
     [queryProjectId]
@@ -4111,8 +4335,8 @@ export default function EstimateWorkspaceV2() {
               <div className="mt-3 overflow-x-auto rounded-lg border border-[#c96420] bg-[#d9d9d9]">
                 <table className="w-full border-separate border-spacing-0 text-slate-900">
                   <colgroup>
-                    <col className="w-[10%]" />
-                    <col className="w-[48%]" />
+                    <col className="w-[14%]" />
+                    <col className="w-[44%]" />
                     <col className="w-[17%]" />
                     <col className="w-[12%]" />
                     <col className="w-[13%]" />
@@ -4130,11 +4354,25 @@ export default function EstimateWorkspaceV2() {
                     {coverDivisionRows.map((row) => (
                       <Fragment key={`cover-division-${row.divisionLabel}-${row.item}`}>
                         <tr className="bg-[#d9d9d9]">
-                          <td className="border-b border-t-2 border-slate-500 px-2 py-2 text-sm">
+                          <td className="whitespace-nowrap border-b border-t-2 border-slate-500 px-2 py-2 text-sm">
                             {row.divisionLabel}
                           </td>
-                          <td className="border-b border-t-2 border-slate-500 bg-white px-2 py-2 text-base font-semibold">
-                            {row.item}
+                          <td className="border-b border-t-2 border-slate-500 bg-white p-0">
+                            <input
+                              value={row.item}
+                              onChange={(event) =>
+                                setCoverDivisionEdits((prev) => ({
+                                  ...prev,
+                                  [row.divisionLabel]: {
+                                    item: event.target.value,
+                                    summaryDescription:
+                                      prev[row.divisionLabel]?.summaryDescription ??
+                                      row.summaryDescription,
+                                  },
+                                }))
+                              }
+                              className="h-11 w-full border-0 bg-transparent px-2 py-2 text-base font-semibold focus:bg-white focus:outline-none"
+                            />
                           </td>
                           <td className="border-b border-t-2 border-slate-500 bg-white px-2 py-2 text-center text-base font-semibold">
                             ${formatCurrency(row.subtotal)}
@@ -4146,17 +4384,25 @@ export default function EstimateWorkspaceV2() {
                             {row.scopePercent === null ? "0%" : `${Math.round(row.scopePercent)}%`}
                           </td>
                         </tr>
-                        {row.summaryDescription ? (
-                          <tr className="bg-[#c8c8c8]">
-                            <td className="border-b border-slate-500 px-2 py-1"></td>
-                            <td className="border-b border-slate-500 px-2 py-1 text-sm italic">
-                              {row.summaryDescription}
-                            </td>
-                            <td className="border-b border-slate-500"></td>
-                            <td className="border-b border-slate-500"></td>
-                            <td className="border-b border-slate-500"></td>
-                          </tr>
-                        ) : null}
+                        <tr className="bg-[#c8c8c8]">
+                          <td className="border-b border-slate-500 px-2 py-1"></td>
+                          <td colSpan={4} className="border-b border-slate-500 p-0">
+                            <input
+                              value={row.summaryDescription}
+                              onChange={(event) =>
+                                setCoverDivisionEdits((prev) => ({
+                                  ...prev,
+                                  [row.divisionLabel]: {
+                                    item: prev[row.divisionLabel]?.item ?? row.item,
+                                    summaryDescription: event.target.value,
+                                  },
+                                }))
+                              }
+                              className="h-9 w-full border-0 bg-transparent px-2 py-1 text-sm italic focus:bg-white focus:outline-none"
+                              placeholder="Add subheading"
+                            />
+                          </td>
+                        </tr>
                       </Fragment>
                     ))}
                     <tr className="bg-[#e8792e] text-white">
