@@ -860,7 +860,7 @@ export async function getBidProjectDetail(projectId: string): Promise<BidProject
       .order("trade_name", { ascending: true });
 
     if (tradesError) {
-      console.error("Failed to load bid trades", tradesError);
+      console.warn("Failed to load bid trades", tradesError);
     }
 
     const { data: projectSubs, error: subsError } = await supabase
@@ -873,7 +873,7 @@ export async function getBidProjectDetail(projectId: string): Promise<BidProject
       .order("invited_at", { ascending: true });
 
     if (subsError) {
-      console.error("Failed to load project subs", subsError);
+      console.warn("Failed to load project subs", subsError);
     }
 
     const { data: tradeBids, error: bidsError } = await supabase
@@ -882,7 +882,7 @@ export async function getBidProjectDetail(projectId: string): Promise<BidProject
       .eq("project_id", projectId);
 
     if (bidsError) {
-      console.error("Failed to load trade bids", bidsError);
+      console.warn("Failed to load trade bids", bidsError);
     }
 
     return {
@@ -912,7 +912,7 @@ export async function getBidProjectDetail(projectId: string): Promise<BidProject
     .order("trade_name", { ascending: true });
 
   if (tradesError) {
-    console.error("Failed to load bid trades", tradesError);
+    console.warn("Failed to load bid trades", tradesError);
   }
 
   const { data: projectSubs, error: subsError } = await supabase
@@ -925,7 +925,7 @@ export async function getBidProjectDetail(projectId: string): Promise<BidProject
     .order("invited_at", { ascending: true });
 
   if (subsError) {
-    console.error("Failed to load project subs", subsError);
+    console.warn("Failed to load project subs", subsError);
   }
 
   const { data: tradeBids, error: bidsError } = await supabase
@@ -934,7 +934,7 @@ export async function getBidProjectDetail(projectId: string): Promise<BidProject
     .eq("project_id", projectId);
 
   if (bidsError) {
-    console.error("Failed to load trade bids", bidsError);
+    console.warn("Failed to load trade bids", bidsError);
   }
 
   return {

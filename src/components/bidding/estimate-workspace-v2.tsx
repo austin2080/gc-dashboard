@@ -18,6 +18,7 @@ import {
   PRELIM_COST_CODE_MAPPING_ITEMS,
   getWorkspacePrelimCostCodeMappings,
 } from "@/lib/settings/prelim-cost-code-mappings";
+import { getWorkspaceTaxRates } from "@/lib/settings/tax-rates";
 import {
   ESTIMATE_EXPORT_REQUEST_EVENT,
   writeEstimateExportSnapshot,
@@ -1091,6 +1092,7 @@ const PRELIM_COLUMN_MIN_WIDTHS = [72, 220, 96, 64, 72, 90, 90, 120] as const;
 const PRELIM_DEFAULT_COLUMN_WIDTHS = [92, 520, 104, 78, 84, 118, 104, 150] as const;
 const BID_PACKAGE_AUTOSAVE_STORAGE_KEY = "bidding-all-new-package-autosave-v1";
 const BID_PROJECT_GENERAL_INFO_STORAGE_KEY = "bidding-project-general-info-v1";
+const ESTIMATE_FACTOR_ROWS_STORAGE_KEY = "estimateFactorRowsByProject";
 const ESTIMATE_GENERAL_CONDITIONS_STORAGE_KEY = "estimateGeneralConditionsRowsByProject";
 const ESTIMATE_GENERAL_CONDITIONS_QUANTITY_OVERRIDES_STORAGE_KEY =
   "estimateGeneralConditionsQuantityOverridesByProject";
@@ -1265,6 +1267,58 @@ function readEstimateWorksheetCostCodeGroupsMap(): Record<string, WorksheetCostC
   } catch {
     return {};
   }
+}
+
+function isFactorRow(value: unknown): value is FactorRow {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Partial<FactorRow>;
+  return (
+    typeof row.id === "string" &&
+    (row.category === "Insurance" ||
+      row.category === "Fees" ||
+      row.category === "Markups" ||
+      row.category === "Optional Costs") &&
+    (row.type === "Percent" || row.type === "Fixed") &&
+    typeof row.factorName === "string" &&
+    typeof row.value === "string" &&
+    typeof row.appliesTo === "string" &&
+    typeof row.notes === "string"
+  );
+}
+
+function readEstimateFactorRowsMap(): Record<string, FactorRow[]> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(ESTIMATE_FACTOR_ROWS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, FactorRow[]> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!Array.isArray(value)) continue;
+      next[key] = value.filter(isFactorRow);
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function writeEstimateFactorRows(projectIds: string[], rows: FactorRow[]) {
+  if (typeof window === "undefined" || projectIds.length === 0) return;
+  const current = readEstimateFactorRowsMap();
+  for (const projectId of projectIds) {
+    current[projectId] = rows;
+  }
+  localStorage.setItem(ESTIMATE_FACTOR_ROWS_STORAGE_KEY, JSON.stringify(current));
+}
+
+function mergeFactorRows(baseRows: FactorRow[], savedRows: FactorRow[]) {
+  const savedById = new Map(savedRows.map((row) => [row.id, row]));
+  return baseRows.map((baseRow) => {
+    const savedRow = savedById.get(baseRow.id);
+    return savedRow ? { ...baseRow, ...savedRow, id: baseRow.id } : baseRow;
+  });
 }
 
 function writeEstimateWorksheetCostCodeGroups(
@@ -1567,6 +1621,21 @@ const calculateDurationWeeks = (startIsoDate: string, endIsoDate: string) => {
 
 const sanitizeWholeNumberInput = (value: string) => value.replace(/\D/g, "");
 
+const resolveSelectedSalesTaxRow = (
+  cityNumber: string,
+  salesTaxRows: SalesTaxRow[],
+  unknownSalesTax: SalesTaxRow,
+  tiTax: SalesTaxRow,
+  notTaxable: SalesTaxRow
+) => {
+  const normalizedCityNumber = cityNumber.trim();
+  if (!normalizedCityNumber) return null;
+  if (normalizedCityNumber === unknownSalesTax.number) return unknownSalesTax;
+  if (normalizedCityNumber === tiTax.number) return tiTax;
+  if (normalizedCityNumber === notTaxable.number) return notTaxable;
+  return salesTaxRows.find((row) => row.number === normalizedCityNumber) ?? null;
+};
+
 export default function EstimateWorkspaceV2() {
   const searchParams = useSearchParams();
   const queryProjectId = searchParams.get("project");
@@ -1660,6 +1729,22 @@ export default function EstimateWorkspaceV2() {
     );
   }, [queryProjectId]);
   const prelimMarkupFeeRowConfig = useMemo(() => getPrelimMarkupFeeRowConfig(), []);
+
+  useEffect(() => {
+    const workspaceTaxRates = getWorkspaceTaxRates();
+    if (!workspaceTaxRates.length) return;
+
+    setSalesTaxRows((prev) => {
+      let changed = false;
+      const nextRows = prev.map((row) => {
+        const workspaceMatch = workspaceTaxRates.find((rate) => rate.id === row.id);
+        if (!workspaceMatch || workspaceMatch.rate === row.taxRate) return row;
+        changed = true;
+        return { ...row, taxRate: workspaceMatch.rate };
+      });
+      return changed ? nextRows : prev;
+    });
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -1779,6 +1864,22 @@ export default function EstimateWorkspaceV2() {
     );
   }, [estimateProjectStorageIds, worksheetCostCodeGroups]);
   useEffect(() => {
+    const savedRowsMap = readEstimateFactorRowsMap();
+    const savedRows =
+      estimateProjectStorageIds
+        .map((projectId) => savedRowsMap[projectId])
+        .find((rowsForProject) => rowsForProject && rowsForProject.length > 0) ?? [];
+    if (savedRows.length === 0) {
+      setRows(INITIAL_ROWS);
+      return;
+    }
+    setRows(mergeFactorRows(INITIAL_ROWS, savedRows));
+  }, [estimateProjectStorageIds]);
+  useEffect(() => {
+    if (estimateProjectStorageIds.length === 0) return;
+    writeEstimateFactorRows(estimateProjectStorageIds, rows);
+  }, [estimateProjectStorageIds, rows]);
+  useEffect(() => {
     if (!queryProjectId) return;
     const queryProjectIdValue: string = queryProjectId;
     let active = true;
@@ -1800,6 +1901,30 @@ export default function EstimateWorkspaceV2() {
       const generalInfoMap = readBidProjectGeneralInfoMap();
       const cachedInfo =
         generalInfoMap[resolvedProjectId] ?? generalInfoMap[queryProjectIdValue];
+      if (cachedInfo?.taxCityNumber) {
+        const cachedTaxCityNumber = cachedInfo.taxCityNumber.trim();
+        const matchingTaxRow = salesTaxRows.find((row) => row.id === cachedTaxCityNumber);
+
+        if (matchingTaxRow) {
+          setSelectedCityNumber(matchingTaxRow.number);
+          if (cachedInfo.taxRate.trim()) {
+            setSalesTaxRows((prev) =>
+              prev.map((row) =>
+                row.id === matchingTaxRow.id
+                  ? { ...row, taxRate: cachedInfo.taxRate.trim() }
+                  : row
+              )
+            );
+          }
+        } else {
+          setSelectedCityNumber(UNKNOWN_SALES_TAX.number);
+          setUnknownSalesTax((prev) => ({
+            ...prev,
+            city: cachedInfo.taxCityName.trim() || prev.city,
+            taxRate: cachedInfo.taxRate.trim() || prev.taxRate,
+          }));
+        }
+      }
       let selectedPrimaryUser: CompanyUserOption | null = null;
       if (cachedInfo?.primaryBiddingContact) {
         try {
@@ -1924,7 +2049,7 @@ export default function EstimateWorkspaceV2() {
     return () => {
       active = false;
     };
-  }, [queryProjectId]);
+  }, [queryProjectId, salesTaxRows]);
   useEffect(() => {
     const onMouseMove = (event: MouseEvent) => {
       const active = prelimResizeRef.current;
@@ -2598,6 +2723,33 @@ export default function EstimateWorkspaceV2() {
         ? (projectAdminFeeBase * warrantyRate) / 100
         : null;
 
+    const selectedSalesTaxRow = resolveSelectedSalesTaxRow(
+      selectedCityNumber,
+      salesTaxRows,
+      unknownSalesTax,
+      tiTax,
+      notTaxable
+    );
+    const selectedSalesTaxRate = parsePercentValue(selectedSalesTaxRow?.taxRate ?? "");
+    const selectedSalesTaxActualRate =
+      selectedSalesTaxRate !== null && selectedSalesTaxRate > 0
+        ? selectedSalesTaxRate * 0.65
+        : null;
+    const taxBase =
+      preliminarySubtotal +
+      (liabilityInsurance ?? 0) +
+      (buildersRisk ?? 0) +
+      (projectManagementSoftware ?? 0) +
+      (warrantyProvision ?? 0) +
+      (overhead ?? 0) +
+      (profit ?? 0) +
+      (performanceBond ?? 0) +
+      (contingency ?? 0);
+    const tax =
+      selectedSalesTaxActualRate !== null && taxBase > 0
+        ? (taxBase * selectedSalesTaxActualRate) / 100
+        : null;
+
     const amountByRowId: Record<string, number | null> = {
       "fees-general-liability":
         liabilityInsurance !== null && Number.isFinite(liabilityInsurance) && liabilityInsurance > 0
@@ -2626,11 +2778,20 @@ export default function EstimateWorkspaceV2() {
           : null,
       "fees-contingency":
         contingency !== null && Number.isFinite(contingency) && contingency > 0 ? contingency : null,
-      __tax__: null,
+      __tax__: tax !== null && Number.isFinite(tax) && tax > 0 ? tax : null,
     };
 
     return amountByRowId;
-  }, [feeRows, prelimMarkupFeeRowConfig, preliminarySubtotal]);
+  }, [
+    feeRows,
+    notTaxable,
+    prelimMarkupFeeRowConfig,
+    preliminarySubtotal,
+    salesTaxRows,
+    selectedCityNumber,
+    tiTax,
+    unknownSalesTax,
+  ]);
   const preliminaryMarkupRows = useMemo(
     () =>
       prelimMarkupFeeRowConfig.map((config) => ({
@@ -3967,7 +4128,7 @@ export default function EstimateWorkspaceV2() {
                   </thead>
                   <tbody>
                     {coverDivisionRows.map((row) => (
-                      <Fragment key={`cover-division-${row.divisionLabel}`}>
+                      <Fragment key={`cover-division-${row.divisionLabel}-${row.item}`}>
                         <tr className="bg-[#d9d9d9]">
                           <td className="border-b border-t-2 border-slate-500 px-2 py-2 text-sm">
                             {row.divisionLabel}
