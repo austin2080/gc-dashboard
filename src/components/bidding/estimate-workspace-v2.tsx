@@ -442,7 +442,7 @@ const INITIAL_COVER_PAGE_FIELDS: CoverPageField[] = [
   { id: "cover-contractor-city-state-zip", label: "Contractor City State Zip", value: "" },
   { id: "cover-contractor-phone", label: "Contractor Phone", value: "" },
   { id: "cover-contractor-email", label: "Contractor Email", value: "" },
-  { id: "cover-bid-set-date", label: "Bid Set Date", value: new Date().toLocaleDateString() },
+  { id: "cover-bid-set-date", label: "Bid Set Date", value: "" },
 ];
 
 const PROJECT_INFO_GRID_ROWS: Array<{
@@ -991,7 +991,7 @@ function createGeneralConditionsRowsFromCostCodes(): GeneralConditionsRow[] {
 }
 
 const formatCurrency = (value: number) =>
-  value.toLocaleString(undefined, {
+  value.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -1019,7 +1019,7 @@ const formatToTwoDecimals = (value: string) => {
 const formatCurrencyDisplayString = (value: string) => {
   const parsed = Number.parseFloat(value.replace(/[$,]/g, "").trim());
   if (!Number.isFinite(parsed)) return "";
-  return parsed.toLocaleString(undefined, {
+  return parsed.toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -1037,7 +1037,7 @@ const formatCurrencyInputWhileTyping = (value: string) => {
   const integerDigits = rawIntegerPart.replace(/\D/g, "");
   const decimalDigits = (rawDecimalPart ?? "").replace(/\D/g, "");
   const integerValue = integerDigits || "0";
-  const formattedInteger = Number.parseInt(integerValue, 10).toLocaleString(undefined, {
+  const formattedInteger = Number.parseInt(integerValue, 10).toLocaleString("en-US", {
     maximumFractionDigits: 0,
   });
 
@@ -1068,7 +1068,7 @@ const normalizeUnitPriceInput = (value: string) => {
   const formulaResult = evaluateUnitPriceFormula(value);
   if (formulaResult !== null) {
     return {
-      normalizedValue: formulaResult.toLocaleString(undefined, {
+      normalizedValue: formulaResult.toLocaleString("en-US", {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
@@ -1797,7 +1797,8 @@ const resolveSelectedSalesTaxRow = (
 function calculatePreliminaryMarkupAmounts(
   feeRows: FactorRow[],
   preliminarySubtotal: number,
-  selectedSalesTaxRow: SalesTaxRow | null
+  selectedSalesTaxRow: SalesTaxRow | null,
+  displayedGeneralConditionsAmount = 0
 ) {
   const feeValueById = feeRows.reduce<Record<string, string>>((acc, row) => {
     acc[row.id] = row.value;
@@ -1849,13 +1850,10 @@ function calculatePreliminaryMarkupAmounts(
     (profit ?? 0) +
     (performanceBond ?? 0) +
     (contingency ?? 0);
-  const projectManagementSoftware =
-    projectManagementRate !== null && projectManagementRate > 0
-      ? (projectAdminFeeBase * projectManagementRate) / 100
-      : null;
+  const warrantyBase = Math.max(projectAdminFeeBase - displayedGeneralConditionsAmount, 0);
   const warrantyProvision =
     warrantyRate !== null && warrantyRate > 0
-      ? (projectAdminFeeBase * warrantyRate) / 100
+      ? (warrantyBase * warrantyRate) / 100
       : null;
 
   const selectedSalesTaxRate = parsePercentValue(selectedSalesTaxRow?.taxRate ?? "");
@@ -1863,20 +1861,42 @@ function calculatePreliminaryMarkupAmounts(
     selectedSalesTaxRate !== null && selectedSalesTaxRate > 0
       ? selectedSalesTaxRate * 0.65
       : null;
-  const taxBase =
+  let projectManagementSoftware: number | null = null;
+  let tax: number | null = null;
+  const baseBeforeProjectManagement =
     preliminarySubtotal +
     (liabilityInsurance ?? 0) +
     (buildersRisk ?? 0) +
-    (projectManagementSoftware ?? 0) +
     (warrantyProvision ?? 0) +
     (overhead ?? 0) +
     (profit ?? 0) +
     (performanceBond ?? 0) +
     (contingency ?? 0);
-  const tax =
-    selectedSalesTaxActualRate !== null && taxBase > 0
-      ? (taxBase * selectedSalesTaxActualRate) / 100
-      : null;
+
+  for (let iteration = 0; iteration < 5; iteration += 1) {
+    const taxBase: number = baseBeforeProjectManagement + (projectManagementSoftware ?? 0);
+    const nextTax =
+      selectedSalesTaxActualRate !== null && taxBase > 0
+        ? (taxBase * selectedSalesTaxActualRate) / 100
+        : null;
+    const grandTotal: number = taxBase + (nextTax ?? 0);
+    const nextProjectManagementSoftware =
+      projectManagementRate !== null && projectManagementRate > 0 && grandTotal > 0
+        ? (grandTotal * projectManagementRate) / 100
+        : null;
+
+    if (
+      Math.abs((nextProjectManagementSoftware ?? 0) - (projectManagementSoftware ?? 0)) < 0.005 &&
+      Math.abs((nextTax ?? 0) - (tax ?? 0)) < 0.005
+    ) {
+      projectManagementSoftware = nextProjectManagementSoftware;
+      tax = nextTax;
+      break;
+    }
+
+    projectManagementSoftware = nextProjectManagementSoftware;
+    tax = nextTax;
+  }
 
   return {
     "fees-general-liability":
@@ -2832,7 +2852,7 @@ export default function EstimateWorkspaceV2() {
       const numericAmount = Number.parseFloat(row.amount.replace(/,/g, ""));
       return sum + (Number.isNaN(numericAmount) ? 0 : numericAmount);
     }, 0);
-    return total.toLocaleString(undefined, {
+    return total.toLocaleString("en-US", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     });
@@ -2919,7 +2939,8 @@ export default function EstimateWorkspaceV2() {
     let amounts = calculatePreliminaryMarkupAmounts(
       feeRows,
       nonDivisionOneWorksheetSubtotal + standaloneDivisionOneWorksheetTotal + gcDisplayedTotal,
-      selectedSalesTaxRow
+      selectedSalesTaxRow,
+      gcDisplayedTotal
     );
 
     for (let iteration = 0; iteration < 5; iteration += 1) {
@@ -2935,7 +2956,8 @@ export default function EstimateWorkspaceV2() {
       amounts = calculatePreliminaryMarkupAmounts(
         feeRows,
         nonDivisionOneWorksheetSubtotal + standaloneDivisionOneWorksheetTotal + gcDisplayedTotal,
-        selectedSalesTaxRow
+        selectedSalesTaxRow,
+        gcDisplayedTotal
       );
     }
 
@@ -3303,6 +3325,20 @@ export default function EstimateWorkspaceV2() {
     preliminarySubtotal,
     coverRowVisibilityFilter,
   ]);
+  const filteredCoverMarkupRows = useMemo(
+    () =>
+      preliminaryMarkupRows.filter((row) =>
+        matchesRowVisibilityFilter(row.amount !== null, coverRowVisibilityFilter)
+      ),
+    [coverRowVisibilityFilter, preliminaryMarkupRows]
+  );
+  const filteredWorksheetMarkupRows = useMemo(
+    () =>
+      preliminaryMarkupRows.filter((row) =>
+        matchesRowVisibilityFilter(row.amount !== null, prelimWorksheetRowVisibilityFilter)
+      ),
+    [prelimWorksheetRowVisibilityFilter, preliminaryMarkupRows]
+  );
   const exportProjectId = useMemo(
     () => getBidProjectIdForProject(queryProjectId ?? "") ?? queryProjectId ?? "",
     [queryProjectId]
@@ -4199,7 +4235,7 @@ export default function EstimateWorkspaceV2() {
                     <tr className="bg-[#e8792e]">
                       <td colSpan={6} className="border-b border-[#c96420] px-4 py-2"></td>
                       <td className="border-b border-r border-[#c96420] px-4 py-2 text-right text-2xl font-semibold text-white">
-                        ${displayedGeneralConditionsTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        ${displayedGeneralConditionsTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="border-b border-[#c96420] px-2 py-2"></td>
                     </tr>
@@ -4215,11 +4251,11 @@ export default function EstimateWorkspaceV2() {
                         <div className="space-y-1 text-2xl leading-tight text-slate-900">
                           <div>
                             <span className="mr-3">$</span>
-                            <span>{displayedGeneralConditionsWeekly.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            <span>{displayedGeneralConditionsWeekly.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           </div>
                           <div>
                             <span className="mr-3">$</span>
-                            <span>{displayedGeneralConditionsMonthly.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            <span>{displayedGeneralConditionsMonthly.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           </div>
                         </div>
                       </td>
@@ -4500,7 +4536,7 @@ export default function EstimateWorkspaceV2() {
                     <tr className="bg-[#c8c8c8]">
                       <td colSpan={5} className="h-4 border-b border-slate-500"></td>
                     </tr>
-                    {preliminaryMarkupRows.map((markupRow) => (
+                    {filteredCoverMarkupRows.map((markupRow) => (
                       <tr key={`cover-footer-${markupRow.label}`} className="bg-[#c8c8c8]">
                         <td className="px-2 py-1 text-left text-xs font-medium text-slate-700">
                           {markupRow.costCode}
@@ -5128,7 +5164,7 @@ export default function EstimateWorkspaceV2() {
                         <tr className="bg-[#c8c8c8]">
                           <td colSpan={8} className="h-5 border-b border-slate-300"></td>
                         </tr>
-                        {preliminaryMarkupRows.map((markupRow) => (
+                        {filteredWorksheetMarkupRows.map((markupRow) => (
                           <tr key={markupRow.label} className="bg-[#c8c8c8]">
                             <td className="px-2 py-1 text-left text-xs font-medium text-slate-700">
                               {markupRow.costCode}
