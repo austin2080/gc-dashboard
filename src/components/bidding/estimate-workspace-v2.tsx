@@ -128,6 +128,16 @@ type FilteredWorksheetDivisionGroup = {
   costCodeGroups: FilteredWorksheetRenderedCostCodeGroup[];
   subtotal: number;
 };
+type CoverDivisionRow = {
+  editKey: string;
+  divisionLabel: string;
+  item: string;
+  subtotal: number;
+  dollarsPerSf: number | null;
+  scopePercent: number | null;
+  summaryDescription: string;
+  showSummaryRow: boolean;
+};
 type SectionKey =
   | "projectInfo"
   | "fees"
@@ -1763,6 +1773,12 @@ const COVER_DIVISION_OVERRIDES: Record<
   },
 };
 
+const DIVISION_ONE_STANDALONE_WORKSHEET_CODES = new Set([
+  "01015401",
+  "01016500",
+  "01016600",
+]);
+
 const resolveSelectedSalesTaxRow = (
   cityNumber: string,
   salesTaxRows: SalesTaxRow[],
@@ -1777,6 +1793,122 @@ const resolveSelectedSalesTaxRow = (
   if (normalizedCityNumber === notTaxable.number) return notTaxable;
   return salesTaxRows.find((row) => row.number === normalizedCityNumber) ?? null;
 };
+
+function calculatePreliminaryMarkupAmounts(
+  feeRows: FactorRow[],
+  preliminarySubtotal: number,
+  selectedSalesTaxRow: SalesTaxRow | null
+) {
+  const feeValueById = feeRows.reduce<Record<string, string>>((acc, row) => {
+    acc[row.id] = row.value;
+    return acc;
+  }, {});
+  const getNumericValue = (rowId: string) => {
+    const raw = feeValueById[rowId];
+    if (!raw) return null;
+    return parsePercentValue(raw);
+  };
+
+  const liabilityRate = getNumericValue("fees-general-liability");
+  const buildersRiskRate = getNumericValue("fees-builders-risk");
+  const projectManagementRate = getNumericValue("fees-project-management");
+  const warrantyRate = getNumericValue("fees-warranty");
+  const overheadRate = getNumericValue("fees-overhead");
+  const profitRate = getNumericValue("fees-profit");
+  const performanceBondRate = getNumericValue("fees-performance-bond");
+  const contingencyRate = getNumericValue("fees-contingency");
+
+  const liabilityInsurance =
+    liabilityRate !== null && liabilityRate > 0
+      ? (preliminarySubtotal / 1000) * liabilityRate
+      : null;
+  const buildersRiskBase = preliminarySubtotal + (liabilityInsurance ?? 0);
+  const buildersRisk =
+    buildersRiskRate !== null && buildersRiskRate > 0
+      ? (buildersRiskBase / 100) * buildersRiskRate
+      : null;
+  const overheadBase = preliminarySubtotal + (liabilityInsurance ?? 0) + (buildersRisk ?? 0);
+  const overhead =
+    overheadRate !== null && overheadRate > 0 ? (overheadBase * overheadRate) / 100 : null;
+  const profitBase = overheadBase + (overhead ?? 0);
+  const profit =
+    profitRate !== null && profitRate > 0 ? (profitBase * profitRate) / 100 : null;
+  const performanceBond =
+    performanceBondRate !== null && performanceBondRate > 0
+      ? (preliminarySubtotal * performanceBondRate) / 100
+      : null;
+  const contingency =
+    contingencyRate !== null && contingencyRate > 0
+      ? (preliminarySubtotal * contingencyRate) / 100
+      : null;
+  const projectAdminFeeBase =
+    preliminarySubtotal +
+    (liabilityInsurance ?? 0) +
+    (buildersRisk ?? 0) +
+    (overhead ?? 0) +
+    (profit ?? 0) +
+    (performanceBond ?? 0) +
+    (contingency ?? 0);
+  const projectManagementSoftware =
+    projectManagementRate !== null && projectManagementRate > 0
+      ? (projectAdminFeeBase * projectManagementRate) / 100
+      : null;
+  const warrantyProvision =
+    warrantyRate !== null && warrantyRate > 0
+      ? (projectAdminFeeBase * warrantyRate) / 100
+      : null;
+
+  const selectedSalesTaxRate = parsePercentValue(selectedSalesTaxRow?.taxRate ?? "");
+  const selectedSalesTaxActualRate =
+    selectedSalesTaxRate !== null && selectedSalesTaxRate > 0
+      ? selectedSalesTaxRate * 0.65
+      : null;
+  const taxBase =
+    preliminarySubtotal +
+    (liabilityInsurance ?? 0) +
+    (buildersRisk ?? 0) +
+    (projectManagementSoftware ?? 0) +
+    (warrantyProvision ?? 0) +
+    (overhead ?? 0) +
+    (profit ?? 0) +
+    (performanceBond ?? 0) +
+    (contingency ?? 0);
+  const tax =
+    selectedSalesTaxActualRate !== null && taxBase > 0
+      ? (taxBase * selectedSalesTaxActualRate) / 100
+      : null;
+
+  return {
+    "fees-general-liability":
+      liabilityInsurance !== null && Number.isFinite(liabilityInsurance) && liabilityInsurance > 0
+        ? liabilityInsurance
+        : null,
+    "fees-builders-risk":
+      buildersRisk !== null && Number.isFinite(buildersRisk) && buildersRisk > 0
+        ? buildersRisk
+        : null,
+    "fees-project-management":
+      projectManagementSoftware !== null &&
+      Number.isFinite(projectManagementSoftware) &&
+      projectManagementSoftware > 0
+        ? projectManagementSoftware
+        : null,
+    "fees-warranty":
+      warrantyProvision !== null && Number.isFinite(warrantyProvision) && warrantyProvision > 0
+        ? warrantyProvision
+        : null,
+    "fees-overhead":
+      overhead !== null && Number.isFinite(overhead) && overhead > 0 ? overhead : null,
+    "fees-profit": profit !== null && Number.isFinite(profit) && profit > 0 ? profit : null,
+    "fees-performance-bond":
+      performanceBond !== null && Number.isFinite(performanceBond) && performanceBond > 0
+        ? performanceBond
+        : null,
+    "fees-contingency":
+      contingency !== null && Number.isFinite(contingency) && contingency > 0 ? contingency : null,
+    __tax__: tax !== null && Number.isFinite(tax) && tax > 0 ? tax : null,
+  } satisfies Record<string, number | null>;
+}
 
 export default function EstimateWorkspaceV2() {
   const searchParams = useSearchParams();
@@ -2734,6 +2866,106 @@ export default function EstimateWorkspaceV2() {
       ? generalConditionsTotal / projectDurationWeeks
       : 0;
   const generalConditionsMonthly = generalConditionsWeekly * 4;
+  const selectedSalesTaxRow = useMemo(
+    () =>
+      resolveSelectedSalesTaxRow(
+        selectedCityNumber,
+        salesTaxRows,
+        unknownSalesTax,
+        tiTax,
+        notTaxable
+      ),
+    [notTaxable, salesTaxRows, selectedCityNumber, tiTax, unknownSalesTax]
+  );
+  const standaloneDivisionOneWorksheetTotal = useMemo(
+    () =>
+      worksheetCostCodeGroups.reduce((sum, group) => {
+        if (!DIVISION_ONE_STANDALONE_WORKSHEET_CODES.has(normalizeCostCodeKey(group.code))) {
+          return sum;
+        }
+        return (
+          sum +
+          group.lineItems.reduce((lineSum, lineItem) => {
+            if (isExcludedWorksheetUnit(lineItem.unit)) return lineSum;
+            const quantity = parseNumericInput(lineItem.quantity);
+            const unitPrice = parseNumericInput(lineItem.unitPrice);
+            const gcMarkup = parseNumericInput(lineItem.gcMarkup);
+            return lineSum + quantity * unitPrice + gcMarkup;
+          }, 0)
+        );
+      }, 0),
+    [worksheetCostCodeGroups]
+  );
+  const nonDivisionOneWorksheetSubtotal = useMemo(
+    () =>
+      worksheetCostCodeGroups.reduce((sum, group) => {
+        const normalizedCode = normalizeCostCodeKey(group.code);
+        if (normalizedCode.startsWith("01")) return sum;
+        return (
+          sum +
+          group.lineItems.reduce((lineSum, lineItem) => {
+            if (isExcludedWorksheetUnit(lineItem.unit)) return lineSum;
+            const quantity = parseNumericInput(lineItem.quantity);
+            const unitPrice = parseNumericInput(lineItem.unitPrice);
+            const gcMarkup = parseNumericInput(lineItem.gcMarkup);
+            return lineSum + quantity * unitPrice + gcMarkup;
+          }, 0)
+        );
+      }, 0),
+    [worksheetCostCodeGroups]
+  );
+  const preliminaryMarkupCalculations = useMemo(() => {
+    let gcDisplayedTotal = generalConditionsTotal;
+    let amounts = calculatePreliminaryMarkupAmounts(
+      feeRows,
+      nonDivisionOneWorksheetSubtotal + standaloneDivisionOneWorksheetTotal + gcDisplayedTotal,
+      selectedSalesTaxRow
+    );
+
+    for (let iteration = 0; iteration < 5; iteration += 1) {
+      const nextGcDisplayedTotal =
+        generalConditionsTotal +
+        (amounts["fees-project-management"] ?? 0) +
+        (amounts["fees-warranty"] ?? 0);
+      if (Math.abs(nextGcDisplayedTotal - gcDisplayedTotal) < 0.005) {
+        gcDisplayedTotal = nextGcDisplayedTotal;
+        break;
+      }
+      gcDisplayedTotal = nextGcDisplayedTotal;
+      amounts = calculatePreliminaryMarkupAmounts(
+        feeRows,
+        nonDivisionOneWorksheetSubtotal + standaloneDivisionOneWorksheetTotal + gcDisplayedTotal,
+        selectedSalesTaxRow
+      );
+    }
+
+    return {
+      ...amounts,
+      "__gc_display_total__": gcDisplayedTotal,
+    } satisfies Record<string, number | null>;
+  }, [
+    feeRows,
+    generalConditionsTotal,
+    nonDivisionOneWorksheetSubtotal,
+    selectedSalesTaxRow,
+    standaloneDivisionOneWorksheetTotal,
+  ]);
+  const preliminaryMarkupRows = useMemo(
+    () =>
+      prelimMarkupFeeRowConfig.map((config) => ({
+        costCode: config.costCode,
+        label: config.label,
+        amount: preliminaryMarkupCalculations[config.rowId] ?? null,
+      })),
+    [preliminaryMarkupCalculations, prelimMarkupFeeRowConfig]
+  );
+  const preliminaryMarkupAmountByRowId = useMemo<Record<string, number | null>>(() => {
+    return preliminaryMarkupCalculations;
+  }, [preliminaryMarkupCalculations]);
+  const displayedGeneralConditionsTotal = useMemo(
+    () => preliminaryMarkupAmountByRowId["__gc_display_total__"] ?? generalConditionsTotal,
+    [generalConditionsTotal, preliminaryMarkupAmountByRowId]
+  );
   const worksheetDivisionGroups = useMemo(() => {
     const grouped = worksheetCostCodeGroups.reduce<Record<string, WorksheetCostCodeGroup[]>>(
       (acc, group) => {
@@ -2768,6 +3000,9 @@ export default function EstimateWorkspaceV2() {
           }, 0);
           return { ...group, total };
         });
+        const divisionOneStandaloneGroups = groupsWithTotals.filter((group) =>
+          DIVISION_ONE_STANDALONE_WORKSHEET_CODES.has(normalizeCostCodeKey(group.code))
+        );
         const renderedCostCodeGroups =
           divisionCode === "01" && normalizeCostCodeDescription(divisionTitle) === "generalconditions"
             ? [
@@ -2777,14 +3012,16 @@ export default function EstimateWorkspaceV2() {
                   title: "General Conditions",
                   division,
                   lineItems: [],
-                  total: generalConditionsTotal,
+                  total: displayedGeneralConditionsTotal,
                   readOnlyRollup: true,
                 } satisfies WorksheetRenderedCostCodeGroup,
+                ...divisionOneStandaloneGroups,
               ]
             : groupsWithTotals;
         const subtotal =
           divisionCode === "01" && normalizeCostCodeDescription(divisionTitle) === "generalconditions"
-            ? generalConditionsTotal
+            ? displayedGeneralConditionsTotal +
+              divisionOneStandaloneGroups.reduce((sum, group) => sum + group.total, 0)
             : renderedCostCodeGroups.reduce((sum, group) => sum + group.total, 0);
         return {
           division,
@@ -2806,7 +3043,7 @@ export default function EstimateWorkspaceV2() {
         if (sortByCode !== 0) return sortByCode;
         return a.divisionTitle.localeCompare(b.divisionTitle, undefined, { numeric: true });
       });
-  }, [worksheetCostCodeGroups, generalConditionsTotal]);
+  }, [displayedGeneralConditionsTotal, worksheetCostCodeGroups]);
   const preliminarySubtotal = useMemo(
     () => worksheetDivisionGroups.reduce((sum, group) => sum + group.subtotal, 0),
     [worksheetDivisionGroups]
@@ -2824,146 +3061,6 @@ export default function EstimateWorkspaceV2() {
       ),
     [worksheetCostCodeGroups]
   );
-  const preliminaryMarkupCalculations = useMemo(() => {
-    const feeValueById = feeRows.reduce<Record<string, string>>((acc, row) => {
-      acc[row.id] = row.value;
-      return acc;
-    }, {});
-    const getNumericValue = (rowId: string) => {
-      const raw = feeValueById[rowId];
-      if (!raw) return null;
-      return parsePercentValue(raw);
-    };
-    const liabilityRate = getNumericValue("fees-general-liability");
-    const buildersRiskRate = getNumericValue("fees-builders-risk");
-    const projectManagementRate = getNumericValue("fees-project-management");
-    const warrantyRate = getNumericValue("fees-warranty");
-    const overheadRate = getNumericValue("fees-overhead");
-    const profitRate = getNumericValue("fees-profit");
-    const performanceBondRate = getNumericValue("fees-performance-bond");
-    const contingencyRate = getNumericValue("fees-contingency");
-
-    const liabilityInsurance =
-      liabilityRate !== null && liabilityRate > 0
-        ? (preliminarySubtotal / 1000) * liabilityRate
-        : null;
-    const buildersRiskBase = preliminarySubtotal + (liabilityInsurance ?? 0);
-    const buildersRisk =
-      buildersRiskRate !== null && buildersRiskRate > 0
-        ? (buildersRiskBase / 100) * buildersRiskRate
-        : null;
-    const overheadBase = preliminarySubtotal + (liabilityInsurance ?? 0) + (buildersRisk ?? 0);
-    const overhead =
-      overheadRate !== null && overheadRate > 0 ? (overheadBase * overheadRate) / 100 : null;
-    const profitBase = overheadBase + (overhead ?? 0);
-    const profit =
-      profitRate !== null && profitRate > 0 ? (profitBase * profitRate) / 100 : null;
-    const performanceBond =
-      performanceBondRate !== null && performanceBondRate > 0
-        ? (preliminarySubtotal * performanceBondRate) / 100
-        : null;
-    const contingency =
-      contingencyRate !== null && contingencyRate > 0
-        ? (preliminarySubtotal * contingencyRate) / 100
-        : null;
-    const projectAdminFeeBase =
-      preliminarySubtotal +
-      (liabilityInsurance ?? 0) +
-      (buildersRisk ?? 0) +
-      (overhead ?? 0) +
-      (profit ?? 0) +
-      (performanceBond ?? 0) +
-      (contingency ?? 0);
-    const projectManagementSoftware =
-      projectManagementRate !== null && projectManagementRate > 0
-        ? (projectAdminFeeBase * projectManagementRate) / 100
-        : null;
-    const warrantyProvision =
-      warrantyRate !== null && warrantyRate > 0
-        ? (projectAdminFeeBase * warrantyRate) / 100
-        : null;
-
-    const selectedSalesTaxRow = resolveSelectedSalesTaxRow(
-      selectedCityNumber,
-      salesTaxRows,
-      unknownSalesTax,
-      tiTax,
-      notTaxable
-    );
-    const selectedSalesTaxRate = parsePercentValue(selectedSalesTaxRow?.taxRate ?? "");
-    const selectedSalesTaxActualRate =
-      selectedSalesTaxRate !== null && selectedSalesTaxRate > 0
-        ? selectedSalesTaxRate * 0.65
-        : null;
-    const taxBase =
-      preliminarySubtotal +
-      (liabilityInsurance ?? 0) +
-      (buildersRisk ?? 0) +
-      (projectManagementSoftware ?? 0) +
-      (warrantyProvision ?? 0) +
-      (overhead ?? 0) +
-      (profit ?? 0) +
-      (performanceBond ?? 0) +
-      (contingency ?? 0);
-    const tax =
-      selectedSalesTaxActualRate !== null && taxBase > 0
-        ? (taxBase * selectedSalesTaxActualRate) / 100
-        : null;
-
-    const amountByRowId: Record<string, number | null> = {
-      "fees-general-liability":
-        liabilityInsurance !== null && Number.isFinite(liabilityInsurance) && liabilityInsurance > 0
-          ? liabilityInsurance
-          : null,
-      "fees-builders-risk":
-        buildersRisk !== null && Number.isFinite(buildersRisk) && buildersRisk > 0
-          ? buildersRisk
-          : null,
-      "fees-project-management":
-        projectManagementSoftware !== null &&
-        Number.isFinite(projectManagementSoftware) &&
-        projectManagementSoftware > 0
-          ? projectManagementSoftware
-          : null,
-      "fees-warranty":
-        warrantyProvision !== null && Number.isFinite(warrantyProvision) && warrantyProvision > 0
-          ? warrantyProvision
-          : null,
-      "fees-overhead":
-        overhead !== null && Number.isFinite(overhead) && overhead > 0 ? overhead : null,
-      "fees-profit": profit !== null && Number.isFinite(profit) && profit > 0 ? profit : null,
-      "fees-performance-bond":
-        performanceBond !== null && Number.isFinite(performanceBond) && performanceBond > 0
-          ? performanceBond
-          : null,
-      "fees-contingency":
-        contingency !== null && Number.isFinite(contingency) && contingency > 0 ? contingency : null,
-      __tax__: tax !== null && Number.isFinite(tax) && tax > 0 ? tax : null,
-    };
-
-    return amountByRowId;
-  }, [
-    feeRows,
-    notTaxable,
-    prelimMarkupFeeRowConfig,
-    preliminarySubtotal,
-    salesTaxRows,
-    selectedCityNumber,
-    tiTax,
-    unknownSalesTax,
-  ]);
-  const preliminaryMarkupRows = useMemo(
-    () =>
-      prelimMarkupFeeRowConfig.map((config) => ({
-        costCode: config.costCode,
-        label: config.label,
-        amount: preliminaryMarkupCalculations[config.rowId] ?? null,
-      })),
-    [preliminaryMarkupCalculations, prelimMarkupFeeRowConfig]
-  );
-  const preliminaryMarkupAmountByRowId = useMemo(() => {
-    return preliminaryMarkupCalculations;
-  }, [preliminaryMarkupCalculations]);
   const displayedGeneralConditionsRows = useMemo<DisplayedGeneralConditionsRow[]>(
     () =>
       computedGeneralConditionsRows.map((row) => {
@@ -3001,14 +3098,6 @@ export default function EstimateWorkspaceV2() {
         return matchesRowVisibilityFilter(hasValue, generalConditionsRowVisibilityFilter);
       }),
     [displayedGeneralConditionsRows, generalConditionsRowVisibilityFilter]
-  );
-  const displayedGeneralConditionsTotal = useMemo(
-    () =>
-      displayedGeneralConditionsRows.reduce(
-        (sum, row) => sum + (row.computedTotal !== null ? row.computedTotal : 0),
-        0
-      ),
-    [displayedGeneralConditionsRows]
   );
   const displayedGeneralConditionsWeekly =
     projectDurationWeeks && projectDurationWeeks > 0
@@ -3134,82 +3223,71 @@ export default function EstimateWorkspaceV2() {
       }),
     [derivedProjectDataValueById, projectDataRows]
   );
-  const coverDivisionRows = useMemo(() => {
+  const coverDivisionRows = useMemo<CoverDivisionRow[]>(() => {
     return worksheetDivisionGroups
-      .reduce<
-        Array<{
-          divisionLabel: string;
-          item: string;
-          subtotal: number;
-          dollarsPerSf: number | null;
-          scopePercent: number | null;
-          summaryDescription: string;
-        }>
-      >((rows, group) => {
+      .reduce<CoverDivisionRow[]>((rows, group) => {
         const divisionLabel = group.divisionCode ? `DIVISION ${group.divisionCode}` : group.division;
         const coverDivisionOverride = group.divisionCode
           ? COVER_DIVISION_OVERRIDES[group.divisionCode]
           : undefined;
-        const itemTitles = group.costCodeGroups
-          .map((costCodeGroup) => costCodeGroup.title.trim())
-          .filter((title) => title.length > 0);
-        const lineDescriptions = group.costCodeGroups
-          .flatMap((costCodeGroup) => costCodeGroup.lineItems.map((line) => line.description.trim()))
-          .filter((line) => line.length > 0);
-        const existingRow = rows.find((row) => row.divisionLabel === divisionLabel);
 
-        if (!existingRow) {
-          const summaryDescription = lineDescriptions.slice(0, 2).join(", ");
-          const dollarsPerSf =
-            coverProjectSquareFeet && coverProjectSquareFeet > 0
-              ? group.subtotal / coverProjectSquareFeet
-              : null;
-          const scopePercent =
-            preliminarySubtotal > 0 ? (group.subtotal / preliminarySubtotal) * 100 : null;
+        if (group.divisionCode === "01") {
+          const existingDivisionOneRow = rows.find(
+            (row) => row.editKey === `${divisionLabel}-general-conditions`
+          );
+          if (existingDivisionOneRow) {
+            existingDivisionOneRow.subtotal += group.subtotal;
+            existingDivisionOneRow.dollarsPerSf =
+              coverProjectSquareFeet && coverProjectSquareFeet > 0
+                ? existingDivisionOneRow.subtotal / coverProjectSquareFeet
+                : null;
+            existingDivisionOneRow.scopePercent =
+              preliminarySubtotal > 0
+                ? (existingDivisionOneRow.subtotal / preliminarySubtotal) * 100
+                : null;
+            return rows;
+          }
 
           rows.push({
+            editKey: `${divisionLabel}-general-conditions`,
             divisionLabel,
-            item:
-              coverDivisionOverride?.item ??
-              Array.from(new Set(itemTitles)).join(", ").toUpperCase(),
+            item: coverDivisionOverride?.item ?? "GENERAL CONDITIONS",
             subtotal: group.subtotal,
-            dollarsPerSf,
-            scopePercent,
-            summaryDescription: coverDivisionOverride?.summaryDescription ?? summaryDescription,
+            dollarsPerSf:
+              coverProjectSquareFeet && coverProjectSquareFeet > 0
+                ? group.subtotal / coverProjectSquareFeet
+                : null,
+            scopePercent:
+              preliminarySubtotal > 0 ? (group.subtotal / preliminarySubtotal) * 100 : null,
+            summaryDescription: coverDivisionOverride?.summaryDescription ?? "",
+            showSummaryRow: true,
           });
           return rows;
         }
 
-        const mergedItemTitles = Array.from(
-          new Set(
-            [existingRow.item, ...itemTitles.map((title) => title.toUpperCase())].filter(Boolean)
-          )
-        );
-        const mergedDescriptions = Array.from(
-          new Set(
-            [existingRow.summaryDescription, ...lineDescriptions]
-              .flatMap((value) => value.split(","))
-              .map((value) => value.trim())
-              .filter(Boolean)
-          )
-        );
-        existingRow.item = mergedItemTitles.join(", ");
-        existingRow.subtotal += group.subtotal;
-        existingRow.summaryDescription = mergedDescriptions.slice(0, 2).join(", ");
-        existingRow.dollarsPerSf =
-          coverProjectSquareFeet && coverProjectSquareFeet > 0
-            ? existingRow.subtotal / coverProjectSquareFeet
-            : null;
-        existingRow.scopePercent =
-          preliminarySubtotal > 0 ? (existingRow.subtotal / preliminarySubtotal) * 100 : null;
-        if (coverDivisionOverride) {
-          existingRow.item = coverDivisionOverride.item;
-          existingRow.summaryDescription = coverDivisionOverride.summaryDescription ?? "";
-        }
+        const itemTitles = group.costCodeGroups
+          .filter((costCodeGroup) => costCodeGroup.total > 0)
+          .map((costCodeGroup) => costCodeGroup.title.trim())
+          .filter((title) => title.length > 0);
+
+        rows.push({
+          editKey: divisionLabel,
+          divisionLabel,
+          item: coverDivisionOverride?.item ?? group.divisionTitle.toUpperCase(),
+          subtotal: group.subtotal,
+          dollarsPerSf:
+            coverProjectSquareFeet && coverProjectSquareFeet > 0
+              ? group.subtotal / coverProjectSquareFeet
+              : null,
+          scopePercent:
+            preliminarySubtotal > 0 ? (group.subtotal / preliminarySubtotal) * 100 : null,
+          summaryDescription: itemTitles.join(", "),
+          showSummaryRow: true,
+        });
         return rows;
       }, [])
       .map((row) => {
-        const edit = coverDivisionEdits[row.divisionLabel];
+        const edit = coverDivisionEdits[row.editKey];
         if (!edit) return row;
         return {
           ...row,
@@ -4354,7 +4432,7 @@ export default function EstimateWorkspaceV2() {
                   </thead>
                   <tbody>
                     {coverDivisionRows.map((row) => (
-                      <Fragment key={`cover-division-${row.divisionLabel}-${row.item}`}>
+                      <Fragment key={`cover-division-${row.editKey}`}>
                         <tr className="bg-[#d9d9d9]">
                           <td className="whitespace-nowrap border-b border-t-2 border-slate-500 px-2 py-2 text-sm">
                             {row.divisionLabel}
@@ -4365,10 +4443,10 @@ export default function EstimateWorkspaceV2() {
                               onChange={(event) =>
                                 setCoverDivisionEdits((prev) => ({
                                   ...prev,
-                                  [row.divisionLabel]: {
+                                  [row.editKey]: {
                                     item: event.target.value,
                                     summaryDescription:
-                                      prev[row.divisionLabel]?.summaryDescription ??
+                                      prev[row.editKey]?.summaryDescription ??
                                       row.summaryDescription,
                                   },
                                 }))
@@ -4386,25 +4464,27 @@ export default function EstimateWorkspaceV2() {
                             {row.scopePercent === null ? "0%" : `${Math.round(row.scopePercent)}%`}
                           </td>
                         </tr>
-                        <tr className="bg-[#c8c8c8]">
-                          <td className="border-b border-slate-500 px-2 py-1"></td>
-                          <td colSpan={4} className="border-b border-slate-500 p-0">
-                            <input
-                              value={row.summaryDescription}
-                              onChange={(event) =>
-                                setCoverDivisionEdits((prev) => ({
-                                  ...prev,
-                                  [row.divisionLabel]: {
-                                    item: prev[row.divisionLabel]?.item ?? row.item,
-                                    summaryDescription: event.target.value,
-                                  },
-                                }))
-                              }
-                              className="h-9 w-full border-0 bg-transparent px-2 py-1 text-sm italic focus:bg-white focus:outline-none"
-                              placeholder="Add subheading"
-                            />
-                          </td>
-                        </tr>
+                        {row.showSummaryRow ? (
+                          <tr className="bg-[#c8c8c8]">
+                            <td className="border-b border-slate-500 px-2 py-1"></td>
+                            <td colSpan={4} className="border-b border-slate-500 p-0">
+                              <input
+                                value={row.summaryDescription}
+                                onChange={(event) =>
+                                  setCoverDivisionEdits((prev) => ({
+                                    ...prev,
+                                    [row.editKey]: {
+                                      item: prev[row.editKey]?.item ?? row.item,
+                                      summaryDescription: event.target.value,
+                                    },
+                                  }))
+                                }
+                                className="h-9 w-full border-0 bg-transparent px-2 py-1 text-sm italic focus:bg-white focus:outline-none"
+                                placeholder="Add subheading"
+                              />
+                            </td>
+                          </tr>
+                        ) : null}
                       </Fragment>
                     ))}
                     <tr className="bg-[#e8792e] text-white">
