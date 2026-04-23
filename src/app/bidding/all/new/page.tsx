@@ -111,6 +111,7 @@ type BidPackageDraft = {
   tax_city_number: string;
   tax_city_name: string;
   tax_rate: string;
+  tax_exempt: boolean;
   anticipated_award_date: string;
   countdown_emails: boolean;
   accept_submissions_past_due: boolean;
@@ -617,6 +618,7 @@ function createDefaultDraft(): BidPackageDraft {
     tax_city_number: "",
     tax_city_name: "",
     tax_rate: "",
+    tax_exempt: false,
     anticipated_award_date: "",
     countdown_emails: false,
     accept_submissions_past_due: false,
@@ -842,6 +844,7 @@ type BidProjectGeneralInfoCacheRow = {
   taxCityNumber: string;
   taxCityName: string;
   taxRate: string;
+  taxExempt: boolean;
 };
 
 const MANUAL_TAX_CITY_VALUE = "__manual";
@@ -889,6 +892,7 @@ function readBidProjectGeneralInfoMap(): Record<string, BidProjectGeneralInfoCac
         taxCityNumber: typeof row.taxCityNumber === "string" ? row.taxCityNumber : "",
         taxCityName: typeof row.taxCityName === "string" ? row.taxCityName : "",
         taxRate: typeof row.taxRate === "string" ? row.taxRate : "",
+        taxExempt: typeof row.taxExempt === "boolean" ? row.taxExempt : false,
       };
     }
     return next;
@@ -926,6 +930,7 @@ function writeBidProjectGeneralInfo(projectId: string, draft: BidPackageDraft) {
     taxCityNumber: (draft.tax_city_number ?? "").trim(),
     taxCityName: (draft.tax_city_name ?? "").trim(),
     taxRate: (draft.tax_rate ?? "").trim(),
+    taxExempt: Boolean(draft.tax_exempt),
   };
   writeBidProjectGeneralInfoMap(current);
 }
@@ -1365,6 +1370,7 @@ export default function NewBidPackagePage() {
           tax_city_number: cachedGeneralInfo?.taxCityNumber ?? "",
           tax_city_name: cachedGeneralInfo?.taxCityName ?? "",
           tax_rate: cachedGeneralInfo?.taxRate ?? "",
+          tax_exempt: cachedGeneralInfo?.taxExempt ?? false,
           budget:
             detail.project.budget !== null && detail.project.budget !== undefined
               ? String(detail.project.budget)
@@ -3119,15 +3125,58 @@ export default function NewBidPackagePage() {
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Tax Rate
-                <input
-                  value={displayedProjectTaxRate}
-                  disabled
-                  className="rounded-md border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-500 shadow-sm"
-                  placeholder="-"
-                />
+                <div
+                  className={`flex min-h-10 items-center justify-between rounded-md border px-3 py-2 text-sm shadow-sm ${
+                    draft.tax_exempt
+                      ? "border-slate-300 bg-slate-100 text-slate-400"
+                      : "border-slate-300 bg-slate-50 text-slate-500"
+                  }`}
+                >
+                  <span className={draft.tax_exempt ? "line-through" : ""}>
+                    {displayedProjectTaxRate || "-"}
+                  </span>
+                  {draft.tax_exempt ? (
+                    <span className="rounded-[8px] bg-emerald-100 px-2 py-[2px] text-[13px] font-medium text-emerald-700">
+                      0%
+                    </span>
+                  ) : null}
+                </div>
                 <span className="text-xs font-normal leading-5 text-slate-500">
                   Arizona actual rates use the 65% construction taxable base. Other states use the full rate.
                 </span>
+                <label
+                  className={`inline-flex items-center gap-2 text-[13px] ${
+                    draft.tax_exempt ? "text-emerald-700" : "text-slate-500"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={draft.tax_exempt}
+                    onChange={(event) =>
+                      setDraft((prev) => ({ ...prev, tax_exempt: event.target.checked }))
+                    }
+                    className="sr-only"
+                  />
+                  <span
+                    className={`flex h-4 w-4 items-center justify-center rounded-[4px] border-[1.5px] ${
+                      draft.tax_exempt
+                        ? "border-emerald-600 bg-emerald-600 text-white"
+                        : "border-slate-300 bg-white text-transparent"
+                    }`}
+                  >
+                    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3 w-3">
+                      <path
+                        d="M4 8.25 6.5 10.75 12 5.25"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </span>
+                  <span>Tax exempt</span>
+                </label>
               </label>
               <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
                 Construction Start Date

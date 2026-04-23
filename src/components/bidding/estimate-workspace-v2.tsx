@@ -1130,6 +1130,7 @@ type BidProjectGeneralInfoCacheRow = {
   taxCityNumber: string;
   taxCityName: string;
   taxRate: string;
+  taxExempt: boolean;
 };
 
 type ProjectPlanningScheduleSyncSource = "dates" | "construction-duration" | "project-duration";
@@ -1463,6 +1464,7 @@ function readBidProjectGeneralInfoMap(): Record<string, BidProjectGeneralInfoCac
         taxCityNumber: typeof row.taxCityNumber === "string" ? row.taxCityNumber : "",
         taxCityName: typeof row.taxCityName === "string" ? row.taxCityName : "",
         taxRate: typeof row.taxRate === "string" ? row.taxRate : "",
+        taxExempt: typeof row.taxExempt === "boolean" ? row.taxExempt : false,
       };
     }
     return next;
@@ -1944,6 +1946,7 @@ export default function EstimateWorkspaceV2() {
   const [tiTax, setTiTax] = useState<SalesTaxRow>(TI_TAX_ROW);
   const [notTaxable] = useState<SalesTaxRow>(NOT_TAXABLE_ROW);
   const [selectedCityNumber, setSelectedCityNumber] = useState<string>("17");
+  const [isTaxExempt, setIsTaxExempt] = useState<boolean>(false);
   const [projectDataRows, setProjectDataRows] = useState<ProjectDataRow[]>(
     INITIAL_PROJECT_DATA_ROWS
   );
@@ -2211,6 +2214,7 @@ export default function EstimateWorkspaceV2() {
       const generalInfoMap = readBidProjectGeneralInfoMap();
       const cachedInfo =
         generalInfoMap[resolvedProjectId] ?? generalInfoMap[queryProjectIdValue];
+      setIsTaxExempt(cachedInfo?.taxExempt ?? false);
       if (cachedInfo?.taxCityNumber) {
         const cachedTaxCityNumber = cachedInfo.taxCityNumber.trim();
         const matchingTaxRow = INITIAL_SALES_TAX_ROWS.find(
@@ -2510,6 +2514,7 @@ export default function EstimateWorkspaceV2() {
           taxCityNumber: previous?.taxCityNumber ?? "",
           taxCityName: previous?.taxCityName ?? "",
           taxRate: previous?.taxRate ?? "",
+          taxExempt: previous?.taxExempt ?? false,
         };
         updateBidPackageAutosaveSchedule(projectId, {
           constructionStartDate: startDateValue.trim(),
@@ -2888,14 +2893,16 @@ export default function EstimateWorkspaceV2() {
   const generalConditionsMonthly = generalConditionsWeekly * 4;
   const selectedSalesTaxRow = useMemo(
     () =>
-      resolveSelectedSalesTaxRow(
-        selectedCityNumber,
-        salesTaxRows,
-        unknownSalesTax,
-        tiTax,
-        notTaxable
-      ),
-    [notTaxable, salesTaxRows, selectedCityNumber, tiTax, unknownSalesTax]
+      isTaxExempt
+        ? notTaxable
+        : resolveSelectedSalesTaxRow(
+            selectedCityNumber,
+            salesTaxRows,
+            unknownSalesTax,
+            tiTax,
+            notTaxable
+          ),
+    [isTaxExempt, notTaxable, salesTaxRows, selectedCityNumber, tiTax, unknownSalesTax]
   );
   const standaloneDivisionOneWorksheetTotal = useMemo(
     () =>
