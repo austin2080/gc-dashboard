@@ -148,36 +148,44 @@ export async function GET() {
     >();
     await Promise.all(
       membershipRows.map(async (row) => {
-        const authLookup = await admin.auth.admin.getUserById(row.user_id);
-        const authUser = authLookup.data.user;
-        const metadata = (authUser?.user_metadata ?? {}) as Record<string, unknown>;
-        const fullNameRaw = extractNameFromMetadata(metadata);
-        const { firstName, lastName } = extractFirstLastFromMetadata(metadata);
-        const emailRaw = authUser?.email ?? "";
-        const phoneRaw =
-          (typeof metadata.phone === "string" && metadata.phone) ||
-          (typeof metadata.phone_number === "string" && metadata.phone_number) ||
-          "";
-        const companyRaw = typeof metadata.company === "string" ? metadata.company.trim() : "";
-        const addressRaw = typeof metadata.address === "string" ? metadata.address.trim() : "";
-        const cityStateZipRaw =
-          typeof metadata.city_state_zip === "string" ? metadata.city_state_zip.trim() : "";
-        const cityRaw = typeof metadata.city === "string" ? metadata.city.trim() : "";
-        const stateRaw = typeof metadata.state === "string" ? metadata.state.trim() : "";
-        const zipRaw = typeof metadata.zip === "string" ? metadata.zip.trim() : "";
-        const cityStateZip = [cityRaw, stateRaw].filter(Boolean).join(", ");
-        const cityStateZipWithZip = cityStateZipRaw || [cityStateZip, zipRaw].filter(Boolean).join(" ");
-        authUsersById.set(row.user_id, {
-          email: emailRaw,
-          fullName: fullNameRaw.trim(),
-          firstName: firstName.trim(),
-          lastName: lastName.trim(),
-          company: companyRaw,
-          address: addressRaw,
-          phone: phoneRaw.trim(),
-          cityStateZip: cityStateZipWithZip.trim(),
-          isInvited: Boolean(authUser?.invited_at) && !authUser?.last_sign_in_at,
-        });
+        try {
+          const authLookup = await admin.auth.admin.getUserById(row.user_id);
+          const authUser = authLookup.data.user;
+          const metadata = (authUser?.user_metadata ?? {}) as Record<string, unknown>;
+          const fullNameRaw = extractNameFromMetadata(metadata);
+          const { firstName, lastName } = extractFirstLastFromMetadata(metadata);
+          const emailRaw = authUser?.email ?? "";
+          const phoneRaw =
+            (typeof metadata.phone === "string" && metadata.phone) ||
+            (typeof metadata.phone_number === "string" && metadata.phone_number) ||
+            "";
+          const companyRaw = typeof metadata.company === "string" ? metadata.company.trim() : "";
+          const addressRaw = typeof metadata.address === "string" ? metadata.address.trim() : "";
+          const cityStateZipRaw =
+            typeof metadata.city_state_zip === "string" ? metadata.city_state_zip.trim() : "";
+          const cityRaw = typeof metadata.city === "string" ? metadata.city.trim() : "";
+          const stateRaw = typeof metadata.state === "string" ? metadata.state.trim() : "";
+          const zipRaw = typeof metadata.zip === "string" ? metadata.zip.trim() : "";
+          const cityStateZip = [cityRaw, stateRaw].filter(Boolean).join(", ");
+          const cityStateZipWithZip =
+            cityStateZipRaw || [cityStateZip, zipRaw].filter(Boolean).join(" ");
+          authUsersById.set(row.user_id, {
+            email: emailRaw,
+            fullName: fullNameRaw.trim(),
+            firstName: firstName.trim(),
+            lastName: lastName.trim(),
+            company: companyRaw,
+            address: addressRaw,
+            phone: phoneRaw.trim(),
+            cityStateZip: cityStateZipWithZip.trim(),
+            isInvited: Boolean(authUser?.invited_at) && !authUser?.last_sign_in_at,
+          });
+        } catch (lookupError) {
+          console.warn("Failed to load team user auth profile", {
+            userId: row.user_id,
+            error: lookupError instanceof Error ? lookupError.message : String(lookupError),
+          });
+        }
       })
     );
 

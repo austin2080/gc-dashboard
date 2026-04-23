@@ -2061,7 +2061,9 @@ export default function EstimateWorkspaceV2() {
         generalInfoMap[resolvedProjectId] ?? generalInfoMap[queryProjectIdValue];
       if (cachedInfo?.taxCityNumber) {
         const cachedTaxCityNumber = cachedInfo.taxCityNumber.trim();
-        const matchingTaxRow = salesTaxRows.find((row) => row.id === cachedTaxCityNumber);
+        const matchingTaxRow = INITIAL_SALES_TAX_ROWS.find(
+          (row) => row.id === cachedTaxCityNumber
+        );
 
         if (matchingTaxRow) {
           setSelectedCityNumber(matchingTaxRow.number);
@@ -2207,7 +2209,7 @@ export default function EstimateWorkspaceV2() {
     return () => {
       active = false;
     };
-  }, [queryProjectId, salesTaxRows]);
+  }, [queryProjectId]);
   useEffect(() => {
     const onMouseMove = (event: MouseEvent) => {
       const active = prelimResizeRef.current;
