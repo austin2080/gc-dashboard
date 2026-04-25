@@ -1333,6 +1333,10 @@ function mergeFactorRows(baseRows: FactorRow[], savedRows: FactorRow[]) {
   });
 }
 
+function cloneFactorRows(rows: FactorRow[]) {
+  return rows.map((row) => ({ ...row }));
+}
+
 function readEstimateCoverDivisionEditsMap(): Record<
   string,
   Record<string, { item: string; summaryDescription: string }>
@@ -1937,7 +1941,7 @@ export default function EstimateWorkspaceV2() {
   const queryProjectId = searchParams.get("project");
   const [selectedItem, setSelectedItem] = useState<string>(NAV_ITEMS[0]);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
-  const [rows, setRows] = useState<FactorRow[]>(INITIAL_ROWS);
+  const [rows, setRows] = useState<FactorRow[]>(() => cloneFactorRows(INITIAL_ROWS));
   const [projectPlanningRows, setProjectPlanningRows] = useState<ProjectPlanningRow[]>(
     INITIAL_PROJECT_PLANNING_ROWS
   );
@@ -1973,6 +1977,7 @@ export default function EstimateWorkspaceV2() {
     null
   );
   const worksheetHydratedRef = useRef(false);
+  const factorRowsHydratedRef = useRef(false);
   const generalConditionsHydratedRef = useRef(false);
   const generalConditionsQuantityOverrideIdsRef = useRef<Set<string>>(new Set());
   const skipNextGeneralConditionsSaveRef = useRef(false);
@@ -2164,19 +2169,22 @@ export default function EstimateWorkspaceV2() {
     );
   }, [estimateProjectStorageIds, worksheetCostCodeGroups]);
   useEffect(() => {
+    factorRowsHydratedRef.current = false;
     const savedRowsMap = readEstimateFactorRowsMap();
     const savedRows =
       estimateProjectStorageIds
         .map((projectId) => savedRowsMap[projectId])
         .find((rowsForProject) => rowsForProject && rowsForProject.length > 0) ?? [];
     if (savedRows.length === 0) {
-      setRows(INITIAL_ROWS);
+      setRows(cloneFactorRows(INITIAL_ROWS));
+      factorRowsHydratedRef.current = true;
       return;
     }
     setRows(mergeFactorRows(INITIAL_ROWS, savedRows));
+    factorRowsHydratedRef.current = true;
   }, [estimateProjectStorageIds]);
   useEffect(() => {
-    if (estimateProjectStorageIds.length === 0) return;
+    if (!factorRowsHydratedRef.current || estimateProjectStorageIds.length === 0) return;
     writeEstimateFactorRows(estimateProjectStorageIds, rows);
   }, [estimateProjectStorageIds, rows]);
   useEffect(() => {
@@ -2610,6 +2618,10 @@ export default function EstimateWorkspaceV2() {
         return { ...row, [key]: value };
       })
     );
+  };
+  const persistFactorRows = (nextRows: FactorRow[]) => {
+    if (!factorRowsHydratedRef.current || estimateProjectStorageIds.length === 0) return;
+    writeEstimateFactorRows(estimateProjectStorageIds, nextRows);
   };
   const beginPrelimColumnResize = (
     columnIndex: number,
@@ -3723,6 +3735,7 @@ export default function EstimateWorkspaceV2() {
                             <input
                               value={row.factorName}
                               onChange={(event) => updateCell(row.id, "factorName", event.target.value)}
+                              onBlur={() => persistFactorRows(rows)}
                               className="h-11 w-full border-0 bg-transparent px-3 text-base text-slate-900 focus:bg-white focus:outline-none"
                             />
                           </td>
@@ -3731,6 +3744,7 @@ export default function EstimateWorkspaceV2() {
                               <input
                                 value={row.value}
                                 onChange={(event) => updateCell(row.id, "value", event.target.value)}
+                                onBlur={() => persistFactorRows(rows)}
                                 className="h-full w-full border-0 bg-transparent text-right text-base text-slate-900 focus:bg-white focus:outline-none"
                               />
                               <span className="text-sm text-slate-500">%</span>
