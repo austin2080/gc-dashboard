@@ -153,149 +153,10 @@ function createLineItem(
   };
 }
 
-function createSampleAlternates(): AlternateRecord[] {
-  return [
-    {
-      id: "alt-01",
-      number: "ALT-01",
-      name: "Demo store front per KN 18 on page A.01",
-      description:
-        "Remove existing storefront and associated framing. Patch and prepare opening.",
-      type: "add",
-      status: "pending",
-      includeInFinalTotal: false,
-      notes: "Waiting on owner direction before pricing acceptance.",
-      lineItems: [
-        createLineItem({
-          id: "alt-01-line-1",
-          costCode: "02-41-00",
-          description: "Selective demolition and opening prep",
-          unit: "LS",
-          quantity: "1",
-          unitCost: "1500",
-        }),
-      ],
-      markups: {
-        overheadPercent: "0.00",
-        profitPercent: "0.00",
-        taxPercent: "0.00",
-        includeOverhead: false,
-        includeProfit: false,
-        includeTax: false,
-      },
-      createdBy: "Estimator John Smith",
-      updatedAt: "2026-04-25T08:00:00.000Z",
-    },
-    {
-      id: "alt-02",
-      number: "ALT-02",
-      name: "New entry door and store front",
-      description:
-        "Furnish and install new aluminum storefront and entry door system.",
-      type: "add",
-      status: "accepted",
-      includeInFinalTotal: true,
-      notes:
-        "Client requested upgraded storefront system with matching entry door. See spec section 08 50 00.",
-      lineItems: [
-        createLineItem({
-          id: "alt-02-line-1",
-          costCode: "08-50-00",
-          description: "Aluminum storefront system, complete",
-          unit: "LS",
-          quantity: "1",
-          unitCost: "2450",
-        }),
-        createLineItem({
-          id: "alt-02-line-2",
-          costCode: "08-71-00",
-          description: "Glazed aluminum entry door",
-          unit: "EA",
-          quantity: "1",
-          unitCost: "800",
-        }),
-      ],
-      markups: {
-        overheadPercent: "10.00",
-        profitPercent: "10.00",
-        taxPercent: "8.25",
-        includeOverhead: true,
-        includeProfit: true,
-        includeTax: true,
-      },
-      createdBy: "Estimator John Smith",
-      updatedAt: "2026-04-25T08:14:00.000Z",
-    },
-    {
-      id: "alt-03",
-      number: "ALT-03",
-      name: "Upgrade interior finishes",
-      description: "Upgrade flooring, wall finish, and accent paint at bar area.",
-      type: "add",
-      status: "pending",
-      includeInFinalTotal: false,
-      notes: "Keep this separate from the base finish package in proposal review.",
-      lineItems: [
-        createLineItem({
-          id: "alt-03-line-1",
-          costCode: "09-65-00",
-          description: "Luxury vinyl tile upgrade",
-          unit: "SF",
-          quantity: "800",
-          unitCost: "3.75",
-        }),
-        createLineItem({
-          id: "alt-03-line-2",
-          costCode: "09-90-00",
-          description: "Accent paint and wall finish upgrade",
-          unit: "LS",
-          quantity: "1",
-          unitCost: "1000",
-        }),
-      ],
-      markups: {
-        overheadPercent: "0.00",
-        profitPercent: "0.00",
-        taxPercent: "0.00",
-        includeOverhead: false,
-        includeProfit: false,
-        includeTax: false,
-      },
-      createdBy: "Estimator John Smith",
-      updatedAt: "2026-04-25T08:13:00.000Z",
-    },
-    {
-      id: "alt-04",
-      number: "ALT-04",
-      name: "Deduct existing hood cleaning",
-      description:
-        "Deduct existing hood cleaning scope to remain and be professionally cleaned by owner.",
-      type: "deduct",
-      status: "rejected",
-      includeInFinalTotal: false,
-      notes: "Rejected by client. Retained for proposal history and acceptance-rate tracking.",
-      lineItems: [
-        createLineItem({
-          id: "alt-04-line-1",
-          costCode: "23-05-53",
-          description: "Kitchen exhaust hood cleaning scope removal",
-          unit: "LS",
-          quantity: "1",
-          unitCost: "2000",
-        }),
-      ],
-      markups: {
-        overheadPercent: "0.00",
-        profitPercent: "0.00",
-        taxPercent: "0.00",
-        includeOverhead: false,
-        includeProfit: false,
-        includeTax: false,
-      },
-      createdBy: "Estimator John Smith",
-      updatedAt: "2026-04-25T08:20:00.000Z",
-    },
-  ];
+function isLegacySeededAlternates(alternates: AlternateRecord[]) {
+  if (!alternates.length) return false;
+  const legacyIds = new Set(["alt-01", "alt-02", "alt-03", "alt-04"]);
+  return alternates.every((alternate) => legacyIds.has(alternate.id));
 }
 
 function getStorageKey(projectId: string) {
@@ -1525,9 +1386,11 @@ function getNextAlternateNumber(alternates: AlternateRecord[]): string {
 export default function AlternatesWorkspace({
   embedded = false,
   autoOpenCreateToken = 0,
+  baseEstimateTotalOverride = null,
 }: {
   embedded?: boolean;
   autoOpenCreateToken?: number;
+  baseEstimateTotalOverride?: number | null;
 }) {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project") ?? "default";
@@ -1546,26 +1409,30 @@ export default function AlternatesWorkspace({
 
     const raw = window.localStorage.getItem(getStorageKey(projectId));
     if (!raw) {
-      const seeded = createSampleAlternates();
-      setAlternates(seeded);
-      setExpandedAlternateId("alt-02");
+      setAlternates([]);
+      setExpandedAlternateId(null);
       return;
     }
 
     try {
       const parsed = JSON.parse(raw) as AlternateRecord[];
       if (Array.isArray(parsed) && parsed.length) {
+        if (isLegacySeededAlternates(parsed)) {
+          setAlternates([]);
+          setExpandedAlternateId(null);
+          window.localStorage.removeItem(getStorageKey(projectId));
+          return;
+        }
         setAlternates(parsed);
         setExpandedAlternateId(parsed[0]?.id ?? null);
         return;
       }
     } catch {
-      // Fall back to sample alternates when persisted data is malformed.
+      // Reset to an empty state when persisted data is malformed.
     }
 
-    const seeded = createSampleAlternates();
-    setAlternates(seeded);
-    setExpandedAlternateId("alt-02");
+    setAlternates([]);
+    setExpandedAlternateId(null);
   }, [projectId]);
 
   useEffect(() => {
@@ -1582,8 +1449,11 @@ export default function AlternatesWorkspace({
     [estimateSnapshot]
   );
   const baseEstimateTotal = useMemo(
-    () => parseCurrency(estimateSnapshot?.grandTotal ?? ""),
-    [estimateSnapshot]
+    () =>
+      baseEstimateTotalOverride !== null
+        ? baseEstimateTotalOverride
+        : parseCurrency(estimateSnapshot?.grandTotal ?? ""),
+    [baseEstimateTotalOverride, estimateSnapshot]
   );
   const acceptedAlternatesTotal = useMemo(
     () => getAcceptedAlternatesTotal(alternates),

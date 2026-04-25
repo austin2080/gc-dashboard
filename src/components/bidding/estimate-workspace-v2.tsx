@@ -5272,6 +5272,7 @@ export default function EstimateWorkspaceV2() {
               <AlternatesWorkspace
                 embedded
                 autoOpenCreateToken={alternatesOpenRequestToken}
+                baseEstimateTotalOverride={preliminaryGrandTotal}
               />
             </div>
           ) : (
