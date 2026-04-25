@@ -11,11 +11,19 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { useSearchParams } from "next/navigation";
+import {
+  ESTIMATE_ALTERNATE_CREATE_REQUEST_EVENT,
+  default as AlternatesWorkspace,
+} from "@/components/bidding/alternates-workspace";
 import { getBidProjectDetail } from "@/lib/bidding/store";
 import { getBidProjectIdForProject } from "@/lib/bidding/project-links";
-import { getWorkspaceCostCodes } from "@/lib/settings/company-cost-codes";
+import {
+  getDefaultWorkspaceCostCodes,
+  getWorkspaceCostCodes,
+} from "@/lib/settings/company-cost-codes";
 import {
   PRELIM_COST_CODE_MAPPING_ITEMS,
+  getDefaultWorkspacePrelimCostCodeMappings,
   getWorkspacePrelimCostCodeMappings,
 } from "@/lib/settings/prelim-cost-code-mappings";
 import { getWorkspaceTaxRates } from "@/lib/settings/tax-rates";
@@ -31,6 +39,7 @@ const NAV_ITEMS = [
   "General Conditions",
   "Preliminary Estimate Worksheet",
   "Preliminary Estimate Cover Page",
+  "Alternates",
 ] as const;
 
 type FactorType = "Percent" | "Fixed";
@@ -887,8 +896,9 @@ function getWorksheetDivisionLabelForCostCode(row: {
   return buildWorksheetDivisionLabel(divisionCode, divisionTitle);
 }
 
-function mapWorkspaceCostCodesToWorksheetCostCodes(): WorksheetCostCode[] {
-  const settingsRows = getWorkspaceCostCodes();
+function mapWorkspaceCostCodesToWorksheetCostCodes(
+  settingsRows: ReturnType<typeof getWorkspaceCostCodes> = getWorkspaceCostCodes()
+): WorksheetCostCode[] {
   const divisionTitleByCode = new Map<string, string>();
 
   for (const row of settingsRows) {
@@ -916,9 +926,10 @@ function mapWorkspaceCostCodesToWorksheetCostCodes(): WorksheetCostCode[] {
     );
 }
 
-function getPrelimMarkupFeeRowConfig() {
-  const workspaceCostCodes = getWorkspaceCostCodes();
-  const mappings = getWorkspacePrelimCostCodeMappings(workspaceCostCodes);
+function buildPrelimMarkupFeeRowConfig(
+  workspaceCostCodes: ReturnType<typeof getWorkspaceCostCodes>,
+  mappings: ReturnType<typeof getWorkspacePrelimCostCodeMappings>
+) {
   const costCodeById = new Map(workspaceCostCodes.map((costCode) => [costCode.id, costCode]));
   const mappingByRowId = new Map(mappings.map((mapping) => [mapping.rowId, mapping.costCodeRowId]));
 
@@ -930,6 +941,18 @@ function getPrelimMarkupFeeRowConfig() {
       label: item.label.toUpperCase(),
     };
   });
+}
+
+function getPrelimMarkupFeeRowConfig() {
+  const workspaceCostCodes = getWorkspaceCostCodes();
+  const mappings = getWorkspacePrelimCostCodeMappings(workspaceCostCodes);
+  return buildPrelimMarkupFeeRowConfig(workspaceCostCodes, mappings);
+}
+
+function getDefaultPrelimMarkupFeeRowConfig() {
+  const workspaceCostCodes = getDefaultWorkspaceCostCodes();
+  const mappings = getDefaultWorkspacePrelimCostCodeMappings(workspaceCostCodes);
+  return buildPrelimMarkupFeeRowConfig(workspaceCostCodes, mappings);
 }
 
 const normalizeCostCodeDescription = (value: string) =>
@@ -949,8 +972,10 @@ const legacyGeneralConditionsRowsByDescription = new Map(
   ])
 );
 
-function createGeneralConditionsRowsFromCostCodes(): GeneralConditionsRow[] {
-  return getWorkspaceCostCodes()
+function createGeneralConditionsRowsFromCostCodes(
+  workspaceCostCodes: ReturnType<typeof getWorkspaceCostCodes> = getWorkspaceCostCodes()
+): GeneralConditionsRow[] {
+  return workspaceCostCodes
     .filter(
       (costCode) => costCode.usedIn.generalConditions && !costCode.usedIn.prelimEstimate
     )
@@ -1965,7 +1990,7 @@ export default function EstimateWorkspaceV2() {
   >({});
   const [costSummaryPercent, setCostSummaryPercent] = useState<string>("28");
   const [generalConditionsRows, setGeneralConditionsRows] = useState<GeneralConditionsRow[]>(
-    () => createGeneralConditionsRowsFromCostCodes()
+    () => createGeneralConditionsRowsFromCostCodes(getDefaultWorkspaceCostCodes())
   );
   const [worksheetCostCodeGroups, setWorksheetCostCodeGroups] = useState<WorksheetCostCodeGroup[]>(
     []
@@ -1995,6 +2020,7 @@ export default function EstimateWorkspaceV2() {
   const [worksheetGcMarkupMessage, setWorksheetGcMarkupMessage] = useState<string | null>(null);
   const [worksheetLineItemPendingDelete, setWorksheetLineItemPendingDelete] =
     useState<WorksheetLineItemPendingDelete | null>(null);
+  const [alternatesOpenRequestToken, setAlternatesOpenRequestToken] = useState(0);
   const [generalConditionsRowVisibilityFilter, setGeneralConditionsRowVisibilityFilter] =
     useState<RowVisibilityFilter>("all");
   const [prelimWorksheetRowVisibilityFilter, setPrelimWorksheetRowVisibilityFilter] =
@@ -2033,7 +2059,9 @@ export default function EstimateWorkspaceV2() {
       (id, index, list): id is string => Boolean(id) && list.indexOf(id) === index
     );
   }, [queryProjectId]);
-  const prelimMarkupFeeRowConfig = useMemo(() => getPrelimMarkupFeeRowConfig(), []);
+  const [prelimMarkupFeeRowConfig, setPrelimMarkupFeeRowConfig] = useState(() =>
+    getDefaultPrelimMarkupFeeRowConfig()
+  );
 
   useEffect(() => {
     const workspaceTaxRates = getWorkspaceTaxRates();
@@ -2049,6 +2077,9 @@ export default function EstimateWorkspaceV2() {
       });
       return changed ? nextRows : prev;
     });
+  }, []);
+  useEffect(() => {
+    setPrelimMarkupFeeRowConfig(getPrelimMarkupFeeRowConfig());
   }, []);
 
   useEffect(() => {
@@ -2727,6 +2758,7 @@ export default function EstimateWorkspaceV2() {
   const generalConditionsView = selectedItem === "General Conditions";
   const coverPageView = selectedItem === "Preliminary Estimate Cover Page";
   const preliminaryWorksheetView = selectedItem === "Preliminary Estimate Worksheet";
+  const alternatesView = selectedItem === "Alternates";
   const updateProjectPlanningValue = (rowId: string, value: string) => {
     if (rowId === "pp-start-date") {
       const hasProjectDurationValue =
@@ -3471,6 +3503,23 @@ export default function EstimateWorkspaceV2() {
   }, [estimateExportSnapshot]);
 
   useEffect(() => {
+    const handleAlternateCreateRequest = () => {
+      setSelectedItem("Alternates");
+      setAlternatesOpenRequestToken((prev) => prev + 1);
+    };
+    window.addEventListener(
+      ESTIMATE_ALTERNATE_CREATE_REQUEST_EVENT,
+      handleAlternateCreateRequest
+    );
+    return () => {
+      window.removeEventListener(
+        ESTIMATE_ALTERNATE_CREATE_REQUEST_EVENT,
+        handleAlternateCreateRequest
+      );
+    };
+  }, []);
+
+  useEffect(() => {
     if (!worksheetGcMarkupMessage) return;
     const timer = window.setTimeout(() => setWorksheetGcMarkupMessage(null), 3000);
     return () => window.clearTimeout(timer);
@@ -3529,9 +3578,11 @@ export default function EstimateWorkspaceV2() {
         </aside>
 
         <div className="overflow-hidden bg-slate-50">
-          <div className="border-b border-slate-200 bg-white px-4 py-3">
-            <h2 className="text-2xl font-semibold text-slate-900">{selectedItem}</h2>
-          </div>
+          {alternatesView ? null : (
+            <div className="border-b border-slate-200 bg-white px-4 py-3">
+              <h2 className="text-2xl font-semibold text-slate-900">{selectedItem}</h2>
+            </div>
+          )}
 
           {worksheetView ? (
             <div className="p-3">
@@ -5215,6 +5266,13 @@ export default function EstimateWorkspaceV2() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          ) : alternatesView ? (
+            <div className="p-3">
+              <AlternatesWorkspace
+                embedded
+                autoOpenCreateToken={alternatesOpenRequestToken}
+              />
             </div>
           ) : (
             <div className="p-4">

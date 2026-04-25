@@ -7,9 +7,11 @@ import BiddingProjectHeading from "@/components/bidding-project-heading";
 export default function BiddingTabPageHeader({
   label,
   showExport = false,
+  showAddAlternate = false,
 }: {
   label: string;
   showExport?: boolean;
+  showAddAlternate?: boolean;
 }) {
   return (
     <header className="-mx-4 border-b border-slate-200 bg-white sm:-mx-6">
@@ -17,7 +19,10 @@ export default function BiddingTabPageHeader({
         <BiddingBreadcrumb label={label} />
       </div>
       <div className="px-6 pb-[2px]">
-        <BiddingProjectHeading showExport={showExport} />
+        <BiddingProjectHeading
+          showExport={showExport}
+          showAddAlternate={showAddAlternate}
+        />
       </div>
       <div className="px-6">
         <BidManagementViewToggle />

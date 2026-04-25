@@ -2,12 +2,20 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { Plus } from "lucide-react";
+import { ESTIMATE_ALTERNATE_CREATE_REQUEST_EVENT } from "@/components/bidding/alternates-workspace";
 import { ESTIMATE_EXPORT_REQUEST_EVENT } from "@/lib/bidding/estimate-export";
 import { listBidProjects } from "@/lib/bidding/store";
 import { getBidProjectIdForProject } from "@/lib/bidding/project-links";
 import type { BidProjectSummary } from "@/lib/bidding/types";
 
-export default function BiddingProjectHeading({ showExport = false }: { showExport?: boolean }) {
+export default function BiddingProjectHeading({
+  showExport = false,
+  showAddAlternate = false,
+}: {
+  showExport?: boolean;
+  showAddAlternate?: boolean;
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryProjectId = searchParams.get("project");
@@ -56,6 +64,11 @@ export default function BiddingProjectHeading({ showExport = false }: { showExpo
     window.open(nextUrl, "_blank", "noopener,noreferrer");
   };
 
+  const handleAddAlternate = () => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new CustomEvent(ESTIMATE_ALTERNATE_CREATE_REQUEST_EVENT));
+  };
+
   return (
     <div className="flex flex-wrap items-start justify-between gap-4">
       <h1 className="text-3xl font-semibold text-slate-900">
@@ -70,6 +83,16 @@ export default function BiddingProjectHeading({ showExport = false }: { showExpo
               className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
             >
               Export
+            </button>
+          ) : null}
+          {showAddAlternate ? (
+            <button
+              type="button"
+              onClick={handleAddAlternate}
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50"
+            >
+              <Plus className="h-4 w-4" />
+              Add Alternate
             </button>
           ) : null}
           <button
