@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
+  Check,
   ChevronDown,
   ChevronUp,
   CircleEllipsis,
@@ -21,6 +22,12 @@ import {
   readEstimateExportSnapshot,
   type EstimateExportSnapshot,
 } from "@/lib/bidding/estimate-export";
+import {
+  formatMoneyInputBlur,
+  formatMoneyInputTyping,
+  parseMoney,
+} from "@/components/bid-leveling/utils";
+import { getWorkspaceCostCodes } from "@/lib/settings/company-cost-codes";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,6 +47,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -105,6 +117,13 @@ type AlternateModalProps = {
   mode: "create" | "edit";
 };
 
+type AlternateCostCodeOption = {
+  id: string;
+  code: string;
+  description: string;
+  division: string;
+};
+
 type AlternateExpandedPanelProps = {
   alternate: AlternateRecord;
   projectSquareFeet: number | null;
@@ -138,6 +157,22 @@ type AlternatesTableProps = {
 
 const ALTERNATES_STORAGE_KEY = "builderos.bidding.alternates.v1";
 export const ESTIMATE_ALTERNATE_CREATE_REQUEST_EVENT = "estimate-alternate-create-request";
+const ALTERNATE_UNIT_OPTIONS = [
+  "",
+  "excluded",
+  "allow",
+  "ls",
+  "ea",
+  "sf",
+  "lf",
+  "cy",
+  "sy",
+  "ton",
+  "hr",
+  "day",
+  "wk",
+  "mo",
+] as const;
 
 function createLineItem(
   overrides: Partial<AlternateLineItem> = {}
@@ -915,6 +950,36 @@ function AlternateModal({
   onDelete,
   mode,
 }: AlternateModalProps) {
+  const [costCodePopoverLineItemId, setCostCodePopoverLineItemId] = useState<string | null>(null);
+  const [costCodeSearchQuery, setCostCodeSearchQuery] = useState("");
+  const costCodeOptions = useMemo<AlternateCostCodeOption[]>(
+    () =>
+      getWorkspaceCostCodes()
+        .map((costCode) => ({
+          id: costCode.id,
+          code: costCode.code,
+          description: costCode.description?.trim() || "No description",
+          division: costCode.usedIn.divisionTitle ? "Division Title" : "Cost Code",
+        }))
+        .sort((left, right) =>
+          left.code.localeCompare(right.code, undefined, {
+            numeric: true,
+            sensitivity: "base",
+          })
+        ),
+    []
+  );
+  const filteredCostCodeOptions = useMemo(() => {
+    const normalizedQuery = costCodeSearchQuery.trim().toLowerCase();
+    if (!normalizedQuery) return costCodeOptions;
+    return costCodeOptions.filter((option) =>
+      [option.code, option.description, option.division]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalizedQuery)
+    );
+  }, [costCodeOptions, costCodeSearchQuery]);
+
   const updateLineItem = (
     lineItemId: string,
     key: keyof AlternateLineItem,
@@ -926,6 +991,22 @@ function AlternateModal({
         lineItem.id === lineItemId ? { ...lineItem, [key]: value } : lineItem
       ),
     });
+  };
+
+  const selectLineItemCostCode = (lineItemId: string, option: AlternateCostCodeOption) => {
+    onDraftChange({
+      ...draft,
+      lineItems: draft.lineItems.map((lineItem) =>
+        lineItem.id === lineItemId
+          ? {
+              ...lineItem,
+              costCode: option.code,
+              description: lineItem.description.trim() ? lineItem.description : option.description,
+            }
+          : lineItem
+      ),
+    });
+    setCostCodePopoverLineItemId(null);
   };
 
   const addLineItem = () => {
@@ -982,7 +1063,7 @@ function AlternateModal({
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto bg-slate-50 px-6 py-6 overscroll-contain">
-            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_320px]">
               <div className="space-y-6">
                 <Card className="border border-slate-200 bg-white py-0">
                   <CardContent className="space-y-5 px-5 py-5">
@@ -1098,13 +1179,13 @@ function AlternateModal({
                             <TableHead className="px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
                               Description
                             </TableHead>
-                            <TableHead className="px-3 text-right text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                            <TableHead className="w-[148px] px-3 text-right text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
                               Unit
                             </TableHead>
-                            <TableHead className="px-3 text-right text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                            <TableHead className="w-[88px] px-3 text-right text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
                               Qty
                             </TableHead>
-                            <TableHead className="px-3 text-right text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                            <TableHead className="w-[132px] px-3 text-right text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
                               Unit Cost
                             </TableHead>
                             <TableHead className="px-3 text-right text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
@@ -1117,19 +1198,88 @@ function AlternateModal({
                           {draft.lineItems.map((lineItem) => {
                             const lineTotal =
                               parseNumber(lineItem.quantity) * parseCurrency(lineItem.unitCost);
+                            const selectedCostCode =
+                              costCodeOptions.find((option) => option.code === lineItem.costCode) ?? null;
                             return (
                               <TableRow key={lineItem.id} className="border-slate-200">
                                 <TableCell className="px-3 py-3">
-                                  <Input
-                                    value={lineItem.costCode}
-                                    onChange={(event) =>
-                                      updateLineItem(
-                                        lineItem.id,
-                                        "costCode",
-                                        event.target.value
-                                      )
-                                    }
-                                  />
+                                  <Popover
+                                    open={costCodePopoverLineItemId === lineItem.id}
+                                    onOpenChange={(nextOpen) => {
+                                      setCostCodePopoverLineItemId(nextOpen ? lineItem.id : null);
+                                      setCostCodeSearchQuery("");
+                                    }}
+                                  >
+                                    <PopoverTrigger asChild>
+                                      <button
+                                        type="button"
+                                        className="flex h-8 w-full items-center justify-between rounded-lg border border-input bg-transparent px-2.5 text-left text-sm text-slate-900 transition-colors hover:bg-slate-50 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                                      >
+                                        <span className={cn("truncate", !lineItem.costCode && "text-slate-400")}>
+                                          {lineItem.costCode || "Select cost code"}
+                                        </span>
+                                        <ChevronDown className="ml-2 h-4 w-4 shrink-0 text-slate-400" />
+                                      </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent
+                                      align="start"
+                                      className="w-[420px] p-0"
+                                    >
+                                      <div className="overflow-hidden rounded-lg">
+                                        <div className="border-b border-slate-200 p-2">
+                                          <Input
+                                            value={costCodeSearchQuery}
+                                            onChange={(event) =>
+                                              setCostCodeSearchQuery(event.target.value)
+                                            }
+                                            placeholder="Search cost codes..."
+                                            className="h-9"
+                                            onWheel={(event) => event.stopPropagation()}
+                                            onTouchMove={(event) => event.stopPropagation()}
+                                            onPointerMove={(event) => event.stopPropagation()}
+                                          />
+                                        </div>
+                                        <div
+                                          className="h-[260px] overflow-y-auto overscroll-contain"
+                                          onWheel={(event) => event.stopPropagation()}
+                                          onWheelCapture={(event) => event.stopPropagation()}
+                                          onTouchMove={(event) => event.stopPropagation()}
+                                          onPointerMove={(event) => event.stopPropagation()}
+                                        >
+                                          {filteredCostCodeOptions.length ? (
+                                            <div className="p-1">
+                                              {filteredCostCodeOptions.map((option) => (
+                                                <button
+                                                  key={option.id}
+                                                  type="button"
+                                                  onClick={() =>
+                                                    selectLineItemCostCode(lineItem.id, option)
+                                                  }
+                                                  className="flex w-full items-start gap-2 rounded-md px-2 py-2 text-left text-sm transition hover:bg-slate-100"
+                                                >
+                                                  <div className="min-w-0 flex-1">
+                                                    <div className="font-medium text-slate-900">
+                                                      {option.code}
+                                                    </div>
+                                                    <div className="truncate text-xs text-slate-500">
+                                                      {option.description}
+                                                    </div>
+                                                  </div>
+                                                  {selectedCostCode?.id === option.id ? (
+                                                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-slate-700" />
+                                                  ) : null}
+                                                </button>
+                                              ))}
+                                            </div>
+                                          ) : (
+                                            <div className="px-3 py-6 text-center text-sm text-slate-500">
+                                              No cost codes found.
+                                            </div>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </PopoverContent>
+                                  </Popover>
                                 </TableCell>
                                 <TableCell className="px-3 py-3">
                                   <Input
@@ -1143,16 +1293,26 @@ function AlternateModal({
                                     }
                                   />
                                 </TableCell>
-                                <TableCell className="px-3 py-3">
-                                  <Input
+                                <TableCell className="w-[148px] px-3 py-3">
+                                  <select
                                     value={lineItem.unit}
                                     onChange={(event) =>
                                       updateLineItem(lineItem.id, "unit", event.target.value)
                                     }
-                                    className="text-right"
-                                  />
+                                    className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-right text-sm text-slate-900 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                                  >
+                                    {ALTERNATE_UNIT_OPTIONS.map((unitOption) => (
+                                      <option key={unitOption || "blank"} value={unitOption}>
+                                        {unitOption === ""
+                                          ? "Select"
+                                          : unitOption === "excluded"
+                                            ? "Excluded"
+                                            : unitOption}
+                                      </option>
+                                    ))}
+                                  </select>
                                 </TableCell>
-                                <TableCell className="px-3 py-3">
+                                <TableCell className="w-[88px] px-3 py-3">
                                   <Input
                                     value={lineItem.quantity}
                                     onChange={(event) =>
@@ -1165,14 +1325,27 @@ function AlternateModal({
                                     className="text-right"
                                   />
                                 </TableCell>
-                                <TableCell className="px-3 py-3">
+                                <TableCell className="w-[132px] px-3 py-3">
                                   <Input
                                     value={lineItem.unitCost}
                                     onChange={(event) =>
                                       updateLineItem(
                                         lineItem.id,
                                         "unitCost",
-                                        event.target.value
+                                        formatMoneyInputTyping(event.target.value)
+                                      )
+                                    }
+                                    onFocus={() => {
+                                      const parsed = parseMoney(lineItem.unitCost);
+                                      if (parsed !== null) {
+                                        updateLineItem(lineItem.id, "unitCost", String(parsed));
+                                      }
+                                    }}
+                                    onBlur={() =>
+                                      updateLineItem(
+                                        lineItem.id,
+                                        "unitCost",
+                                        formatMoneyInputBlur(lineItem.unitCost)
                                       )
                                     }
                                     className="text-right"
@@ -1200,139 +1373,101 @@ function AlternateModal({
                   </CardContent>
                 </Card>
 
-                <Card className="border border-slate-200 bg-white py-0">
-                  <CardContent className="space-y-4 px-5 py-5">
-                    <div className="text-base font-semibold text-slate-900">Markups</div>
-                    <div className="overflow-hidden rounded-2xl border border-slate-200">
-                      <Table>
-                        <TableHeader className="bg-slate-50">
-                          <TableRow className="border-slate-200 hover:bg-transparent">
-                            <TableHead className="px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                              Markup Type
-                            </TableHead>
-                            <TableHead className="px-3 text-right text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                              %
-                            </TableHead>
-                            <TableHead className="px-3 text-right text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                              Amount
-                            </TableHead>
-                            <TableHead className="px-3 text-right text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                              Include in Total
-                            </TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {[
-                            {
-                              label: "Overhead",
-                              percentKey: "overheadPercent" as const,
-                              includedKey: "includeOverhead" as const,
-                              amount: getAlternateFinancials(draft).overheadAmount,
-                            },
-                            {
-                              label: "Profit",
-                              percentKey: "profitPercent" as const,
-                              includedKey: "includeProfit" as const,
-                              amount: getAlternateFinancials(draft).profitAmount,
-                            },
-                            {
-                              label: "Tax",
-                              percentKey: "taxPercent" as const,
-                              includedKey: "includeTax" as const,
-                              amount: getAlternateFinancials(draft).taxAmount,
-                            },
-                          ].map((markup) => (
-                            <TableRow key={markup.label} className="border-slate-200">
-                              <TableCell className="px-3 py-3 font-medium text-slate-900">
-                                {markup.label}
-                              </TableCell>
-                              <TableCell className="px-3 py-3">
-                                <Input
-                                  value={draft.markups[markup.percentKey]}
-                                  onChange={(event) =>
-                                    onDraftChange({
-                                      ...draft,
-                                      markups: {
-                                        ...draft.markups,
-                                        [markup.percentKey]: event.target.value,
-                                      },
-                                    })
-                                  }
-                                  className="max-w-[120px] text-right"
-                                />
-                              </TableCell>
-                              <TableCell className="px-3 py-3 text-right font-semibold text-slate-900">
-                                {formatCurrency(markup.amount)}
-                              </TableCell>
-                              <TableCell className="px-3 py-3 text-right">
-                                <div className="flex justify-end">
-                                  <IncludeToggle
-                                    checked={draft.markups[markup.includedKey]}
-                                    onToggle={() =>
-                                      onDraftChange({
-                                        ...draft,
-                                        markups: {
-                                          ...draft.markups,
-                                          [markup.includedKey]:
-                                            !draft.markups[markup.includedKey],
-                                        },
-                                      })
-                                    }
-                                  />
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              <div className="space-y-6">
-                <PricingSummary alternate={draft} projectSquareFeet={null} />
-
-                <Card className="border border-slate-200 bg-white py-0">
-                  <CardContent className="space-y-4 px-5 py-5">
-                    <div className="text-base font-semibold text-slate-900">Inclusion</div>
-                    <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                      <div>
-                        <div className="font-medium text-slate-900">Include in final total</div>
-                        <div className="text-sm text-slate-500">
-                          Accepted alternates can flow into the final contract total.
-                        </div>
+                <div className="grid gap-6 xl:grid-cols-2">
+                  <Card className="border border-slate-200 bg-white py-0">
+                    <CardContent className="space-y-4 px-5 py-5">
+                      <div className="text-base font-semibold text-slate-900">
+                        Markup & Adjustments
                       </div>
-                      <IncludeToggle
-                        checked={draft.includeInFinalTotal}
-                        disabled={draft.status !== "accepted"}
-                        onToggle={() =>
-                          onDraftChange({
-                            ...draft,
-                            includeInFinalTotal: !draft.includeInFinalTotal,
-                          })
-                        }
-                      />
-                    </div>
-                  </CardContent>
-                </Card>
+                      <div className="grid gap-4 md:grid-cols-3">
+                        {[
+                          {
+                            label: "Overhead",
+                            percentKey: "overheadPercent" as const,
+                            includedKey: "includeOverhead" as const,
+                          },
+                          {
+                            label: "Profit",
+                            percentKey: "profitPercent" as const,
+                            includedKey: "includeProfit" as const,
+                          },
+                          {
+                            label: "Sales Tax",
+                            percentKey: "taxPercent" as const,
+                            includedKey: "includeTax" as const,
+                          },
+                        ].map((markup) => (
+                          <div key={markup.label} className="space-y-2">
+                            <label className="text-sm font-medium text-slate-700">
+                              {markup.label}
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <Input
+                                value={draft.markups[markup.percentKey]}
+                                onChange={(event) =>
+                                  onDraftChange({
+                                    ...draft,
+                                    markups: {
+                                      ...draft.markups,
+                                      [markup.percentKey]: event.target.value,
+                                    },
+                                  })
+                                }
+                                className="text-right"
+                              />
+                              <span className="text-sm font-medium text-slate-500">%</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
 
-                <Card className="border border-slate-200 bg-white py-0">
-                  <CardContent className="space-y-3 px-5 py-5">
-                    <div className="text-base font-semibold text-slate-900">Notes (Internal)</div>
-                    <Textarea
-                      value={draft.notes}
-                      onChange={(event) =>
-                        onDraftChange({ ...draft, notes: event.target.value })
-                      }
-                      placeholder="Internal notes for the project team."
-                      className="min-h-[140px]"
-                    />
-                    <div className="text-xs text-slate-500">
-                      These notes are only visible to internal users.
-                    </div>
-                  </CardContent>
-                </Card>
+                  <PricingSummary alternate={draft} projectSquareFeet={null} />
+                </div>
+
+                <div className="grid gap-6 xl:grid-cols-2">
+                  <Card className="border border-slate-200 bg-white py-0">
+                    <CardContent className="space-y-4 px-5 py-5">
+                      <div className="text-base font-semibold text-slate-900">Inclusion</div>
+                      <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div>
+                          <div className="font-medium text-slate-900">Include in final total</div>
+                          <div className="text-sm text-slate-500">
+                            Accepted alternates can flow into the final contract total.
+                          </div>
+                        </div>
+                        <IncludeToggle
+                          checked={draft.includeInFinalTotal}
+                          disabled={draft.status !== "accepted"}
+                          onToggle={() =>
+                            onDraftChange({
+                              ...draft,
+                              includeInFinalTotal: !draft.includeInFinalTotal,
+                            })
+                          }
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="border border-slate-200 bg-white py-0">
+                    <CardContent className="space-y-3 px-5 py-5">
+                      <div className="text-base font-semibold text-slate-900">Notes (Internal)</div>
+                      <Textarea
+                        value={draft.notes}
+                        onChange={(event) =>
+                          onDraftChange({ ...draft, notes: event.target.value })
+                        }
+                        placeholder="Internal notes for the project team."
+                        className="min-h-[140px]"
+                      />
+                      <div className="text-xs text-slate-500">
+                        These notes are only visible to internal users.
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
               </div>
             </div>
           </div>
