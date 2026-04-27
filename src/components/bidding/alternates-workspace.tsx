@@ -111,6 +111,7 @@ type AlternateModalProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   draft: AlternateRecord;
+  feePercentages: AlternateFeePercentages;
   onDraftChange: (draft: AlternateRecord) => void;
   onSave: () => void;
   onDelete?: () => void;
@@ -126,12 +127,14 @@ type AlternateCostCodeOption = {
 
 type AlternateExpandedPanelProps = {
   alternate: AlternateRecord;
+  feePercentages: AlternateFeePercentages;
   projectSquareFeet: number | null;
   onToggleIncluded: (alternateId: string) => void;
 };
 
 type AlternateRowProps = {
   alternate: AlternateRecord;
+  feePercentages: AlternateFeePercentages;
   expanded: boolean;
   onToggleExpand: (alternateId: string) => void;
   onEdit: (alternate: AlternateRecord) => void;
@@ -144,6 +147,7 @@ type AlternateRowProps = {
 
 type AlternatesTableProps = {
   alternates: AlternateRecord[];
+  feePercentages: AlternateFeePercentages;
   expandedAlternateId: string | null;
   onToggleExpand: (alternateId: string) => void;
   onEdit: (alternate: AlternateRecord) => void;
@@ -153,6 +157,24 @@ type AlternatesTableProps = {
   onToggleIncluded: (alternateId: string) => void;
   onCreate: () => void;
   projectSquareFeet: number | null;
+};
+
+type AlternateFeePercentages = {
+  generalLiabilityInsurance: number;
+  buildersRiskInsurance: number;
+  overhead: number;
+  profit: number;
+  performanceBond: number;
+  contingency: number;
+  salesTaxEntered: number;
+  salesTax: number;
+};
+
+type AlternateFeeAmount = {
+  key: keyof AlternateFeePercentages;
+  label: string;
+  percent: number;
+  amount: number;
 };
 
 const ALTERNATES_STORAGE_KEY = "builderos.bidding.alternates.v1";
@@ -173,6 +195,28 @@ const ALTERNATE_UNIT_OPTIONS = [
   "wk",
   "mo",
 ] as const;
+const DEFAULT_ALTERNATE_FEE_PERCENTAGES: AlternateFeePercentages = {
+  generalLiabilityInsurance: 0,
+  buildersRiskInsurance: 0,
+  overhead: 0,
+  profit: 0,
+  performanceBond: 0,
+  contingency: 0,
+  salesTaxEntered: 0,
+  salesTax: 0,
+};
+const ALTERNATE_FEE_CONFIG: Array<{
+  key: keyof AlternateFeePercentages;
+  label: string;
+}> = [
+  { key: "generalLiabilityInsurance", label: "General Liability Insurance" },
+  { key: "buildersRiskInsurance", label: "Builders Risk Insurance" },
+  { key: "overhead", label: "Overhead" },
+  { key: "profit", label: "Profit" },
+  { key: "performanceBond", label: "Performance Bond" },
+  { key: "contingency", label: "Contingency" },
+  { key: "salesTax", label: "Sales Tax" },
+];
 
 function createLineItem(
   overrides: Partial<AlternateLineItem> = {}
@@ -221,6 +265,23 @@ function formatPercent(value: number): string {
   return `${value.toFixed(2)}%`;
 }
 
+function formatFeeRate(
+  feeKey: keyof AlternateFeePercentages,
+  value: number,
+  feePercentages: AlternateFeePercentages
+): string {
+  if (feeKey === "generalLiabilityInsurance") {
+    return `$${value.toFixed(2)} / $1,000`;
+  }
+  if (feeKey === "buildersRiskInsurance") {
+    return `$${value.toFixed(2)} / $100`;
+  }
+  if (feeKey === "salesTax") {
+    return `${feePercentages.salesTaxEntered.toFixed(2)}% - Actual ${feePercentages.salesTax.toFixed(2)}%`;
+  }
+  return formatPercent(value);
+}
+
 function formatDollarPerSf(value: number | null): string {
   if (value === null) return "--";
   return formatCurrency(value);
@@ -247,45 +308,121 @@ function getInitialsStatusCount(
   return alternates.filter((alternate) => alternate.status === status).length;
 }
 
-function getAlternateFinancials(alternate: AlternateRecord) {
+function getAlternateFinancials(
+  alternate: AlternateRecord,
+  feePercentages: AlternateFeePercentages = DEFAULT_ALTERNATE_FEE_PERCENTAGES
+) {
   const subtotal = alternate.lineItems.reduce((sum, lineItem) => {
     return sum + parseNumber(lineItem.quantity) * parseCurrency(lineItem.unitCost);
   }, 0);
-  const overheadAmount = alternate.markups.includeOverhead
-    ? subtotal * (parseNumber(alternate.markups.overheadPercent) / 100)
-    : 0;
-  const profitAmount = alternate.markups.includeProfit
-    ? subtotal * (parseNumber(alternate.markups.profitPercent) / 100)
-    : 0;
-  const taxAmount = alternate.markups.includeTax
-    ? subtotal * (parseNumber(alternate.markups.taxPercent) / 100)
-    : 0;
-  const grossTotal = subtotal + overheadAmount + profitAmount + taxAmount;
+  const generalLiabilityAmount =
+    feePercentages.generalLiabilityInsurance > 0
+      ? (subtotal / 1000) * feePercentages.generalLiabilityInsurance
+      : 0;
+  const buildersRiskBase = subtotal + generalLiabilityAmount;
+  const buildersRiskAmount =
+    feePercentages.buildersRiskInsurance > 0
+      ? (buildersRiskBase * feePercentages.buildersRiskInsurance) / 100
+      : 0;
+  const overheadBase = subtotal + generalLiabilityAmount + buildersRiskAmount;
+  const overheadAmount =
+    feePercentages.overhead > 0 ? (overheadBase * feePercentages.overhead) / 100 : 0;
+  const profitBase = overheadBase + overheadAmount;
+  const profitAmount =
+    feePercentages.profit > 0 ? (profitBase * feePercentages.profit) / 100 : 0;
+  const performanceBondAmount =
+    feePercentages.performanceBond > 0 ? (subtotal * feePercentages.performanceBond) / 100 : 0;
+  const contingencyAmount =
+    feePercentages.contingency > 0 ? (subtotal * feePercentages.contingency) / 100 : 0;
+  const salesTaxBase =
+    subtotal +
+    generalLiabilityAmount +
+    buildersRiskAmount +
+    overheadAmount +
+    profitAmount +
+    performanceBondAmount +
+    contingencyAmount;
+  const salesTaxAmount =
+    feePercentages.salesTax > 0 ? (salesTaxBase * feePercentages.salesTax) / 100 : 0;
+  const feeAmounts: AlternateFeeAmount[] = [
+    {
+      key: "generalLiabilityInsurance",
+      label: "General Liability Insurance",
+      percent: feePercentages.generalLiabilityInsurance,
+      amount: generalLiabilityAmount,
+    },
+    {
+      key: "buildersRiskInsurance",
+      label: "Builders Risk Insurance",
+      percent: feePercentages.buildersRiskInsurance,
+      amount: buildersRiskAmount,
+    },
+    {
+      key: "overhead",
+      label: "Overhead",
+      percent: feePercentages.overhead,
+      amount: overheadAmount,
+    },
+    {
+      key: "profit",
+      label: "Profit",
+      percent: feePercentages.profit,
+      amount: profitAmount,
+    },
+    {
+      key: "performanceBond",
+      label: "Performance Bond",
+      percent: feePercentages.performanceBond,
+      amount: performanceBondAmount,
+    },
+    {
+      key: "contingency",
+      label: "Contingency",
+      percent: feePercentages.contingency,
+      amount: contingencyAmount,
+    },
+    {
+      key: "salesTax",
+      label: "Sales Tax",
+      percent: feePercentages.salesTax,
+      amount: salesTaxAmount,
+    },
+  ];
+  const grossTotal = subtotal + feeAmounts.reduce((sum, item) => sum + item.amount, 0);
   const signedMultiplier = alternate.type === "deduct" ? -1 : 1;
 
   return {
     subtotal,
+    feeAmounts,
+    generalLiabilityAmount,
+    buildersRiskAmount,
     overheadAmount,
     profitAmount,
-    taxAmount,
+    performanceBondAmount,
+    contingencyAmount,
+    salesTaxAmount,
     grossTotal,
     signedTotal: grossTotal * signedMultiplier,
   };
 }
 
-function getAcceptedAlternatesTotal(alternates: AlternateRecord[]): number {
+function getAcceptedAlternatesTotal(
+  alternates: AlternateRecord[],
+  feePercentages: AlternateFeePercentages
+): number {
   return alternates.reduce((sum, alternate) => {
     if (alternate.status !== "accepted" || !alternate.includeInFinalTotal) return sum;
-    return sum + getAlternateFinancials(alternate).signedTotal;
+    return sum + getAlternateFinancials(alternate, feePercentages).signedTotal;
   }, 0);
 }
 
 function getAlternatePerSquareFoot(
   alternate: AlternateRecord,
+  feePercentages: AlternateFeePercentages,
   projectSquareFeet: number | null
 ): number | null {
   if (!projectSquareFeet || projectSquareFeet <= 0) return null;
-  return getAlternateFinancials(alternate).signedTotal / projectSquareFeet;
+  return getAlternateFinancials(alternate, feePercentages).signedTotal / projectSquareFeet;
 }
 
 function getTypeBadgeClassName(type: AlternateType) {
@@ -452,11 +589,12 @@ function AlternateSummaryStrip({
 
 function AlternateExpandedPanel({
   alternate,
+  feePercentages,
   projectSquareFeet,
   onToggleIncluded,
 }: AlternateExpandedPanelProps) {
-  const financials = getAlternateFinancials(alternate);
-  const perSquareFoot = getAlternatePerSquareFoot(alternate, projectSquareFeet);
+  const financials = getAlternateFinancials(alternate, feePercentages);
+  const perSquareFoot = getAlternatePerSquareFoot(alternate, feePercentages, projectSquareFeet);
 
   return (
     <div className="rounded-b-2xl border-x border-b border-slate-200 bg-slate-50/80 px-5 py-5">
@@ -543,21 +681,13 @@ function AlternateExpandedPanel({
             </TableBody>
           </Table>
 
-          <div className="grid gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-5">
+          <div className="grid gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-4 xl:grid-cols-8">
             {[
               { label: "Subtotal", value: financials.subtotal },
-              {
-                label: `Overhead (${formatPercent(parseNumber(alternate.markups.overheadPercent))})`,
-                value: financials.overheadAmount,
-              },
-              {
-                label: `Profit (${formatPercent(parseNumber(alternate.markups.profitPercent))})`,
-                value: financials.profitAmount,
-              },
-              {
-                label: `Tax (${formatPercent(parseNumber(alternate.markups.taxPercent))})`,
-                value: financials.taxAmount,
-              },
+              ...financials.feeAmounts.map((item) => ({
+                label: `${item.label} (${formatFeeRate(item.key, item.percent, feePercentages)})`,
+                value: item.amount,
+              })),
               { label: "Final Total", value: financials.signedTotal, emphasis: true },
             ].map((item) => (
               <div
@@ -706,6 +836,7 @@ function AlternateActionsMenu({
 
 function AlternateRow({
   alternate,
+  feePercentages,
   expanded,
   onToggleExpand,
   onEdit,
@@ -715,8 +846,8 @@ function AlternateRow({
   onToggleIncluded,
   projectSquareFeet,
 }: AlternateRowProps) {
-  const financials = getAlternateFinancials(alternate);
-  const perSquareFoot = getAlternatePerSquareFoot(alternate, projectSquareFeet);
+  const financials = getAlternateFinancials(alternate, feePercentages);
+  const perSquareFoot = getAlternatePerSquareFoot(alternate, feePercentages, projectSquareFeet);
 
   return (
     <Fragment>
@@ -790,6 +921,7 @@ function AlternateRow({
           <TableCell colSpan={8} className="p-0">
             <AlternateExpandedPanel
               alternate={alternate}
+              feePercentages={feePercentages}
               projectSquareFeet={projectSquareFeet}
               onToggleIncluded={onToggleIncluded}
             />
@@ -802,6 +934,7 @@ function AlternateRow({
 
 function AlternatesTable({
   alternates,
+  feePercentages,
   expandedAlternateId,
   onToggleExpand,
   onEdit,
@@ -852,6 +985,7 @@ function AlternatesTable({
               <AlternateRow
                 key={alternate.id}
                 alternate={alternate}
+                feePercentages={feePercentages}
                 expanded={expandedAlternateId === alternate.id}
                 onToggleExpand={onToggleExpand}
                 onEdit={onEdit}
@@ -888,13 +1022,15 @@ function AlternatesTable({
 
 function PricingSummary({
   alternate,
+  feePercentages,
   projectSquareFeet,
 }: {
   alternate: AlternateRecord;
+  feePercentages: AlternateFeePercentages;
   projectSquareFeet: number | null;
 }) {
-  const financials = getAlternateFinancials(alternate);
-  const perSquareFoot = getAlternatePerSquareFoot(alternate, projectSquareFeet);
+  const financials = getAlternateFinancials(alternate, feePercentages);
+  const perSquareFoot = getAlternatePerSquareFoot(alternate, feePercentages, projectSquareFeet);
 
   return (
     <Card className="border border-slate-200 bg-white py-0">
@@ -905,22 +1041,14 @@ function PricingSummary({
             <span>Subtotal</span>
             <span className="font-medium text-slate-900">{formatCurrency(financials.subtotal)}</span>
           </div>
-          <div className="flex items-center justify-between">
-            <span>Overhead ({formatPercent(parseNumber(alternate.markups.overheadPercent))})</span>
-            <span className="font-medium text-slate-900">
-              {formatCurrency(financials.overheadAmount)}
-            </span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span>Profit ({formatPercent(parseNumber(alternate.markups.profitPercent))})</span>
-            <span className="font-medium text-slate-900">
-              {formatCurrency(financials.profitAmount)}
-            </span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span>Tax ({formatPercent(parseNumber(alternate.markups.taxPercent))})</span>
-            <span className="font-medium text-slate-900">{formatCurrency(financials.taxAmount)}</span>
-          </div>
+          {financials.feeAmounts.map((item) => (
+            <div key={item.key} className="flex items-center justify-between">
+              <span>
+                {item.label} ({formatFeeRate(item.key, item.percent, feePercentages)})
+              </span>
+              <span className="font-medium text-slate-900">{formatCurrency(item.amount)}</span>
+            </div>
+          ))}
         </div>
         <div className="border-t border-slate-200 pt-4">
           <div className="flex items-center justify-between">
@@ -945,6 +1073,7 @@ function AlternateModal({
   open,
   onOpenChange,
   draft,
+  feePercentages,
   onDraftChange,
   onSave,
   onDelete,
@@ -1377,53 +1506,32 @@ function AlternateModal({
                   <Card className="border border-slate-200 bg-white py-0">
                     <CardContent className="space-y-4 px-5 py-5">
                       <div className="text-base font-semibold text-slate-900">
-                        Markup & Adjustments
+                        Markups & Fees
                       </div>
-                      <div className="grid gap-4 md:grid-cols-3">
-                        {[
-                          {
-                            label: "Overhead",
-                            percentKey: "overheadPercent" as const,
-                            includedKey: "includeOverhead" as const,
-                          },
-                          {
-                            label: "Profit",
-                            percentKey: "profitPercent" as const,
-                            includedKey: "includeProfit" as const,
-                          },
-                          {
-                            label: "Sales Tax",
-                            percentKey: "taxPercent" as const,
-                            includedKey: "includeTax" as const,
-                          },
-                        ].map((markup) => (
-                          <div key={markup.label} className="space-y-2">
-                            <label className="text-sm font-medium text-slate-700">
-                              {markup.label}
-                            </label>
-                            <div className="flex items-center gap-2">
-                              <Input
-                                value={draft.markups[markup.percentKey]}
-                                onChange={(event) =>
-                                  onDraftChange({
-                                    ...draft,
-                                    markups: {
-                                      ...draft.markups,
-                                      [markup.percentKey]: event.target.value,
-                                    },
-                                  })
-                                }
-                                className="text-right"
-                              />
-                              <span className="text-sm font-medium text-slate-500">%</span>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        {ALTERNATE_FEE_CONFIG.map((fee) => (
+                          <div
+                            key={fee.key}
+                            className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3"
+                          >
+                            <div className="text-sm font-medium text-slate-900">{fee.label}</div>
+                            <div className="mt-1 text-lg font-semibold text-slate-900">
+                              {formatFeeRate(fee.key, feePercentages[fee.key], feePercentages)}
                             </div>
                           </div>
                         ))}
                       </div>
+                      <div className="text-xs text-slate-500">
+                        Managed from Data, Factors & Rates.
+                      </div>
                     </CardContent>
                   </Card>
 
-                  <PricingSummary alternate={draft} projectSquareFeet={null} />
+                  <PricingSummary
+                    alternate={draft}
+                    feePercentages={feePercentages}
+                    projectSquareFeet={null}
+                  />
                 </div>
 
                 <div className="grid gap-6 xl:grid-cols-2">
@@ -1522,10 +1630,12 @@ export default function AlternatesWorkspace({
   embedded = false,
   autoOpenCreateToken = 0,
   baseEstimateTotalOverride = null,
+  feePercentages = DEFAULT_ALTERNATE_FEE_PERCENTAGES,
 }: {
   embedded?: boolean;
   autoOpenCreateToken?: number;
   baseEstimateTotalOverride?: number | null;
+  feePercentages?: AlternateFeePercentages;
 }) {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project") ?? "default";
@@ -1591,8 +1701,8 @@ export default function AlternatesWorkspace({
     [baseEstimateTotalOverride, estimateSnapshot]
   );
   const acceptedAlternatesTotal = useMemo(
-    () => getAcceptedAlternatesTotal(alternates),
-    [alternates]
+    () => getAcceptedAlternatesTotal(alternates, feePercentages),
+    [alternates, feePercentages]
   );
   const finalTotal = baseEstimateTotal + acceptedAlternatesTotal;
 
@@ -1718,11 +1828,11 @@ export default function AlternatesWorkspace({
       baseEstimateTotal,
       acceptedAlternatesTotal,
       finalTotal,
-      alternates: alternates.map((alternate) => ({
-        ...alternate,
-        financials: getAlternateFinancials(alternate),
-      })),
-    };
+        alternates: alternates.map((alternate) => ({
+          ...alternate,
+          financials: getAlternateFinancials(alternate, feePercentages),
+        })),
+      };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: "application/json",
     });
@@ -1823,11 +1933,12 @@ export default function AlternatesWorkspace({
         </div>
       </section>
 
-      <AlternatesTable
-        alternates={filteredAlternates}
-        expandedAlternateId={expandedAlternateId}
-        onToggleExpand={(alternateId) =>
-          setExpandedAlternateId((prev) => (prev === alternateId ? null : alternateId))
+          <AlternatesTable
+            alternates={filteredAlternates}
+            feePercentages={feePercentages}
+            expandedAlternateId={expandedAlternateId}
+            onToggleExpand={(alternateId) =>
+              setExpandedAlternateId((prev) => (prev === alternateId ? null : alternateId))
         }
         onEdit={openEditModal}
         onDuplicate={handleDuplicate}
@@ -1839,13 +1950,14 @@ export default function AlternatesWorkspace({
       />
 
       {draft ? (
-        <AlternateModal
-          open={modalOpen}
-          onOpenChange={closeModal}
-          draft={draft}
-          onDraftChange={setDraft}
-          onSave={handleSaveDraft}
-          onDelete={
+          <AlternateModal
+            open={modalOpen}
+            onOpenChange={closeModal}
+            draft={draft}
+            feePercentages={feePercentages}
+            onDraftChange={setDraft}
+            onSave={handleSaveDraft}
+            onDelete={
             modalMode === "edit" && editingAlternateId
               ? () => handleDelete(editingAlternateId)
               : undefined

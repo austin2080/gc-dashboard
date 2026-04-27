@@ -165,6 +165,21 @@ type FactorRow = {
   notes: string;
 };
 
+const FEE_VALUE_SUFFIX_BY_ROW_ID: Partial<Record<string, string>> = {
+  "fees-general-liability": "/ $1,000",
+  "fees-builders-risk": "/ $100",
+};
+
+function getFeeValueSuffix(rowId: string) {
+  return FEE_VALUE_SUFFIX_BY_ROW_ID[rowId] ?? "%";
+}
+
+function getFeeSectionLabel(rowId: string) {
+  if (rowId === "fees-general-liability") return "Fee value shown as dollars per $1,000 of cost";
+  if (rowId === "fees-builders-risk") return "Fee value shown as dollars per $100 of cost";
+  return null;
+}
+
 const INITIAL_ROWS: FactorRow[] = [
   {
     id: "insurance-builder-risk",
@@ -2791,10 +2806,15 @@ export default function EstimateWorkspaceV2() {
       prev.map((row) => (row.id === rowId ? { ...row, taxRate } : row))
     );
   };
-  const toActualTaxRate = (taxRate: string) => {
+  const getActualSalesTaxRateNumber = (taxRate: string) => {
     const numericRate = Number.parseFloat(taxRate);
-    if (Number.isNaN(numericRate)) return "-";
-    return `${(numericRate * 0.65).toFixed(6)}%`;
+    if (Number.isNaN(numericRate)) return 0;
+    return numericRate * 0.65;
+  };
+  const toActualTaxRate = (taxRate: string) => {
+    const actualRate = getActualSalesTaxRateNumber(taxRate);
+    if (actualRate <= 0) return "-";
+    return `${actualRate.toFixed(6)}%`;
   };
   const updateProjectDataValue = (rowId: string, value: string) => {
     setProjectDataRows((prev) =>
@@ -2948,6 +2968,24 @@ export default function EstimateWorkspaceV2() {
           ),
     [isTaxExempt, notTaxable, salesTaxRows, selectedCityNumber, tiTax, unknownSalesTax]
   );
+  const alternateFeePercentages = useMemo(() => {
+    const feeValueById = feeRows.reduce<Record<string, string>>((acc, row) => {
+      acc[row.id] = row.value;
+      return acc;
+    }, {});
+    const getFeePercent = (rowId: string) => parsePercentValue(feeValueById[rowId] ?? "") ?? 0;
+
+    return {
+      generalLiabilityInsurance: getFeePercent("fees-general-liability"),
+      buildersRiskInsurance: getFeePercent("fees-builders-risk"),
+      overhead: getFeePercent("fees-overhead"),
+      profit: getFeePercent("fees-profit"),
+      performanceBond: getFeePercent("fees-performance-bond"),
+      contingency: getFeePercent("fees-contingency"),
+      salesTaxEntered: parsePercentValue(selectedSalesTaxRow?.taxRate ?? "") ?? 0,
+      salesTax: getActualSalesTaxRateNumber(selectedSalesTaxRow?.taxRate ?? ""),
+    };
+  }, [feeRows, selectedSalesTaxRow]);
   const standaloneDivisionOneWorksheetTotal = useMemo(
     () =>
       worksheetCostCodeGroups.reduce((sum, group) => {
@@ -3769,7 +3807,7 @@ export default function EstimateWorkspaceV2() {
                     <thead className="bg-slate-100/80 text-slate-700">
                       <tr>
                         <th className="w-[50%] border-b border-r border-slate-200 px-3 py-2 text-left font-semibold">
-                          FEES % (Less Tax)
+                          Fees (Less Tax)
                         </th>
                         <th className="w-[16%] border-b border-r border-slate-200 px-3 py-2 text-left font-semibold">
                           Value
@@ -3798,15 +3836,26 @@ export default function EstimateWorkspaceV2() {
                                 onBlur={() => persistFactorRows(rows)}
                                 className="h-full w-full border-0 bg-transparent text-right text-base text-slate-900 focus:bg-white focus:outline-none"
                               />
-                              <span className="text-sm text-slate-500">%</span>
+                              <span className="text-sm text-slate-500">
+                                {getFeeValueSuffix(row.id)}
+                              </span>
                             </div>
                           </td>
                           <td className="border-b border-slate-200 px-3 py-2 text-right text-base text-slate-500">
-                            {preliminaryMarkupAmountByRowId[row.id] !== undefined
-                              ? preliminaryMarkupAmountByRowId[row.id] === null
-                                ? "-"
-                                : `$${formatCurrency(preliminaryMarkupAmountByRowId[row.id] ?? 0)}`
-                              : "-"}
+                            <div className="space-y-0.5">
+                              <div>
+                                {preliminaryMarkupAmountByRowId[row.id] !== undefined
+                                  ? preliminaryMarkupAmountByRowId[row.id] === null
+                                    ? "-"
+                                    : `$${formatCurrency(preliminaryMarkupAmountByRowId[row.id] ?? 0)}`
+                                  : "-"}
+                              </div>
+                              {getFeeSectionLabel(row.id) ? (
+                                <div className="text-xs text-slate-400">
+                                  {getFeeSectionLabel(row.id)}
+                                </div>
+                              ) : null}
+                            </div>
                           </td>
                         </tr>
                       ))}
@@ -5273,6 +5322,7 @@ export default function EstimateWorkspaceV2() {
                 embedded
                 autoOpenCreateToken={alternatesOpenRequestToken}
                 baseEstimateTotalOverride={preliminaryGrandTotal}
+                feePercentages={alternateFeePercentages}
               />
             </div>
           ) : (
