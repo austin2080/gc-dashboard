@@ -16,7 +16,7 @@ import {
   default as AlternatesWorkspace,
 } from "@/components/bidding/alternates-workspace";
 import { getBidProjectDetail } from "@/lib/bidding/store";
-import { getBidProjectIdForProject } from "@/lib/bidding/project-links";
+import { getBidProjectIdForProject, getProjectIdForBidProject } from "@/lib/bidding/project-links";
 import {
   getDefaultWorkspaceCostCodes,
   getWorkspaceCostCodes,
@@ -2020,6 +2020,7 @@ export default function EstimateWorkspaceV2() {
   const factorRowsHydratedRef = useRef(false);
   const generalConditionsHydratedRef = useRef(false);
   const generalConditionsQuantityOverrideIdsRef = useRef<Set<string>>(new Set());
+  const skipNextFactorRowsSaveRef = useRef(false);
   const skipNextGeneralConditionsSaveRef = useRef(false);
   const [prelimColumnWidths, setPrelimColumnWidths] = useState<number[]>([
     ...PRELIM_DEFAULT_COLUMN_WIDTHS,
@@ -2070,7 +2071,8 @@ export default function EstimateWorkspaceV2() {
     projectPlanningRows.find((row) => row.id === "pp-project-duration")?.value ?? "";
   const estimateProjectStorageIds = useMemo(() => {
     const mappedBidProjectId = getBidProjectIdForProject(queryProjectId ?? "");
-    return [mappedBidProjectId, queryProjectId].filter(
+    const reverseMappedProjectId = getProjectIdForBidProject(queryProjectId ?? "");
+    return [mappedBidProjectId, reverseMappedProjectId, queryProjectId].filter(
       (id, index, list): id is string => Boolean(id) && list.indexOf(id) === index
     );
   }, [queryProjectId]);
@@ -2216,6 +2218,7 @@ export default function EstimateWorkspaceV2() {
   }, [estimateProjectStorageIds, worksheetCostCodeGroups]);
   useEffect(() => {
     factorRowsHydratedRef.current = false;
+    skipNextFactorRowsSaveRef.current = true;
     const savedRowsMap = readEstimateFactorRowsMap();
     const savedRows =
       estimateProjectStorageIds
@@ -2231,6 +2234,10 @@ export default function EstimateWorkspaceV2() {
   }, [estimateProjectStorageIds]);
   useEffect(() => {
     if (!factorRowsHydratedRef.current || estimateProjectStorageIds.length === 0) return;
+    if (skipNextFactorRowsSaveRef.current) {
+      skipNextFactorRowsSaveRef.current = false;
+      return;
+    }
     writeEstimateFactorRows(estimateProjectStorageIds, rows);
   }, [estimateProjectStorageIds, rows]);
   useEffect(() => {
@@ -2655,15 +2662,19 @@ export default function EstimateWorkspaceV2() {
   }, [estimateProjectStorageIds, generalConditionsRows]);
 
   const updateCell = (rowId: string, key: keyof FactorRow, value: string) => {
-    setRows((prev) =>
-      prev.map((row) => {
+    setRows((prev) => {
+      const nextRows = prev.map((row) => {
         if (row.id !== rowId) return row;
         if (key === "type") {
           return { ...row, type: (value === "Fixed" ? "Fixed" : "Percent") as FactorType };
         }
         return { ...row, [key]: value };
-      })
-    );
+      });
+      if (factorRowsHydratedRef.current && estimateProjectStorageIds.length > 0) {
+        writeEstimateFactorRows(estimateProjectStorageIds, nextRows);
+      }
+      return nextRows;
+    });
   };
   const persistFactorRows = (nextRows: FactorRow[]) => {
     if (!factorRowsHydratedRef.current || estimateProjectStorageIds.length === 0) return;
@@ -3824,7 +3835,6 @@ export default function EstimateWorkspaceV2() {
                             <input
                               value={row.factorName}
                               onChange={(event) => updateCell(row.id, "factorName", event.target.value)}
-                              onBlur={() => persistFactorRows(rows)}
                               className="h-11 w-full border-0 bg-transparent px-3 text-base text-slate-900 focus:bg-white focus:outline-none"
                             />
                           </td>
@@ -3833,7 +3843,6 @@ export default function EstimateWorkspaceV2() {
                               <input
                                 value={row.value}
                                 onChange={(event) => updateCell(row.id, "value", event.target.value)}
-                                onBlur={() => persistFactorRows(rows)}
                                 className="h-full w-full border-0 bg-transparent text-right text-base text-slate-900 focus:bg-white focus:outline-none"
                               />
                               <span className="text-sm text-slate-500">
