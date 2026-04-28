@@ -5331,6 +5331,7 @@ export default function EstimateWorkspaceV2() {
                 embedded
                 autoOpenCreateToken={alternatesOpenRequestToken}
                 baseEstimateTotalOverride={preliminaryGrandTotal}
+                projectSquareFeetOverride={coverProjectSquareFeet}
                 feePercentages={alternateFeePercentages}
               />
             </div>

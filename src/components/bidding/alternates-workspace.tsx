@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   Check,
@@ -22,6 +22,10 @@ import {
   readEstimateExportSnapshot,
   type EstimateExportSnapshot,
 } from "@/lib/bidding/estimate-export";
+import {
+  getBidProjectIdForProject,
+  getProjectIdForBidProject,
+} from "@/lib/bidding/project-links";
 import {
   formatMoneyInputBlur,
   formatMoneyInputTyping,
@@ -69,6 +73,12 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type AlternateType = "add" | "deduct";
 type AlternateStatus = "pending" | "accepted" | "rejected";
@@ -112,6 +122,7 @@ type AlternateModalProps = {
   onOpenChange: (open: boolean) => void;
   draft: AlternateRecord;
   feePercentages: AlternateFeePercentages;
+  projectSquareFeet: number | null;
   onDraftChange: (draft: AlternateRecord) => void;
   onSave: () => void;
   onDelete?: () => void;
@@ -129,7 +140,6 @@ type AlternateExpandedPanelProps = {
   alternate: AlternateRecord;
   feePercentages: AlternateFeePercentages;
   projectSquareFeet: number | null;
-  onToggleIncluded: (alternateId: string) => void;
 };
 
 type AlternateRowProps = {
@@ -440,15 +450,17 @@ function getStatusBadgeClassName(status: AlternateStatus) {
 function IncludeToggle({
   checked,
   disabled,
+  disabledReason,
   onToggle,
   compact = false,
 }: {
   checked: boolean;
   disabled?: boolean;
+  disabledReason?: string;
   onToggle: () => void;
   compact?: boolean;
 }) {
-  return (
+  const toggleButton = (
     <button
       type="button"
       role="switch"
@@ -473,6 +485,23 @@ function IncludeToggle({
       />
       <span className="sr-only">Toggle include in final total</span>
     </button>
+  );
+
+  if (!disabled || checked || !disabledReason) {
+    return toggleButton;
+  }
+
+  return (
+    <TooltipProvider delayDuration={150}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="inline-flex">{toggleButton}</span>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-[260px] text-center leading-5">
+          {disabledReason}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }
 
@@ -591,10 +620,8 @@ function AlternateExpandedPanel({
   alternate,
   feePercentages,
   projectSquareFeet,
-  onToggleIncluded,
 }: AlternateExpandedPanelProps) {
   const financials = getAlternateFinancials(alternate, feePercentages);
-  const perSquareFoot = getAlternatePerSquareFoot(alternate, feePercentages, projectSquareFeet);
 
   return (
     <div className="rounded-b-2xl border-x border-b border-slate-200 bg-slate-50/80 px-5 py-5">
@@ -609,24 +636,9 @@ function AlternateExpandedPanel({
           </div>
           <p className="mt-1 max-w-3xl text-sm text-slate-600">{alternate.description}</p>
         </div>
-        <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2">
-          <IncludeToggle
-            checked={alternate.includeInFinalTotal}
-            disabled={alternate.status !== "accepted"}
-            onToggle={() => onToggleIncluded(alternate.id)}
-          />
-          <div>
-            <div className="text-sm font-medium text-slate-900">Included in final total</div>
-            <div className="text-xs text-slate-500">
-              {alternate.status === "accepted"
-                ? "Included when accepted and switched on."
-                : "Available after the alternate is accepted."}
-            </div>
-          </div>
-        </div>
       </div>
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="mt-5">
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
           <Table>
             <TableHeader className="bg-slate-100/90">
@@ -681,28 +693,37 @@ function AlternateExpandedPanel({
             </TableBody>
           </Table>
 
-          <div className="grid gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-4 xl:grid-cols-8">
+          <div
+            className="grid gap-px border-t border-slate-200 bg-slate-200"
+            style={{
+              gridTemplateColumns: `repeat(${
+                2 + financials.feeAmounts.filter((item) => item.amount > 0).length
+              }, minmax(0, 1fr))`,
+            }}
+          >
             {[
               { label: "Subtotal", value: financials.subtotal },
-              ...financials.feeAmounts.map((item) => ({
-                label: `${item.label} (${formatFeeRate(item.key, item.percent, feePercentages)})`,
-                value: item.amount,
-              })),
+              ...financials.feeAmounts
+                .filter((item) => item.amount > 0)
+                .map((item) => ({
+                  label: `${item.label} (${formatFeeRate(item.key, item.percent, feePercentages)})`,
+                  value: item.amount,
+                })),
               { label: "Final Total", value: financials.signedTotal, emphasis: true },
             ].map((item) => (
               <div
                 key={item.label}
                 className={cn(
-                  "bg-white px-4 py-3",
+                  "grid min-w-0 grid-rows-[minmax(3.5rem,auto)_auto] bg-white px-4 py-3",
                   item.emphasis && "bg-emerald-50/80"
                 )}
               >
-                <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                <div className="whitespace-normal break-words text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
                   {item.label}
                 </div>
                 <div
                   className={cn(
-                    "mt-1 text-lg font-semibold text-slate-900",
+                    "mt-1 self-start text-lg font-semibold text-slate-900",
                     item.emphasis && "text-emerald-700"
                   )}
                 >
@@ -712,48 +733,6 @@ function AlternateExpandedPanel({
             ))}
           </div>
         </div>
-
-        <Card className="border border-slate-200 bg-white py-0 shadow-sm">
-          <CardContent className="space-y-5 px-5 py-5">
-            <div>
-              <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                Notes
-              </div>
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-600">
-                {alternate.notes || "No internal notes yet."}
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
-                Pricing Snapshot
-              </div>
-              <div className="mt-3 space-y-2 text-sm text-slate-600">
-                <div className="flex items-center justify-between">
-                  <span>Type</span>
-                  <span className="font-medium text-slate-900">
-                    {alternate.type === "add" ? "Add" : "Deduct"}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>Status</span>
-                  <span className="font-medium capitalize text-slate-900">{alternate.status}</span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>$/SF</span>
-                  <span className="font-medium text-slate-900">
-                    {formatDollarPerSf(perSquareFoot)}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="border-t border-slate-200 pt-4 text-xs leading-5 text-slate-500">
-              <div>{alternate.createdBy}</div>
-              <div>{new Date(alternate.updatedAt).toLocaleString()}</div>
-            </div>
-          </CardContent>
-        </Card>
       </div>
     </div>
   );
@@ -888,6 +867,7 @@ function AlternateRow({
             <IncludeToggle
               checked={alternate.includeInFinalTotal}
               disabled={alternate.status !== "accepted"}
+              disabledReason="Status needs changed to Approved before alternate can be added to final total."
               compact
               onToggle={() => onToggleIncluded(alternate.id)}
             />
@@ -923,7 +903,6 @@ function AlternateRow({
               alternate={alternate}
               feePercentages={feePercentages}
               projectSquareFeet={projectSquareFeet}
-              onToggleIncluded={onToggleIncluded}
             />
           </TableCell>
         </TableRow>
@@ -1074,6 +1053,7 @@ function AlternateModal({
   onOpenChange,
   draft,
   feePercentages,
+  projectSquareFeet,
   onDraftChange,
   onSave,
   onDelete,
@@ -1530,35 +1510,11 @@ function AlternateModal({
                   <PricingSummary
                     alternate={draft}
                     feePercentages={feePercentages}
-                    projectSquareFeet={null}
+                    projectSquareFeet={projectSquareFeet}
                   />
                 </div>
 
-                <div className="grid gap-6 xl:grid-cols-2">
-                  <Card className="border border-slate-200 bg-white py-0">
-                    <CardContent className="space-y-4 px-5 py-5">
-                      <div className="text-base font-semibold text-slate-900">Inclusion</div>
-                      <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-                        <div>
-                          <div className="font-medium text-slate-900">Include in final total</div>
-                          <div className="text-sm text-slate-500">
-                            Accepted alternates can flow into the final contract total.
-                          </div>
-                        </div>
-                        <IncludeToggle
-                          checked={draft.includeInFinalTotal}
-                          disabled={draft.status !== "accepted"}
-                          onToggle={() =>
-                            onDraftChange({
-                              ...draft,
-                              includeInFinalTotal: !draft.includeInFinalTotal,
-                            })
-                          }
-                        />
-                      </div>
-                    </CardContent>
-                  </Card>
-
+                <div className="grid gap-6">
                   <Card className="border border-slate-200 bg-white py-0">
                     <CardContent className="space-y-3 px-5 py-5">
                       <div className="text-base font-semibold text-slate-900">Notes (Internal)</div>
@@ -1630,15 +1586,24 @@ export default function AlternatesWorkspace({
   embedded = false,
   autoOpenCreateToken = 0,
   baseEstimateTotalOverride = null,
+  projectSquareFeetOverride = null,
   feePercentages = DEFAULT_ALTERNATE_FEE_PERCENTAGES,
 }: {
   embedded?: boolean;
   autoOpenCreateToken?: number;
   baseEstimateTotalOverride?: number | null;
+  projectSquareFeetOverride?: number | null;
   feePercentages?: AlternateFeePercentages;
 }) {
   const searchParams = useSearchParams();
   const projectId = searchParams.get("project") ?? "default";
+  const alternateStorageProjectIds = useMemo(() => {
+    const mappedBidProjectId = getBidProjectIdForProject(projectId);
+    const reverseMappedProjectId = getProjectIdForBidProject(projectId);
+    return [mappedBidProjectId, reverseMappedProjectId, projectId].filter(
+      (id, index, list): id is string => Boolean(id) && list.indexOf(id) === index
+    );
+  }, [projectId]);
   const [alternates, setAlternates] = useState<AlternateRecord[]>([]);
   const [expandedAlternateId, setExpandedAlternateId] = useState<string | null>(null);
   const [activeFilter, setActiveFilter] = useState<AlternateFilter>("all");
@@ -1648,14 +1613,22 @@ export default function AlternatesWorkspace({
   const [draft, setDraft] = useState<AlternateRecord | null>(null);
   const [editingAlternateId, setEditingAlternateId] = useState<string | null>(null);
   const [estimateSnapshot, setEstimateSnapshot] = useState<EstimateExportSnapshot | null>(null);
+  const alternatesHydratedRef = useRef(false);
+  const skipNextAlternatesSaveRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const raw = window.localStorage.getItem(getStorageKey(projectId));
+    alternatesHydratedRef.current = false;
+    skipNextAlternatesSaveRef.current = true;
+    const raw =
+      alternateStorageProjectIds
+        .map((storageProjectId) => window.localStorage.getItem(getStorageKey(storageProjectId)))
+        .find((value) => Boolean(value)) ?? null;
     if (!raw) {
       setAlternates([]);
       setExpandedAlternateId(null);
+      alternatesHydratedRef.current = true;
       return;
     }
 
@@ -1665,11 +1638,15 @@ export default function AlternatesWorkspace({
         if (isLegacySeededAlternates(parsed)) {
           setAlternates([]);
           setExpandedAlternateId(null);
-          window.localStorage.removeItem(getStorageKey(projectId));
+          alternateStorageProjectIds.forEach((storageProjectId) => {
+            window.localStorage.removeItem(getStorageKey(storageProjectId));
+          });
+          alternatesHydratedRef.current = true;
           return;
         }
         setAlternates(parsed);
         setExpandedAlternateId(parsed[0]?.id ?? null);
+        alternatesHydratedRef.current = true;
         return;
       }
     } catch {
@@ -1678,20 +1655,31 @@ export default function AlternatesWorkspace({
 
     setAlternates([]);
     setExpandedAlternateId(null);
-  }, [projectId]);
+    alternatesHydratedRef.current = true;
+  }, [alternateStorageProjectIds]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    window.localStorage.setItem(getStorageKey(projectId), JSON.stringify(alternates));
-  }, [alternates, projectId]);
+    if (!alternatesHydratedRef.current) return;
+    if (skipNextAlternatesSaveRef.current) {
+      skipNextAlternatesSaveRef.current = false;
+      return;
+    }
+    alternateStorageProjectIds.forEach((storageProjectId) => {
+      window.localStorage.setItem(getStorageKey(storageProjectId), JSON.stringify(alternates));
+    });
+  }, [alternateStorageProjectIds, alternates]);
 
   useEffect(() => {
     setEstimateSnapshot(readEstimateExportSnapshot(projectId));
   }, [projectId]);
 
   const projectSquareFeet = useMemo(
-    () => parseProjectSquareFeet(estimateSnapshot),
-    [estimateSnapshot]
+    () =>
+      projectSquareFeetOverride !== null
+        ? projectSquareFeetOverride
+        : parseProjectSquareFeet(estimateSnapshot),
+    [estimateSnapshot, projectSquareFeetOverride]
   );
   const baseEstimateTotal = useMemo(
     () =>
@@ -1955,6 +1943,7 @@ export default function AlternatesWorkspace({
             onOpenChange={closeModal}
             draft={draft}
             feePercentages={feePercentages}
+            projectSquareFeet={projectSquareFeet}
             onDraftChange={setDraft}
             onSave={handleSaveDraft}
             onDelete={
