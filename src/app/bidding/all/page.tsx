@@ -313,7 +313,6 @@ export default function AllBidsPage() {
           </Link>
         </div>
       </header>
-
       <div className="mt-4">
         {loading ? (
           <section className="rounded-2xl border border-slate-200 bg-white px-6 py-8 text-sm text-slate-500 shadow-sm">
