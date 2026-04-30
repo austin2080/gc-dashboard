@@ -570,23 +570,36 @@ function FormCard({
   id,
   title,
   description,
+  icon,
   children,
 }: {
   id?: string;
   title: string;
   description?: string;
+  icon?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <section
       id={id}
-      className="scroll-mt-24 overflow-hidden rounded-2xl border border-border bg-surface shadow-soft-sm"
+      className="scroll-mt-24 rounded-2xl border border-border bg-surface shadow-soft-sm overflow-hidden"
     >
-      <div className="border-b border-border px-6 py-5">
-        <h3 className="text-base font-semibold text-foreground">{title}</h3>
-        {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
+      <div className="border-b border-border px-6 py-6">
+        <div className="flex items-start gap-4">
+          {icon ? (
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary-soft">
+              {icon}
+            </span>
+          ) : null}
+          <div className="min-w-0">
+            <h3 className="text-[18px] font-semibold leading-tight text-foreground [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+              {title}
+            </h3>
+            {description ? <p className="mt-1.5 text-sm text-muted-foreground">{description}</p> : null}
+          </div>
+        </div>
       </div>
-      <div className="px-6 pb-6 pt-5">{children}</div>
+      <div className="px-6 pb-6 pt-6">{children}</div>
     </section>
   );
 }
@@ -2751,14 +2764,44 @@ export default function NewBidPackagePage() {
           router.refresh();
         }}
       >
-        <div className="grid items-start gap-0 lg:grid-cols-[minmax(0,1fr)_300px]">
-          <div className="space-y-4 pr-4 pb-24 pt-12 lg:px-12">
+        <main className="mx-0 max-w-none px-6 pt-10 pb-32">
+          <div className="flex flex-col gap-8 lg:flex-row lg:items-start">
+          <div className="min-w-0 flex-1 space-y-4">
         {activePanel === "general" ? (
           <>
+        <section className="space-y-2">
+          <h2 className="text-2xl font-extrabold leading-9 tracking-[-0.025em] text-foreground [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+            General Information
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Tell us about the project. This creates the project record — the next steps prepare your first bid package.
+          </p>
+        </section>
         <FormCard
           id="general-information"
           title="General Information"
           description="Basic details about the project this bid package belongs to."
+          icon={
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              className="h-5 w-5 text-primary"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              aria-hidden
+            >
+              <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
+              <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
+              <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2" />
+              <path d="M10 6h4" />
+              <path d="M10 10h4" />
+              <path d="M10 14h4" />
+              <path d="M10 18h4" />
+            </svg>
+          }
         >
           <div className="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
             <Field label="Project Name" required className="md:col-span-2">
@@ -4030,78 +4073,228 @@ export default function NewBidPackagePage() {
         )}
           </div>
 
-          <aside className="hidden -mt-[88px] h-[calc(100%+88px)] self-stretch border-l border-slate-200 bg-white pt-[88px] lg:block">
-            <div className="sticky top-0 min-h-screen pt-2">
-              <nav className="space-y-1 px-3">
-                <button
-                  type="button"
-                  onClick={() => setActivePanel("general")}
-                  className={`flex w-full items-center gap-3 rounded-md px-4 py-3 text-left text-base font-medium hover:bg-slate-100 ${
-                    activePanel === "general" ? "bg-slate-100 text-slate-900" : "text-slate-700"
-                  }`}
-                >
-                  <svg viewBox="0 0 20 20" className="size-5 text-slate-500" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-                    <path d="M6 2.75h6l3 3V17a1.25 1.25 0 0 1-1.25 1.25h-7.5A1.25 1.25 0 0 1 5 17V4a1.25 1.25 0 0 1 1-1.22Z" />
-                    <path d="M12 2.75V6h3" />
-                    <path d="M7.5 9.5h5M7.5 12h5M7.5 14.5h3.5" />
-                  </svg>
-                  General Information
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActivePanel("files")}
-                  className={`flex w-full items-center gap-3 rounded-md px-4 py-3 text-left text-base font-medium hover:bg-slate-100 ${
-                    activePanel === "files" ? "bg-slate-100 text-slate-900" : "text-slate-700"
-                  }`}
-                >
-                  <svg viewBox="0 0 20 20" className="size-5 text-slate-500" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-                    <path d="M2.75 5.25A1.25 1.25 0 0 1 4 4h4.2l1.2 1.5H16A1.25 1.25 0 0 1 17.25 6.75v8.5A1.25 1.25 0 0 1 16 16.5H4a1.25 1.25 0 0 1-1.25-1.25z" />
-                  </svg>
-                  Files
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActivePanel("trade-coverage")}
-                  className={`flex w-full items-center gap-3 rounded-md px-4 py-3 text-left text-base font-medium hover:bg-slate-100 ${
-                    activePanel === "trade-coverage" ? "bg-slate-100 text-slate-900" : "text-slate-700"
-                  }`}
-                >
-                  <svg viewBox="0 0 20 20" className="size-5 text-slate-500" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-                    <path d="M3.5 5.5h13v10h-13z" />
-                    <path d="M7 8.5h6M7 11.5h6" />
-                  </svg>
-                  Trade Coverage
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActivePanel("invite-subs")}
-                  className={`flex w-full items-center gap-3 rounded-md px-4 py-3 text-left text-base font-medium hover:bg-slate-100 ${
-                    activePanel === "invite-subs" ? "bg-slate-100 text-slate-900" : "text-slate-700"
-                  }`}
-                >
-                  <svg viewBox="0 0 20 20" className="size-5 text-slate-500" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-                    <path d="M4 6.5h12M4 10h12M4 13.5h12" />
-                    <path d="M14.5 3.5v5m-2.5-2.5h5" />
-                  </svg>
-                  Invite Subs
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActivePanel("bid-email")}
-                  className={`flex w-full items-center gap-3 rounded-md px-4 py-3 text-left text-base font-medium hover:bg-slate-100 ${
-                    activePanel === "bid-email" ? "bg-slate-100 text-slate-900" : "text-slate-700"
-                  }`}
-                >
-                  <svg viewBox="0 0 20 20" className="size-5 text-slate-500" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
-                    <rect x="3" y="5" width="14" height="10" rx="1.5" />
-                    <path d="m4 6 6 5 6-5" />
-                  </svg>
-                  Bid Email
-                </button>
-              </nav>
+          <aside className="hidden w-full lg:sticky lg:top-24 lg:block lg:w-72 lg:self-start">
+            <div>
+                <div className="rounded-2xl border border-border bg-surface p-5 shadow-soft-sm">
+                  <div className="mb-5 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-foreground">Setup progress</h3>
+                    <span className="text-xs font-medium text-muted-foreground">{Math.max(currentStepMeta.step - 1, 0)}/5</span>
+                  </div>
+
+                  <ol className="relative space-y-1">
+                    <li className="relative">
+                      <span
+                        className={`absolute left-[22px] top-11 h-[calc(100%-12px)] w-px ${
+                          currentStepMeta.step > 1 ? "bg-primary/40" : "bg-border"
+                        }`}
+                        aria-hidden
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setActivePanel("general")}
+                        className={`group relative flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors ${
+                          activePanel === "general" ? "bg-primary-soft" : "hover:bg-surface-muted"
+                        }`}
+                      >
+                        <span
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-all ${
+                            currentStepMeta.step > 1
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : activePanel === "general"
+                                ? "border-primary bg-surface text-primary shadow-soft-sm"
+                                : "border-border bg-surface text-muted-foreground"
+                          }`}
+                        >
+                          {currentStepMeta.step > 1 ? (
+                            <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden>
+                              <path d="m4.5 10 3.5 3.5 7-7" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          ) : (
+                            <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                              <path d="M6 2.75h6l3 3V17a1.25 1.25 0 0 1-1.25 1.25h-7.5A1.25 1.25 0 0 1 5 17V4a1.25 1.25 0 0 1 1-1.22Z" />
+                              <path d="M12 2.75V6h3" />
+                              <path d="M7.5 9.5h5M7.5 12h5M7.5 14.5h3.5" />
+                            </svg>
+                          )}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className={`block text-sm font-semibold leading-tight ${activePanel === "general" ? "text-primary" : "text-foreground"}`}>
+                            General Information
+                          </span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">Project details</span>
+                        </span>
+                      </button>
+                    </li>
+
+                    <li className="relative">
+                      <span
+                        className={`absolute left-[22px] top-11 h-[calc(100%-12px)] w-px ${
+                          currentStepMeta.step > 2 ? "bg-primary/40" : "bg-border"
+                        }`}
+                        aria-hidden
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setActivePanel("files")}
+                        className={`group relative flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors ${
+                          activePanel === "files" ? "bg-primary-soft" : "hover:bg-surface-muted"
+                        }`}
+                      >
+                        <span
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-all ${
+                            currentStepMeta.step > 2
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : activePanel === "files"
+                                ? "border-primary bg-surface text-primary shadow-soft-sm"
+                                : "border-border bg-surface text-muted-foreground"
+                          }`}
+                        >
+                          {currentStepMeta.step > 2 ? (
+                            <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden>
+                              <path d="m4.5 10 3.5 3.5 7-7" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          ) : (
+                            <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                              <path d="M2.75 5.25A1.25 1.25 0 0 1 4 4h4.2l1.2 1.5H16A1.25 1.25 0 0 1 17.25 6.75v8.5A1.25 1.25 0 0 1 16 16.5H4a1.25 1.25 0 0 1-1.25-1.25z" />
+                            </svg>
+                          )}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className={`block text-sm font-semibold leading-tight ${activePanel === "files" ? "text-primary" : "text-foreground"}`}>
+                            Files
+                          </span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">Drawings & specs</span>
+                        </span>
+                      </button>
+                    </li>
+
+                    <li className="relative">
+                      <span
+                        className={`absolute left-[22px] top-11 h-[calc(100%-12px)] w-px ${
+                          currentStepMeta.step > 3 ? "bg-primary/40" : "bg-border"
+                        }`}
+                        aria-hidden
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setActivePanel("trade-coverage")}
+                        className={`group relative flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors ${
+                          activePanel === "trade-coverage" ? "bg-primary-soft" : "hover:bg-surface-muted"
+                        }`}
+                      >
+                        <span
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-all ${
+                            currentStepMeta.step > 3
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : activePanel === "trade-coverage"
+                                ? "border-primary bg-surface text-primary shadow-soft-sm"
+                                : "border-border bg-surface text-muted-foreground"
+                          }`}
+                        >
+                          {currentStepMeta.step > 3 ? (
+                            <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden>
+                              <path d="m4.5 10 3.5 3.5 7-7" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          ) : (
+                            <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                              <path d="M3.5 5.5h13v10h-13z" />
+                              <path d="M7 8.5h6M7 11.5h6" />
+                            </svg>
+                          )}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className={`block text-sm font-semibold leading-tight ${activePanel === "trade-coverage" ? "text-primary" : "text-foreground"}`}>
+                            Trade Coverage
+                          </span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">Scopes of work</span>
+                        </span>
+                      </button>
+                    </li>
+
+                    <li className="relative">
+                      <span
+                        className={`absolute left-[22px] top-11 h-[calc(100%-12px)] w-px ${
+                          currentStepMeta.step > 4 ? "bg-primary/40" : "bg-border"
+                        }`}
+                        aria-hidden
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setActivePanel("invite-subs")}
+                        className={`group relative flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors ${
+                          activePanel === "invite-subs" ? "bg-primary-soft" : "hover:bg-surface-muted"
+                        }`}
+                      >
+                        <span
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-all ${
+                            currentStepMeta.step > 4
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : activePanel === "invite-subs"
+                                ? "border-primary bg-surface text-primary shadow-soft-sm"
+                                : "border-border bg-surface text-muted-foreground"
+                          }`}
+                        >
+                          {currentStepMeta.step > 4 ? (
+                            <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden>
+                              <path d="m4.5 10 3.5 3.5 7-7" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          ) : (
+                            <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                              <path d="M4 6.5h12M4 10h12M4 13.5h12" />
+                              <path d="M14.5 3.5v5m-2.5-2.5h5" />
+                            </svg>
+                          )}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className={`block text-sm font-semibold leading-tight ${activePanel === "invite-subs" ? "text-primary" : "text-foreground"}`}>
+                            Invite Subs
+                          </span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">Subcontractors</span>
+                        </span>
+                      </button>
+                    </li>
+
+                    <li className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setActivePanel("bid-email")}
+                        className={`group relative flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors ${
+                          activePanel === "bid-email" ? "bg-primary-soft" : "hover:bg-surface-muted"
+                        }`}
+                      >
+                        <span
+                          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-all ${
+                            activePanel === "bid-email"
+                              ? "border-primary bg-surface text-primary shadow-soft-sm"
+                              : "border-border bg-surface text-muted-foreground"
+                          }`}
+                        >
+                          <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+                            <rect x="3" y="5" width="14" height="10" rx="1.5" />
+                            <path d="m4 6 6 5 6-5" />
+                          </svg>
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className={`block text-sm font-semibold leading-tight ${activePanel === "bid-email" ? "text-primary" : "text-foreground"}`}>
+                            Bid Email
+                          </span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">Compose & send</span>
+                        </span>
+                      </button>
+                    </li>
+                  </ol>
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-accent/20 bg-accent-soft/60 p-4">
+                  <p className="text-xs font-semibold text-foreground">Tip</p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    Step 1 creates your project. Steps 2-5 prepare your first bid package - nothing is sent until you finish step 5.
+                  </p>
+                </div>
             </div>
           </aside>
         </div>
+        </main>
       </form>
       {previewModalOpen ? (
         <div className="fixed inset-0 z-50">
