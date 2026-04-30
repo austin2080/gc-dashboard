@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { addDays } from "date-fns";
 import {
   createBidProject,
@@ -560,6 +560,59 @@ function DatePickerField({
         </div>
       </PopoverContent>
     </Popover>
+  );
+}
+
+const inputClass =
+  "h-11 rounded-lg border-input bg-surface text-sm text-foreground shadow-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/30";
+
+function FormCard({
+  id,
+  title,
+  description,
+  children,
+}: {
+  id?: string;
+  title: string;
+  description?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      id={id}
+      className="scroll-mt-24 overflow-hidden rounded-2xl border border-border bg-surface shadow-soft-sm"
+    >
+      <div className="border-b border-border px-6 py-5">
+        <h3 className="text-base font-semibold text-foreground">{title}</h3>
+        {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
+      </div>
+      <div className="px-6 pb-6 pt-5">{children}</div>
+    </section>
+  );
+}
+
+function Field({
+  label,
+  helper,
+  required,
+  className = "",
+  children,
+}: {
+  label: string;
+  helper?: string;
+  required?: boolean;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className={className}>
+      <div className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-700">
+        <span>{label}</span>
+        {required ? <span className="text-rose-600">*</span> : null}
+      </div>
+      {helper ? <p className="mt-1 text-xs leading-5 text-muted-foreground">{helper}</p> : null}
+      <div className="mt-2">{children}</div>
+    </div>
   );
 }
 
@@ -2384,20 +2437,55 @@ export default function NewBidPackagePage() {
     return true;
   };
 
+  const stepMetaByPanel: Record<
+    "general" | "files" | "trade-coverage" | "invite-subs" | "bid-email",
+    { step: number; label: string }
+  > = {
+    general: { step: 1, label: "General Information" },
+    files: { step: 2, label: "Files" },
+    "trade-coverage": { step: 3, label: "Trade Coverage" },
+    "invite-subs": { step: 4, label: "Invite Subs" },
+    "bid-email": { step: 5, label: "Bid Email" },
+  };
+  const currentStepMeta = stepMetaByPanel[activePanel];
+
   return (
-    <main className="bg-slate-50 pl-4 pr-0 pb-8 sm:pl-6 sm:pr-0">
-      <header className="-mx-4 border-b border-slate-200 bg-white sm:-mx-6">
-        <div className="px-6 py-3">
-          <div className="mb-2 flex items-center gap-2 text-sm text-slate-500">
-            <Link href="/bidding/all" className="font-medium text-slate-700 hover:underline">
-              Bid Packages
-            </Link>
-            <span aria-hidden>/</span>
-            <span className="text-slate-500">{isEditMode ? "Edit Bid Package" : "New Bid Package"}</span>
+    <main className="bg-slate-50 px-2 pb-8">
+      <header className="border-b border-border bg-surface">
+        <div className="flex flex-col gap-8 px-6 pb-6 pt-8 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="m-0 mb-4 flex items-center gap-3 text-sm leading-5 font-medium text-muted-foreground [font-family:Inter,ui-sans-serif,system-ui,-apple-system,'Segoe_UI',sans-serif]">
+              <Link href="/projects" className="text-muted-foreground transition hover:text-foreground">
+                Projects
+              </Link>
+              <svg
+                viewBox="0 0 20 20"
+                className="size-4 text-muted-foreground/50"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                aria-hidden
+              >
+                <path d="m7 4 6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <span className="font-semibold text-foreground">{isEditMode ? "Edit Project" : "New Project"}</span>
+            </div>
+            <h1 className="m-0 p-0 text-3xl font-extrabold leading-9 tracking-[-0.025em] text-foreground [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+              {isEditMode ? "Edit Project" : "Create Project"}
+            </h1>
+            <p className="m-0 mt-1.5 max-w-2xl text-sm leading-5 text-muted-foreground [font-family:Inter,ui-sans-serif,system-ui,-apple-system,'Segoe_UI',sans-serif]">
+              Set up your project and prepare your first bid package. Subs won&apos;t be notified until you reach the Bid
+              Email step.
+            </p>
           </div>
-          <h1 className="text-[30px] font-semibold text-slate-900">
-            {isEditMode ? "Edit Bid Package" : "Add Bid Package"}
-          </h1>
+          <div className="mb-5 shrink-0">
+            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-muted px-4 py-2 text-sm font-semibold text-muted-foreground shadow-soft-sm">
+              <span className="h-2 w-2 rounded-full bg-accent" aria-hidden />
+              <span>
+                Step {currentStepMeta.step} of 5 · {currentStepMeta.label}
+              </span>
+            </div>
+          </div>
         </div>
       </header>
 
@@ -2667,36 +2755,33 @@ export default function NewBidPackagePage() {
           <div className="space-y-4 pr-4 pb-24 pt-12 lg:px-12">
         {activePanel === "general" ? (
           <>
-        <section id="general-information" className="scroll-mt-24 rounded-xl border border-slate-200 bg-white p-5">
-          <h3 className="text-[18px] font-semibold text-slate-900">General Information</h3>
-          <div className="mt-5 grid gap-4 sm:grid-cols-6">
-            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-2">
-              <span className="inline-flex items-center gap-1">
-                Project Name <span className="text-rose-600">*</span>
-              </span>
+        <FormCard
+          id="general-information"
+          title="General Information"
+          description="Basic details about the project this bid package belongs to."
+        >
+          <div className="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
+            <Field label="Project Name" required className="md:col-span-2">
               <input
                 value={draft.project_name}
                 onChange={(event) => setDraft((prev) => ({ ...prev, project_name: event.target.value }))}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
-                placeholder="VBC CO #4"
+                className={`w-full px-3 ${inputClass}`}
+                placeholder="e.g. Riverside Medical Center — Phase II"
               />
-            </label>
-            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-2">
-              Project Number
+            </Field>
+
+            <Field label="Project Number" helper="Internal reference used across reports.">
               <input
                 value={draft.package_number}
                 onChange={(event) => setDraft((prev) => ({ ...prev, package_number: event.target.value }))}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                className={`w-full px-3 ${inputClass}`}
                 placeholder="26001"
               />
-            </label>
-            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-2">
-              Status
-              <Select
-                value={draft.status}
-                onValueChange={(value) => setDraft((prev) => ({ ...prev, status: value }))}
-              >
-                <SelectTrigger className="w-full rounded-lg border-slate-300 text-sm text-slate-900 shadow-sm focus:ring-blue-500">
+            </Field>
+
+            <Field label="Status">
+              <Select value={draft.status} onValueChange={(value) => setDraft((prev) => ({ ...prev, status: value }))}>
+                <SelectTrigger className={`w-full px-3 ${inputClass}`}>
                   <SelectValue placeholder="Select status" />
                 </SelectTrigger>
                 <SelectContent>
@@ -2706,152 +2791,112 @@ export default function NewBidPackagePage() {
                   <SelectItem value="lost">Lost</SelectItem>
                 </SelectContent>
               </Select>
-            </label>
-            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-3">
-              Client Name
+            </Field>
+
+            <Field label="Client Name" className="md:col-span-2">
               <input
                 value={draft.owner}
                 onChange={(event) => setDraft((prev) => ({ ...prev, owner: event.target.value }))}
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
-                placeholder="Client name"
+                className={`w-full px-3 ${inputClass}`}
+                placeholder="Northpoint Healthcare Group"
               />
-            </label>
-            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-3">
-              Project Address
+            </Field>
+
+            <Field label="Project Address" className="md:col-span-2">
               <input
                 value={draft.project_address}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, project_address: event.target.value }))
-                }
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
-                placeholder="123 Main St"
+                onChange={(event) => setDraft((prev) => ({ ...prev, project_address: event.target.value }))}
+                className={`w-full px-3 ${inputClass}`}
+                placeholder="1240 Harborview Drive"
               />
-            </label>
-            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-2">
-              City
+            </Field>
+
+            <Field label="City">
               <input
                 value={draft.project_city}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, project_city: event.target.value }))
-                }
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                onChange={(event) => setDraft((prev) => ({ ...prev, project_city: event.target.value }))}
+                className={`w-full px-3 ${inputClass}`}
                 placeholder="Phoenix"
               />
-            </label>
-            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-1">
-              State
-              <input
-                value={draft.project_state}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, project_state: event.target.value.toUpperCase() }))
-                }
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
-                placeholder="AZ"
-                maxLength={2}
-              />
-            </label>
-            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-1">
-              Zip
-              <input
-                value={draft.project_zip}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, project_zip: event.target.value }))
-                }
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
-                placeholder="85004"
-              />
-            </label>
-            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-3">
-              Architect
+            </Field>
+
+            <div className="grid grid-cols-2 gap-4">
+              <Field label="State">
+                <input
+                  value={draft.project_state}
+                  onChange={(event) =>
+                    setDraft((prev) => ({ ...prev, project_state: event.target.value.toUpperCase() }))
+                  }
+                  className={`w-full px-3 ${inputClass}`}
+                  placeholder="AZ"
+                  maxLength={2}
+                />
+              </Field>
+              <Field label="Zip">
+                <input
+                  value={draft.project_zip}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, project_zip: event.target.value }))}
+                  className={`w-full px-3 ${inputClass}`}
+                  placeholder="85004"
+                />
+              </Field>
+            </div>
+
+            <Field label="Architect" helper="The firm of record for drawings & specs.">
               <input
                 value={draft.architect}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, architect: event.target.value }))
-                }
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
-                placeholder="Architect"
+                onChange={(event) => setDraft((prev) => ({ ...prev, architect: event.target.value }))}
+                className={`w-full px-3 ${inputClass}`}
+                placeholder="Halden & Voss Architects"
               />
-            </label>
-            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-3">
-              Client Phone Number
-              <input
-                value={draft.client_phone}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, client_phone: event.target.value }))
-                }
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
-                placeholder="(555) 555-5555"
-              />
-            </label>
-            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-3">
-              Client Email
-              <input
-                type="email"
-                value={draft.client_email}
-                onChange={(event) =>
-                  setDraft((prev) => ({ ...prev, client_email: event.target.value }))
-                }
-                className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
-                placeholder="client@example.com"
-              />
-            </label>
-            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-3">
-              <span className="inline-flex items-center gap-2">
-                Bid Set Date
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label="What is bid set date?"
-                        className="inline-flex size-5 items-center justify-center rounded-full text-slate-500 transition hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                      >
-                        <Info className="size-4" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" sideOffset={6} className="max-w-[260px] text-center leading-5">
-                      The date printed on the construction drawings being used for this bid.
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </span>
+            </Field>
+
+            <Field label="Bid Set Date" helper="Date the current drawing set was issued.">
               <DatePickerField
                 value={draft.bid_set_date}
                 onChange={(next) => setDraft((prev) => ({ ...prev, bid_set_date: next }))}
-                className="w-full"
+                className={`w-full ${inputClass} justify-between font-normal hover:bg-surface`}
+                iconPosition="right"
+                placeholder="Pick a date"
               />
-            </label>
-          </div>
-        </section>
+            </Field>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5">
-          <h3 className="text-[18px] font-semibold text-slate-900">Package Contacts</h3>
-          <div className="mt-5 space-y-5">
-            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
-              <span className="inline-flex items-center gap-2">
-                Primary Bidding Contact <span className="text-rose-600">*</span>
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label="Primary bidding contact help"
-                        className="inline-flex size-5 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                      >
-                        i
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" sideOffset={6} className="max-w-[280px] text-center leading-5">
-                      Emails will be sent from: {activeSenderEmail}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </span>
+            <Field label="Client Phone Number">
+              <input
+                value={draft.client_phone}
+                onChange={(event) => setDraft((prev) => ({ ...prev, client_phone: event.target.value }))}
+                className={`w-full px-3 ${inputClass}`}
+                placeholder="(206) 555-0142"
+              />
+            </Field>
+
+            <Field label="Client Email">
+              <input
+                type="email"
+                value={draft.client_email}
+                onChange={(event) => setDraft((prev) => ({ ...prev, client_email: event.target.value }))}
+                className={`w-full px-3 ${inputClass}`}
+                placeholder="contracts@northpointhealth.com"
+              />
+            </Field>
+          </div>
+        </FormCard>
+
+        <FormCard
+          title="Package Contacts"
+          description="Who at BuildRight is responsible for this bid package."
+        >
+          <div className="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
+            <Field
+              label="Primary Bidding Contact"
+              required
+              helper={`Bid communications will be sent from ${activeSenderEmail}.`}
+            >
               <Select
                 value={draft.primary_bidding_contact}
                 onValueChange={(value) => setDraft((prev) => ({ ...prev, primary_bidding_contact: value }))}
               >
-                <SelectTrigger className="w-full rounded-lg border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:ring-blue-500">
+                <SelectTrigger className={`w-full px-3 ${inputClass}`}>
                   <SelectValue>{primaryBiddingContactDisplay}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -2870,41 +2915,27 @@ export default function NewBidPackagePage() {
                   )}
                 </SelectContent>
               </Select>
-            </label>
+            </Field>
 
-            <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700">
-              <span className="inline-flex items-center gap-2">
-                Bidding CC Group
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label="Bidding CC group help"
-                        className="inline-flex size-5 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                      >
-                        i
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" sideOffset={6} className="max-w-[280px] text-center leading-5">
-                      {!hasSelectableCcUser && companyUserOptions.length
-                        ? "Add another active user to CC someone other than the primary contact."
-                        : "Optional copied recipient for bidding communications."}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </span>
+            <Field
+              label="Additional Contacts"
+              helper={
+                !hasSelectableCcUser && companyUserOptions.length
+                  ? "Add another active user to CC someone other than the primary contact."
+                  : "Optional — they will be copied on bid communications."
+              }
+            >
               <Select
                 value={draft.bidding_cc_group || "__none"}
                 onValueChange={(value) =>
                   setDraft((prev) => ({ ...prev, bidding_cc_group: value === "__none" ? "" : value }))
                 }
               >
-                <SelectTrigger className="w-full rounded-lg border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:ring-blue-500">
-                  <SelectValue placeholder="Select CC user" />
+                <SelectTrigger className={`w-full px-3 ${inputClass}`}>
+                  <SelectValue placeholder="Select additional contact" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none">No CC</SelectItem>
+                  <SelectItem value="__none">No additional contact</SelectItem>
                   {biddingCcUserOptions.length ? (
                     biddingCcUserOptions.map((user) => (
                       <SelectItem
@@ -2924,137 +2955,42 @@ export default function NewBidPackagePage() {
                   )}
                 </SelectContent>
               </Select>
-            </label>
+            </Field>
           </div>
-        </section>
+        </FormCard>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5">
-          <h3 className="text-[18px] font-semibold tracking-normal text-slate-950">Prebid information</h3>
-          <div className="mt-5 divide-y divide-slate-200">
-            <div className="pb-5">
-              <div className="mb-2 text-sm font-semibold text-slate-700">Bid due date</div>
-              <DatePickerField
-                value={draft.due_date}
-                onChange={handleDueDateChange}
-                className="h-10 w-full justify-between rounded-md border border-slate-300 bg-slate-50 px-3 text-left text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50 [&_svg]:text-slate-500"
-                placeholder="mm/dd/yyyy"
-                iconPosition="right"
-                presets={[
-                  { label: "Today", daysFromToday: 0 },
-                  { label: "Tomorrow", daysFromToday: 1 },
-                  { label: "In a week", daysFromToday: 7 },
-                  { label: "In 2 weeks", daysFromToday: 14 },
-                ]}
+        <FormCard
+          title="Project Details"
+          description="Project sizing, tax settings, and schedule dates used throughout bidding."
+        >
+          <div className="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
+            <Field label="Project Size (SQ FT)">
+              <input
+                value={draft.project_size_sqft}
+                onChange={(event) => setDraft((prev) => ({ ...prev, project_size_sqft: event.target.value }))}
+                className={`w-full px-3 ${inputClass}`}
+                placeholder="3249"
               />
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                {renderIncludeTimeToggle(draft.due_time_enabled, () =>
-                  setDraft((prev) => ({ ...prev, due_time_enabled: !prev.due_time_enabled }))
-                )}
-                {draft.due_time_enabled
-                  ? renderTimeControls({
-                      hour: draft.due_hour,
-                      minute: draft.due_minute,
-                      period: draft.due_period,
-                      onHourChange: (value) => setDraft((prev) => ({ ...prev, due_hour: value })),
-                      onMinuteChange: (value) => setDraft((prev) => ({ ...prev, due_minute: value })),
-                      onPeriodChange: (value) => setDraft((prev) => ({ ...prev, due_period: value })),
-                    })
-                  : null}
-              </div>
-            </div>
+            </Field>
 
-            <div className="py-5">
-              <div className="mb-2 text-sm font-semibold text-slate-700">RFI deadline</div>
-              <DatePickerField
-                value={draft.rfi_deadline_date}
-                onChange={(next) =>
-                  setDraft((prev) => ({ ...prev, rfi_deadline_date: next, rfi_deadline_enabled: Boolean(next) }))
+            <Field label="Project Site Size (SQ FT)">
+              <input
+                value={draft.project_site_size_sqft}
+                onChange={(event) =>
+                  setDraft((prev) => ({ ...prev, project_site_size_sqft: event.target.value }))
                 }
-                className="h-10 w-full justify-between rounded-md border border-slate-300 bg-slate-50 px-3 text-left text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50 [&_svg]:text-slate-500"
-                placeholder="mm/dd/yyyy"
-                iconPosition="right"
+                className={`w-full px-3 ${inputClass}`}
+                placeholder="3249"
               />
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                {renderIncludeTimeToggle(draft.rfi_deadline_time_enabled, () =>
-                  setDraft((prev) => ({
-                    ...prev,
-                    rfi_deadline_time_enabled: !prev.rfi_deadline_time_enabled,
-                  }))
-                )}
-                {draft.rfi_deadline_time_enabled
-                  ? renderTimeControls({
-                      hour: draft.rfi_deadline_hour,
-                      minute: draft.rfi_deadline_minute,
-                      period: draft.rfi_deadline_period,
-                      onHourChange: (value) => setDraft((prev) => ({ ...prev, rfi_deadline_hour: value })),
-                      onMinuteChange: (value) => setDraft((prev) => ({ ...prev, rfi_deadline_minute: value })),
-                      onPeriodChange: (value) => setDraft((prev) => ({ ...prev, rfi_deadline_period: value })),
-                    })
-                  : null}
-              </div>
-            </div>
+            </Field>
 
-            <div className="pt-5">
-              <div className="mb-2 text-sm font-semibold text-slate-700">Site walkthrough</div>
-              <DatePickerField
-                value={draft.site_walkthrough_date}
-                onChange={(next) =>
-                  setDraft((prev) => ({ ...prev, site_walkthrough_date: next, site_walkthrough_enabled: Boolean(next) }))
-                }
-                className="h-10 w-full justify-between rounded-md border border-slate-300 bg-slate-50 px-3 text-left text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50 [&_svg]:text-slate-500"
-                placeholder="mm/dd/yyyy"
-                iconPosition="right"
-              />
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                {renderIncludeTimeToggle(draft.site_walkthrough_time_enabled, () =>
-                  setDraft((prev) => ({
-                    ...prev,
-                    site_walkthrough_time_enabled: !prev.site_walkthrough_time_enabled,
-                  }))
-                )}
-                {draft.site_walkthrough_time_enabled
-                  ? renderTimeControls({
-                      hour: draft.site_walkthrough_hour,
-                      minute: draft.site_walkthrough_minute,
-                      period: draft.site_walkthrough_period,
-                      onHourChange: (value) => setDraft((prev) => ({ ...prev, site_walkthrough_hour: value })),
-                      onMinuteChange: (value) => setDraft((prev) => ({ ...prev, site_walkthrough_minute: value })),
-                      onPeriodChange: (value) => setDraft((prev) => ({ ...prev, site_walkthrough_period: value })),
-                    })
-                  : null}
-              </div>
-            </div>
-
-          </div>
-
-            <div className="mt-8 grid gap-4 md:grid-cols-2">
-              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                Project Size (SQ FT)
-                <input
-                  value={draft.project_size_sqft}
-                  onChange={(event) => setDraft((prev) => ({ ...prev, project_size_sqft: event.target.value }))}
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
-                  placeholder="3249"
-                />
-              </label>
-              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                Project Site Size (SQ FT)
-                <input
-                  value={draft.project_site_size_sqft}
-                  onChange={(event) =>
-                    setDraft((prev) => ({ ...prev, project_site_size_sqft: event.target.value }))
-                  }
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
-                  placeholder="3249"
-                />
-              </label>
-              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                City
+            <Field label="City" helper="Used to determine project sales tax.">
+              <div className="space-y-3">
                 <Popover open={projectTaxCityOpen} onOpenChange={setProjectTaxCityOpen}>
                   <PopoverTrigger asChild>
                     <button
                       type="button"
-                      className="flex w-full items-center justify-between rounded-md border border-slate-300 bg-white px-3 py-2 text-left text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                      className={`flex w-full items-center justify-between px-3 ${inputClass}`}
                       aria-label="Search or select city"
                     >
                       <span>
@@ -3099,6 +3035,7 @@ export default function NewBidPackagePage() {
                     </Command>
                   </PopoverContent>
                 </Popover>
+
                 {isManualTaxRate ? (
                   <>
                     <input
@@ -3106,7 +3043,7 @@ export default function NewBidPackagePage() {
                       onChange={(event) =>
                         setDraft((prev) => ({ ...prev, tax_city_name: event.target.value }))
                       }
-                      className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                      className={`w-full px-3 ${inputClass}`}
                       placeholder="Enter city"
                     />
                     <input
@@ -3117,103 +3054,205 @@ export default function NewBidPackagePage() {
                       onBlur={() =>
                         setDraft((prev) => ({ ...prev, tax_rate: normalizeTaxRateValue(prev.tax_rate ?? "") }))
                       }
-                      className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
+                      className={`w-full px-3 ${inputClass}`}
                       placeholder="Combined state/county/city rate"
                     />
                   </>
                 ) : null}
-              </label>
-              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                Tax Rate
-                <div
-                  className={`flex min-h-10 items-center justify-between rounded-md border px-3 py-2 text-sm shadow-sm ${
-                    draft.tax_exempt
-                      ? "border-slate-300 bg-slate-100 text-slate-400"
-                      : "border-slate-300 bg-slate-50 text-slate-500"
-                  }`}
-                >
-                  <span className={draft.tax_exempt ? "line-through" : ""}>
-                    {displayedProjectTaxRate || "-"}
-                  </span>
-                  {draft.tax_exempt ? (
-                    <span className="rounded-[8px] bg-emerald-100 px-2 py-[2px] text-[13px] font-medium text-emerald-700">
-                      0%
-                    </span>
-                  ) : null}
-                </div>
-                <span className="text-xs font-normal leading-5 text-slate-500">
-                  Arizona actual rates use the 65% construction taxable base. Other states use the full rate.
-                </span>
-                <label
-                  className={`inline-flex items-center gap-2 text-[13px] ${
-                    draft.tax_exempt ? "text-emerald-700" : "text-slate-500"
-                  }`}
-                >
+              </div>
+            </Field>
+
+            <Field
+              label="Tax Rate"
+              helper="Arizona actual rates use the 65% construction taxable base. Other states use the full rate."
+            >
+              <div className="space-y-3">
+                <input
+                  readOnly
+                  value={displayedProjectTaxRate || "-"}
+                  className={`w-full px-3 ${inputClass} ${draft.tax_exempt ? "line-through text-slate-400" : "text-foreground"}`}
+                />
+                <label className="inline-flex items-center gap-2 text-[13px] text-muted-foreground">
                   <input
                     type="checkbox"
                     checked={draft.tax_exempt}
                     onChange={(event) =>
                       setDraft((prev) => ({ ...prev, tax_exempt: event.target.checked }))
                     }
-                    className="sr-only"
+                    className="size-4 rounded border-input text-primary focus:ring-primary/30"
                   />
-                  <span
-                    className={`flex h-4 w-4 items-center justify-center rounded-[4px] border-[1.5px] ${
-                      draft.tax_exempt
-                        ? "border-emerald-600 bg-emerald-600 text-white"
-                        : "border-slate-300 bg-white text-transparent"
-                    }`}
-                  >
-                    <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3 w-3">
-                      <path
-                        d="M4 8.25 6.5 10.75 12 5.25"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </span>
                   <span>Tax exempt</span>
                 </label>
-              </label>
-              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                Construction Start Date
-                <DatePickerField
-                  value={draft.construction_start_date}
-                  onChange={handleConstructionStartDateChange}
-                  className="w-full"
-                />
-              </label>
-              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                Construction Completion Date
-                <DatePickerField
-                  value={draft.construction_completion_date}
-                  onChange={handleConstructionCompletionDateChange}
-                  className="w-full"
-                />
-              </label>
-              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                Construction Duration (Weeks)
-                <input
-                  value={draft.construction_duration_weeks}
-                  onChange={(event) => handleConstructionDurationChange(event.target.value)}
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
-                  placeholder="13"
-                />
-              </label>
-              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                Project Duration (Weeks / Includes Close-out)
-                <input
-                  value={draft.project_duration_weeks}
-                  onChange={(event) => handleProjectDurationChange(event.target.value)}
-                  className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none"
-                  placeholder="14"
-                />
-              </label>
+              </div>
+            </Field>
+
+            <Field label="Construction Start Date">
+              <DatePickerField
+                value={draft.construction_start_date}
+                onChange={handleConstructionStartDateChange}
+                className={`w-full ${inputClass} justify-between font-normal hover:bg-surface`}
+                iconPosition="right"
+              />
+            </Field>
+
+            <Field label="Construction Completion Date">
+              <DatePickerField
+                value={draft.construction_completion_date}
+                onChange={handleConstructionCompletionDateChange}
+                className={`w-full ${inputClass} justify-between font-normal hover:bg-surface`}
+                iconPosition="right"
+              />
+            </Field>
+
+            <Field label="Construction Duration (Weeks)">
+              <input
+                value={draft.construction_duration_weeks}
+                onChange={(event) => handleConstructionDurationChange(event.target.value)}
+                className={`w-full px-3 ${inputClass}`}
+                placeholder="13"
+              />
+            </Field>
+
+            <Field label="Project Duration (Weeks / Includes Close-out)">
+              <input
+                value={draft.project_duration_weeks}
+                onChange={(event) => handleProjectDurationChange(event.target.value)}
+                className={`w-full px-3 ${inputClass}`}
+                placeholder="14"
+              />
+            </Field>
+          </div>
+        </FormCard>
+
+        <FormCard
+          title="Prebid Information"
+          description="Track the critical bid dates shared with invited subcontractors."
+        >
+          <div className="space-y-4">
+            <div className="rounded-xl border border-border bg-surface-muted/50 p-4">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-semibold text-slate-700">
+                    Bid due date <span className="text-rose-600">*</span>
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    Final deadline shown to subcontractors for bid submission.
+                  </p>
+                </div>
+                <div className="w-full xl:max-w-[340px]">
+                  <DatePickerField
+                    value={draft.due_date}
+                    onChange={handleDueDateChange}
+                    className={`w-full ${inputClass} justify-between font-normal hover:bg-surface`}
+                    placeholder="Pick a date"
+                    iconPosition="right"
+                    presets={[
+                      { label: "Today", daysFromToday: 0 },
+                      { label: "Tomorrow", daysFromToday: 1 },
+                      { label: "In a week", daysFromToday: 7 },
+                      { label: "In 2 weeks", daysFromToday: 14 },
+                    ]}
+                  />
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                {renderIncludeTimeToggle(draft.due_time_enabled, () =>
+                  setDraft((prev) => ({ ...prev, due_time_enabled: !prev.due_time_enabled }))
+                )}
+                {draft.due_time_enabled
+                  ? renderTimeControls({
+                      hour: draft.due_hour,
+                      minute: draft.due_minute,
+                      period: draft.due_period,
+                      onHourChange: (value) => setDraft((prev) => ({ ...prev, due_hour: value })),
+                      onMinuteChange: (value) => setDraft((prev) => ({ ...prev, due_minute: value })),
+                      onPeriodChange: (value) => setDraft((prev) => ({ ...prev, due_period: value })),
+                    })
+                  : null}
+              </div>
             </div>
-        </section>
+
+            <div className="rounded-xl border border-border bg-surface-muted/50 p-4">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-semibold text-slate-700">RFI deadline</div>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    Optional deadline for subcontractor questions before bid day.
+                  </p>
+                </div>
+                <div className="w-full xl:max-w-[340px]">
+                  <DatePickerField
+                    value={draft.rfi_deadline_date}
+                    onChange={(next) =>
+                      setDraft((prev) => ({ ...prev, rfi_deadline_date: next, rfi_deadline_enabled: Boolean(next) }))
+                    }
+                    className={`w-full ${inputClass} justify-between font-normal hover:bg-surface`}
+                    placeholder="Pick a date"
+                    iconPosition="right"
+                  />
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                {renderIncludeTimeToggle(draft.rfi_deadline_time_enabled, () =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    rfi_deadline_time_enabled: !prev.rfi_deadline_time_enabled,
+                  }))
+                )}
+                {draft.rfi_deadline_time_enabled
+                  ? renderTimeControls({
+                      hour: draft.rfi_deadline_hour,
+                      minute: draft.rfi_deadline_minute,
+                      period: draft.rfi_deadline_period,
+                      onHourChange: (value) => setDraft((prev) => ({ ...prev, rfi_deadline_hour: value })),
+                      onMinuteChange: (value) => setDraft((prev) => ({ ...prev, rfi_deadline_minute: value })),
+                      onPeriodChange: (value) => setDraft((prev) => ({ ...prev, rfi_deadline_period: value })),
+                    })
+                  : null}
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-surface-muted/50 p-4">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-semibold text-slate-700">Site walkthrough</div>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    Optional jobsite visit details for interested bidders.
+                  </p>
+                </div>
+                <div className="w-full xl:max-w-[340px]">
+                  <DatePickerField
+                    value={draft.site_walkthrough_date}
+                    onChange={(next) =>
+                      setDraft((prev) => ({ ...prev, site_walkthrough_date: next, site_walkthrough_enabled: Boolean(next) }))
+                    }
+                    className={`w-full ${inputClass} justify-between font-normal hover:bg-surface`}
+                    placeholder="Pick a date"
+                    iconPosition="right"
+                  />
+                </div>
+              </div>
+              <div className="mt-4 flex flex-wrap items-center gap-3">
+                {renderIncludeTimeToggle(draft.site_walkthrough_time_enabled, () =>
+                  setDraft((prev) => ({
+                    ...prev,
+                    site_walkthrough_time_enabled: !prev.site_walkthrough_time_enabled,
+                  }))
+                )}
+                {draft.site_walkthrough_time_enabled
+                  ? renderTimeControls({
+                      hour: draft.site_walkthrough_hour,
+                      minute: draft.site_walkthrough_minute,
+                      period: draft.site_walkthrough_period,
+                      onHourChange: (value) => setDraft((prev) => ({ ...prev, site_walkthrough_hour: value })),
+                      onMinuteChange: (value) => setDraft((prev) => ({ ...prev, site_walkthrough_minute: value })),
+                      onPeriodChange: (value) => setDraft((prev) => ({ ...prev, site_walkthrough_period: value })),
+                    })
+                  : null}
+              </div>
+            </div>
+          </div>
+        </FormCard>
 
         {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 

@@ -633,8 +633,8 @@ export default function AllBidsPage() {
                 });
               }}
             >
-              <section className="rounded-xl border border-slate-200 bg-white p-5">
-                <h3 className="text-[18px] font-semibold text-slate-900">General Information</h3>
+              <section className="rounded-xl border border-slate-200 bg-white px-6 pb-6 pt-8">
+                <h3 className="m-0 text-[18px] font-semibold text-slate-900">General Information</h3>
                 <div className="mt-5 grid gap-4 sm:grid-cols-6">
                   <label className="flex flex-col gap-2 text-sm font-semibold text-slate-700 sm:col-span-2">
                     <span className="inline-flex items-center gap-1">
