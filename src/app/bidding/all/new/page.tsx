@@ -489,7 +489,7 @@ function DatePickerField({
           disabled={disabled}
           className={`${
             iconPosition === "right" ? "justify-between" : "justify-start"
-          } rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal text-slate-900 shadow-sm hover:bg-white ${className ?? "w-[170px]"}`}
+          } !h-auto min-h-[40px] ${inputClass} font-normal hover:!border-accent hover:!bg-accent hover:!text-accent-foreground hover:[&_svg]:!text-accent-foreground aria-expanded:!border-accent aria-expanded:!bg-accent aria-expanded:!text-accent-foreground aria-expanded:[&_svg]:!text-accent-foreground ${className ?? "w-[170px]"}`}
         >
           {iconPosition === "left" ? <CalendarIcon className="mr-2 size-4 text-slate-500" /> : null}
           <span>{selectedDate ? DATE_DISPLAY_FORMATTER.format(selectedDate) : placeholder}</span>
@@ -564,7 +564,9 @@ function DatePickerField({
 }
 
 const inputClass =
-  "h-11 rounded-lg border-input bg-surface text-sm text-foreground shadow-none focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-primary/30";
+  "rounded-xl border-[1px] border-slate-300 bg-white px-3 py-2 text-[15px] leading-[28px] font-medium text-slate-900 shadow-none placeholder:text-slate-500 focus-visible:border-sky-500 focus-visible:ring-4 focus-visible:ring-sky-100";
+const selectFieldClass =
+  "w-full border-[1px] border-slate-300 bg-white leading-[28px] font-medium text-slate-900 shadow-none focus-visible:border-sky-500 focus-visible:ring-4 focus-visible:ring-sky-100 [&_svg]:text-slate-400";
 
 function FormCard({
   id,
@@ -582,24 +584,24 @@ function FormCard({
   return (
     <section
       id={id}
-      className="scroll-mt-24 rounded-2xl border border-border bg-surface shadow-soft-sm overflow-hidden"
+      className="scroll-mt-24 rounded-[20px] border border-slate-200 bg-white p-7 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_24px_rgba(15,23,42,0.04)]"
     >
-      <div className="border-b border-border px-6 py-6">
+      <div className="pb-6">
         <div className="flex items-start gap-4">
           {icon ? (
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary-soft">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-sky-600 ring-1 ring-sky-100 [&_svg]:text-sky-600">
               {icon}
             </span>
           ) : null}
           <div className="min-w-0">
-            <h3 className="text-[18px] font-semibold leading-tight text-foreground [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+            <h3 className="text-[20px] font-semibold leading-tight text-slate-950 [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
               {title}
             </h3>
-            {description ? <p className="mt-1.5 text-sm text-muted-foreground">{description}</p> : null}
+            {description ? <p className="mt-1.5 text-[15px] leading-6 text-slate-500">{description}</p> : null}
           </div>
         </div>
       </div>
-      <div className="px-6 pb-6 pt-6">{children}</div>
+      <div className="pt-6">{children}</div>
     </section>
   );
 }
@@ -607,24 +609,26 @@ function FormCard({
 function Field({
   label,
   helper,
+  helperClassName = "",
   required,
   className = "",
   children,
 }: {
   label: string;
   helper?: string;
+  helperClassName?: string;
   required?: boolean;
   className?: string;
   children: ReactNode;
 }) {
   return (
-    <div className={className}>
-      <div className="flex items-center gap-1.5 text-[13px] font-semibold text-slate-700">
+    <div className={`flex flex-col ${className}`}>
+      <div className="flex items-center gap-1.5 text-sm font-semibold tracking-[0.01em] text-slate-700">
         <span>{label}</span>
         {required ? <span className="text-rose-600">*</span> : null}
       </div>
-      {helper ? <p className="mt-1 text-xs leading-5 text-muted-foreground">{helper}</p> : null}
       <div className="mt-2">{children}</div>
+      {helper ? <p className={`mt-2 text-sm leading-5 text-slate-500 ${helperClassName}`}>{helper}</p> : null}
     </div>
   );
 }
@@ -2463,7 +2467,7 @@ export default function NewBidPackagePage() {
   const currentStepMeta = stepMetaByPanel[activePanel];
 
   return (
-    <main className="bg-slate-50 px-2 pb-8">
+    <main className="bid-package-builder bg-slate-50 px-2 pb-8">
       <header className="border-b border-border bg-surface">
         <div className="flex flex-col gap-8 px-6 pb-6 pt-8 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0 flex-1">
@@ -2509,7 +2513,7 @@ export default function NewBidPackagePage() {
       ) : null}
 
       <form
-        className=""
+        className="bid-package-builder__form"
         onSubmit={async (event) => {
           event.preventDefault();
           const submitter = (event.nativeEvent as SubmitEvent).submitter as
@@ -2770,10 +2774,10 @@ export default function NewBidPackagePage() {
         {activePanel === "general" ? (
           <>
         <section className="space-y-2">
-          <h2 className="text-2xl font-extrabold leading-9 tracking-[-0.025em] text-foreground [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+          <h2 className="text-[30px] font-extrabold leading-[1.1] tracking-[-0.03em] text-slate-950 [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
             General Information
           </h2>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-[15px] leading-6 text-slate-500">
             Tell us about the project. This creates the project record — the next steps prepare your first bid package.
           </p>
         </section>
@@ -2822,16 +2826,36 @@ export default function NewBidPackagePage() {
               />
             </Field>
 
-            <Field label="Status">
+            <Field
+              label="Status"
+              helper="Internal reference used across reports."
+              helperClassName="invisible"
+            >
               <Select value={draft.status} onValueChange={(value) => setDraft((prev) => ({ ...prev, status: value }))}>
-                <SelectTrigger className={`w-full px-3 ${inputClass}`}>
+                <SelectTrigger
+                  size="field"
+                  className={`${selectFieldClass} cursor-pointer`}
+                  style={{ borderWidth: 1 }}
+                >
                   <SelectValue placeholder="Select status" />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="bidding">Bidding</SelectItem>
-                  <SelectItem value="submitted">Submitted</SelectItem>
-                  <SelectItem value="awarded">Awarded</SelectItem>
-                  <SelectItem value="lost">Lost</SelectItem>
+                <SelectContent
+                  position="popper"
+                  align="start"
+                  sideOffset={2}
+                >
+                  <SelectItem value="bidding">
+                    Bidding
+                  </SelectItem>
+                  <SelectItem value="submitted">
+                    Submitted
+                  </SelectItem>
+                  <SelectItem value="awarded">
+                    Awarded
+                  </SelectItem>
+                  <SelectItem value="lost">
+                    Lost
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </Field>
@@ -2846,12 +2870,28 @@ export default function NewBidPackagePage() {
             </Field>
 
             <Field label="Project Address" className="md:col-span-2">
-              <input
-                value={draft.project_address}
-                onChange={(event) => setDraft((prev) => ({ ...prev, project_address: event.target.value }))}
-                className={`w-full px-3 ${inputClass}`}
-                placeholder="1240 Harborview Drive"
-              />
+              <div className="relative">
+                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500">
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    aria-hidden
+                    className="h-5 w-5"
+                  >
+                    <path d="M12 22s7-4.35 7-11a7 7 0 1 0-14 0c0 6.65 7 11 7 11Z" />
+                    <circle cx="12" cy="11" r="2.5" />
+                  </svg>
+                </span>
+                <input
+                  value={draft.project_address}
+                  onChange={(event) => setDraft((prev) => ({ ...prev, project_address: event.target.value }))}
+                  className={`w-full pl-11 pr-3 ${inputClass}`}
+                  placeholder="1240 Harborview Drive"
+                />
+              </div>
             </Field>
 
             <Field label="City">
@@ -2939,7 +2979,7 @@ export default function NewBidPackagePage() {
                 value={draft.primary_bidding_contact}
                 onValueChange={(value) => setDraft((prev) => ({ ...prev, primary_bidding_contact: value }))}
               >
-                <SelectTrigger className={`w-full px-3 ${inputClass}`}>
+                <SelectTrigger size="field" className={selectFieldClass} style={{ borderWidth: 1 }}>
                   <SelectValue>{primaryBiddingContactDisplay}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -2974,7 +3014,7 @@ export default function NewBidPackagePage() {
                   setDraft((prev) => ({ ...prev, bidding_cc_group: value === "__none" ? "" : value }))
                 }
               >
-                <SelectTrigger className={`w-full px-3 ${inputClass}`}>
+                <SelectTrigger size="field" className={selectFieldClass} style={{ borderWidth: 1 }}>
                   <SelectValue placeholder="Select additional contact" />
                 </SelectTrigger>
                 <SelectContent>
@@ -3033,7 +3073,7 @@ export default function NewBidPackagePage() {
                   <PopoverTrigger asChild>
                     <button
                       type="button"
-                      className={`flex w-full items-center justify-between px-3 ${inputClass}`}
+                      className={`flex w-full items-center justify-between ${inputClass}`}
                       aria-label="Search or select city"
                     >
                       <span>
@@ -3115,7 +3155,7 @@ export default function NewBidPackagePage() {
                   value={displayedProjectTaxRate || "-"}
                   className={`w-full px-3 ${inputClass} ${draft.tax_exempt ? "line-through text-slate-400" : "text-foreground"}`}
                 />
-                <label className="inline-flex items-center gap-2 text-[13px] text-muted-foreground">
+                <label className="inline-flex items-center gap-2 text-sm text-muted-foreground">
                   <input
                     type="checkbox"
                     checked={draft.tax_exempt}
@@ -3175,10 +3215,10 @@ export default function NewBidPackagePage() {
             <div className="rounded-xl border border-border bg-surface-muted/50 p-4">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-semibold text-slate-700">
+                  <div className="text-sm font-semibold text-slate-700">
                     Bid due date <span className="text-rose-600">*</span>
                   </div>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  <p className="mt-1 text-sm leading-5 text-muted-foreground">
                     Final deadline shown to subcontractors for bid submission.
                   </p>
                 </div>
@@ -3218,8 +3258,8 @@ export default function NewBidPackagePage() {
             <div className="rounded-xl border border-border bg-surface-muted/50 p-4">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-semibold text-slate-700">RFI deadline</div>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  <div className="text-sm font-semibold text-slate-700">RFI deadline</div>
+                  <p className="mt-1 text-sm leading-5 text-muted-foreground">
                     Optional deadline for subcontractor questions before bid day.
                   </p>
                 </div>
@@ -3258,8 +3298,8 @@ export default function NewBidPackagePage() {
             <div className="rounded-xl border border-border bg-surface-muted/50 p-4">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div className="min-w-0 flex-1">
-                  <div className="text-[13px] font-semibold text-slate-700">Site walkthrough</div>
-                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  <div className="text-sm font-semibold text-slate-700">Site walkthrough</div>
+                  <p className="mt-1 text-sm leading-5 text-muted-foreground">
                     Optional jobsite visit details for interested bidders.
                   </p>
                 </div>
@@ -3310,7 +3350,7 @@ export default function NewBidPackagePage() {
           <button
             type="button"
             onClick={() => setActivePanel("files")}
-            className="rounded-md bg-orange-500 px-8 py-2 text-base font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-md bg-accent px-8 py-2 text-base font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
           >
             Continue to Files
           </button>
@@ -3420,7 +3460,7 @@ export default function NewBidPackagePage() {
                           >
                             {file.name}
                           </a>
-                          <div className="mt-1 text-xs text-slate-500">
+                          <div className="mt-1 text-sm text-slate-500">
                             {formatFileSize(file.size)} · Uploaded {new Date(file.uploadedAt).toLocaleString()}
                           </div>
                         </li>
@@ -3456,7 +3496,7 @@ export default function NewBidPackagePage() {
                 type="button"
                 onClick={() => setActivePanel("trade-coverage")}
                 disabled={submitting}
-                className="rounded-md bg-orange-500 px-8 py-2 text-base font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md bg-accent px-8 py-2 text-base font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Continue to Trades
               </button>
@@ -3487,12 +3527,12 @@ export default function NewBidPackagePage() {
                         <div key={code.id} className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 last:border-b-0">
                           <div className="min-w-0">
                             <div className="truncate text-sm font-semibold text-slate-800">{code.code}</div>
-                            <div className="truncate text-xs text-slate-500">{code.description ?? "No description"}</div>
+                            <div className="truncate text-sm text-slate-500">{code.description ?? "No description"}</div>
                           </div>
                           <button
                             type="button"
                             onClick={() => addTradeFromCostCode(code)}
-                            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                           >
                             Add
                           </button>
@@ -3513,7 +3553,7 @@ export default function NewBidPackagePage() {
                           <div className="flex items-center justify-between gap-2">
                             <div className="min-w-0">
                               <div className="truncate font-medium text-[#0C447C]">{trade.code}</div>
-                              <div className="truncate text-xs text-[#185FA5]">{trade.description ?? "No description"}</div>
+                              <div className="truncate text-sm text-[#185FA5]">{trade.description ?? "No description"}</div>
                             </div>
                             <button
                               type="button"
@@ -3556,7 +3596,7 @@ export default function NewBidPackagePage() {
                   setActivePanel("invite-subs");
                   setExpandedInviteTradeId(selectedTrades[0]?.id ?? null);
                 }}
-                className="rounded-md bg-orange-500 px-8 py-2 text-base font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md bg-accent px-8 py-2 text-base font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Invite Subcontractors
               </button>
@@ -3595,7 +3635,7 @@ export default function NewBidPackagePage() {
                                       ? "bg-emerald-600"
                                       : assigned.length === 2
                                         ? "bg-yellow-500"
-                                        : "bg-orange-500"
+                                        : "bg-accent"
                                   }`}
                                 >
                                   ✓
@@ -3608,7 +3648,7 @@ export default function NewBidPackagePage() {
                                 ) : null}
                               </div>
                               <span
-                                className={`rounded px-2 py-0.5 text-xs font-semibold ${
+                                className={`rounded px-2 py-0.5 text-sm font-semibold ${
                                   assigned.length === 0 ? "bg-amber-100 text-amber-700" : "text-slate-600"
                                 }`}
                               >
@@ -3622,7 +3662,7 @@ export default function NewBidPackagePage() {
                               <button
                                 type="button"
                                 onClick={() => setExpandedInviteTradeId((prev) => (prev === trade.id ? null : trade.id))}
-                                className="inline-flex items-center rounded border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700"
+                                className="inline-flex items-center rounded border border-slate-300 bg-white px-2 py-1 text-sm font-semibold text-slate-700"
                               >
                                 {expanded ? "Hide" : "Manage"}
                               </button>
@@ -3659,12 +3699,12 @@ export default function NewBidPackagePage() {
                                         <div key={`${trade.id}-rec-${sub.id}`} className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 last:border-b-0">
                                           <div className="min-w-0">
                                             <div className="truncate text-sm font-semibold text-slate-800">{sub.company}</div>
-                                            <div className="text-xs text-slate-500">{sub.email ?? "No email in directory"}</div>
+                                            <div className="text-sm text-slate-500">{sub.email ?? "No email in directory"}</div>
                                           </div>
                                           <button
                                             type="button"
                                             onClick={() => addSubToTrade(trade.id, sub)}
-                                            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-100"
+                                            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 hover:bg-slate-100"
                                           >
                                             + Add
                                           </button>
@@ -3716,12 +3756,12 @@ export default function NewBidPackagePage() {
                                             >
                                               <div className="min-w-0">
                                                 <div className="truncate text-sm font-semibold text-slate-800">{sub.company}</div>
-                                                <div className="text-xs text-slate-500">{sub.bidInviteEmail || "No invite email set"}</div>
+                                                <div className="text-sm text-slate-500">{sub.bidInviteEmail || "No invite email set"}</div>
                                               </div>
                                               <div className="pr-1 text-sm text-slate-600">{sub.invited ? "Invited" : "Not Sent"}</div>
                                               <div>
                                                 <span
-                                                  className={`inline-flex rounded px-2 py-0.5 text-xs font-semibold ${
+                                                  className={`inline-flex rounded px-2 py-0.5 text-sm font-semibold ${
                                                     sub.willBid
                                                       ? "bg-emerald-100 text-emerald-700"
                                                       : sub.invited
@@ -3800,7 +3840,7 @@ export default function NewBidPackagePage() {
                 type="button"
                 onClick={() => setActivePanel("bid-email")}
                 disabled={submitting}
-                className="rounded-md bg-orange-500 px-8 py-2 text-base font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md bg-accent px-8 py-2 text-base font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Review Email
               </button>
@@ -3823,7 +3863,7 @@ export default function NewBidPackagePage() {
                         className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
                         placeholder="Invitation subject"
                       />
-                      <p className="mt-1 text-xs text-slate-500">Use tokens to auto-fill project details.</p>
+                      <p className="mt-1 text-sm text-slate-500">Use tokens to auto-fill project details.</p>
                     </label>
 
                     <div className="block">
@@ -3837,7 +3877,7 @@ export default function NewBidPackagePage() {
                           placeholder="Write your invitation email..."
                         />
                       </div>
-                      <p className="mt-1 text-xs text-slate-500">Use tokens to auto-fill project details.</p>
+                      <p className="mt-1 text-sm text-slate-500">Use tokens to auto-fill project details.</p>
                     </div>
                   </div>
                 </article>
@@ -3863,9 +3903,9 @@ export default function NewBidPackagePage() {
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <div>
                       <h4 className="text-sm font-semibold text-slate-800">Sender Mailbox</h4>
-                      <p className="mt-1 text-xs text-slate-500">Send invites from the active email sender.</p>
+                      <p className="mt-1 text-sm text-slate-500">Send invites from the active email sender.</p>
                     </div>
-                    <span className={`rounded-full px-3 py-1 text-xs font-semibold ${mailboxBadge.className}`}>
+                    <span className={`rounded-full px-3 py-1 text-sm font-semibold ${mailboxBadge.className}`}>
                       {mailboxBadge.label}
                     </span>
                   </div>
@@ -3898,13 +3938,13 @@ export default function NewBidPackagePage() {
                     <button
                       type="button"
                       onClick={() => setTokenValuesOpen((open) => !open)}
-                      className="text-xs font-semibold text-slate-600 hover:text-slate-900"
+                      className="text-sm font-semibold text-slate-600 hover:text-slate-900"
                     >
                       Show token values
                     </button>
                   </div>
                   {tokenValuesOpen ? (
-                    <div className="mb-3 rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600">
+                    <div className="mb-3 rounded-md border border-slate-200 bg-slate-50 p-2 text-sm text-slate-600">
                       {TOKEN_LIST.map((token) => (
                         <div key={`token-map-${token}`} className="flex items-start justify-between gap-2 py-0.5">
                           <span className="font-mono text-slate-700">{token}</span>
@@ -3969,7 +4009,7 @@ export default function NewBidPackagePage() {
                       {editingProjectId ? "Save Draft" : "Save Local Draft"}
                     </button>
                   </div>
-                  <div className="mt-3 text-xs text-slate-500">
+                  <div className="mt-3 text-sm text-slate-500">
                     {invitationSaving
                       ? "Saving draft..."
                       : invitationSavedAt
@@ -3992,7 +4032,7 @@ export default function NewBidPackagePage() {
                       type="submit"
                       value="send"
                       disabled={!canSendInvites}
-                      className="rounded-md bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {submitting ? "Sending..." : "Send Invites"}
                     </button>
@@ -4012,7 +4052,7 @@ export default function NewBidPackagePage() {
                     >
                       <div className="truncate font-semibold text-slate-900">{recipient.companyName}</div>
                       <div className="mt-0.5 break-words text-slate-600">{recipient.email}</div>
-                      <div className="mt-1 break-words text-xs leading-5 text-slate-500">
+                      <div className="mt-1 break-words text-sm leading-5 text-slate-500">
                         {recipient.tradeNames.join(", ")}
                       </div>
                     </div>
@@ -4064,7 +4104,7 @@ export default function NewBidPackagePage() {
                 type="submit"
                 value="send"
                 disabled={!canSendInvites}
-                className="rounded-md bg-orange-500 px-8 py-2 text-base font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md bg-accent px-8 py-2 text-base font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {submitting ? "Sending..." : "Send Invites"}
               </button>
@@ -4075,34 +4115,34 @@ export default function NewBidPackagePage() {
 
           <aside className="hidden w-full lg:sticky lg:top-24 lg:block lg:w-72 lg:self-start">
             <div>
-                <div className="rounded-2xl border border-border bg-surface p-5 shadow-soft-sm">
+                <div className="rounded-[20px] border border-slate-200 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_rgba(15,23,42,0.05)]">
                   <div className="mb-5 flex items-center justify-between">
-                    <h3 className="text-sm font-semibold text-foreground">Setup progress</h3>
-                    <span className="text-xs font-medium text-muted-foreground">{Math.max(currentStepMeta.step - 1, 0)}/5</span>
+                    <h3 className="text-[15px] font-semibold text-slate-950">Setup progress</h3>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold tracking-[0.08em] text-slate-500 uppercase">{Math.max(currentStepMeta.step - 1, 0)}/5</span>
                   </div>
 
                   <ol className="relative space-y-1">
                     <li className="relative">
                       <span
                         className={`absolute left-[22px] top-11 h-[calc(100%-12px)] w-px ${
-                          currentStepMeta.step > 1 ? "bg-primary/40" : "bg-border"
+                          currentStepMeta.step > 1 ? "bg-sky-300" : "bg-slate-200"
                         }`}
                         aria-hidden
                       />
                       <button
                         type="button"
                         onClick={() => setActivePanel("general")}
-                        className={`group relative flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors ${
-                          activePanel === "general" ? "bg-primary-soft" : "hover:bg-surface-muted"
+                        className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors ${
+                          activePanel === "general" ? "bg-sky-50" : "hover:bg-slate-50"
                         }`}
                       >
                         <span
                           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-all ${
                             currentStepMeta.step > 1
-                              ? "border-primary bg-primary text-primary-foreground"
+                              ? "border-sky-600 bg-sky-600 text-white"
                               : activePanel === "general"
-                                ? "border-primary bg-surface text-primary shadow-soft-sm"
-                                : "border-border bg-surface text-muted-foreground"
+                                ? "border-sky-600 bg-white text-sky-600 shadow-sm"
+                                : "border-sky-200 bg-sky-50 text-sky-600"
                           }`}
                         >
                           {currentStepMeta.step > 1 ? (
@@ -4118,10 +4158,10 @@ export default function NewBidPackagePage() {
                           )}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className={`block text-sm font-semibold leading-tight ${activePanel === "general" ? "text-primary" : "text-foreground"}`}>
+                          <span className={`block text-sm font-semibold leading-tight ${activePanel === "general" ? "text-sky-700" : "text-slate-900"}`}>
                             General Information
                           </span>
-                          <span className="mt-0.5 block text-xs text-muted-foreground">Project details</span>
+                          <span className="mt-0.5 block text-sm text-slate-500">Project details</span>
                         </span>
                       </button>
                     </li>
@@ -4129,24 +4169,24 @@ export default function NewBidPackagePage() {
                     <li className="relative">
                       <span
                         className={`absolute left-[22px] top-11 h-[calc(100%-12px)] w-px ${
-                          currentStepMeta.step > 2 ? "bg-primary/40" : "bg-border"
+                          currentStepMeta.step > 2 ? "bg-sky-300" : "bg-slate-200"
                         }`}
                         aria-hidden
                       />
                       <button
                         type="button"
                         onClick={() => setActivePanel("files")}
-                        className={`group relative flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors ${
-                          activePanel === "files" ? "bg-primary-soft" : "hover:bg-surface-muted"
+                        className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors ${
+                          activePanel === "files" ? "bg-sky-50" : "hover:bg-slate-50"
                         }`}
                       >
                         <span
                           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-all ${
                             currentStepMeta.step > 2
-                              ? "border-primary bg-primary text-primary-foreground"
+                              ? "border-sky-600 bg-sky-600 text-white"
                               : activePanel === "files"
-                                ? "border-primary bg-surface text-primary shadow-soft-sm"
-                                : "border-border bg-surface text-muted-foreground"
+                                ? "border-sky-600 bg-white text-sky-600 shadow-sm"
+                                : "border-sky-200 bg-sky-50 text-sky-600"
                           }`}
                         >
                           {currentStepMeta.step > 2 ? (
@@ -4160,10 +4200,10 @@ export default function NewBidPackagePage() {
                           )}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className={`block text-sm font-semibold leading-tight ${activePanel === "files" ? "text-primary" : "text-foreground"}`}>
+                          <span className={`block text-sm font-semibold leading-tight ${activePanel === "files" ? "text-sky-700" : "text-slate-900"}`}>
                             Files
                           </span>
-                          <span className="mt-0.5 block text-xs text-muted-foreground">Drawings & specs</span>
+                          <span className="mt-0.5 block text-sm text-slate-500">Drawings & specs</span>
                         </span>
                       </button>
                     </li>
@@ -4171,24 +4211,24 @@ export default function NewBidPackagePage() {
                     <li className="relative">
                       <span
                         className={`absolute left-[22px] top-11 h-[calc(100%-12px)] w-px ${
-                          currentStepMeta.step > 3 ? "bg-primary/40" : "bg-border"
+                          currentStepMeta.step > 3 ? "bg-sky-300" : "bg-slate-200"
                         }`}
                         aria-hidden
                       />
                       <button
                         type="button"
                         onClick={() => setActivePanel("trade-coverage")}
-                        className={`group relative flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors ${
-                          activePanel === "trade-coverage" ? "bg-primary-soft" : "hover:bg-surface-muted"
+                        className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors ${
+                          activePanel === "trade-coverage" ? "bg-sky-50" : "hover:bg-slate-50"
                         }`}
                       >
                         <span
                           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-all ${
                             currentStepMeta.step > 3
-                              ? "border-primary bg-primary text-primary-foreground"
+                              ? "border-sky-600 bg-sky-600 text-white"
                               : activePanel === "trade-coverage"
-                                ? "border-primary bg-surface text-primary shadow-soft-sm"
-                                : "border-border bg-surface text-muted-foreground"
+                                ? "border-sky-600 bg-white text-sky-600 shadow-sm"
+                                : "border-sky-200 bg-sky-50 text-sky-600"
                           }`}
                         >
                           {currentStepMeta.step > 3 ? (
@@ -4203,10 +4243,10 @@ export default function NewBidPackagePage() {
                           )}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className={`block text-sm font-semibold leading-tight ${activePanel === "trade-coverage" ? "text-primary" : "text-foreground"}`}>
+                          <span className={`block text-sm font-semibold leading-tight ${activePanel === "trade-coverage" ? "text-sky-700" : "text-slate-900"}`}>
                             Trade Coverage
                           </span>
-                          <span className="mt-0.5 block text-xs text-muted-foreground">Scopes of work</span>
+                          <span className="mt-0.5 block text-sm text-slate-500">Scopes of work</span>
                         </span>
                       </button>
                     </li>
@@ -4214,24 +4254,24 @@ export default function NewBidPackagePage() {
                     <li className="relative">
                       <span
                         className={`absolute left-[22px] top-11 h-[calc(100%-12px)] w-px ${
-                          currentStepMeta.step > 4 ? "bg-primary/40" : "bg-border"
+                          currentStepMeta.step > 4 ? "bg-sky-300" : "bg-slate-200"
                         }`}
                         aria-hidden
                       />
                       <button
                         type="button"
                         onClick={() => setActivePanel("invite-subs")}
-                        className={`group relative flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors ${
-                          activePanel === "invite-subs" ? "bg-primary-soft" : "hover:bg-surface-muted"
+                        className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors ${
+                          activePanel === "invite-subs" ? "bg-sky-50" : "hover:bg-slate-50"
                         }`}
                       >
                         <span
                           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-all ${
                             currentStepMeta.step > 4
-                              ? "border-primary bg-primary text-primary-foreground"
+                              ? "border-sky-600 bg-sky-600 text-white"
                               : activePanel === "invite-subs"
-                                ? "border-primary bg-surface text-primary shadow-soft-sm"
-                                : "border-border bg-surface text-muted-foreground"
+                                ? "border-sky-600 bg-white text-sky-600 shadow-sm"
+                                : "border-sky-200 bg-sky-50 text-sky-600"
                           }`}
                         >
                           {currentStepMeta.step > 4 ? (
@@ -4246,10 +4286,10 @@ export default function NewBidPackagePage() {
                           )}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className={`block text-sm font-semibold leading-tight ${activePanel === "invite-subs" ? "text-primary" : "text-foreground"}`}>
+                          <span className={`block text-sm font-semibold leading-tight ${activePanel === "invite-subs" ? "text-sky-700" : "text-slate-900"}`}>
                             Invite Subs
                           </span>
-                          <span className="mt-0.5 block text-xs text-muted-foreground">Subcontractors</span>
+                          <span className="mt-0.5 block text-sm text-slate-500">Subcontractors</span>
                         </span>
                       </button>
                     </li>
@@ -4258,15 +4298,15 @@ export default function NewBidPackagePage() {
                       <button
                         type="button"
                         onClick={() => setActivePanel("bid-email")}
-                        className={`group relative flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors ${
-                          activePanel === "bid-email" ? "bg-primary-soft" : "hover:bg-surface-muted"
+                        className={`group relative flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition-colors ${
+                          activePanel === "bid-email" ? "bg-sky-50" : "hover:bg-slate-50"
                         }`}
                       >
                         <span
                           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-all ${
                             activePanel === "bid-email"
-                              ? "border-primary bg-surface text-primary shadow-soft-sm"
-                              : "border-border bg-surface text-muted-foreground"
+                              ? "border-sky-600 bg-white text-sky-600 shadow-sm"
+                              : "border-sky-200 bg-sky-50 text-sky-600"
                           }`}
                         >
                           <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
@@ -4275,19 +4315,19 @@ export default function NewBidPackagePage() {
                           </svg>
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className={`block text-sm font-semibold leading-tight ${activePanel === "bid-email" ? "text-primary" : "text-foreground"}`}>
+                          <span className={`block text-sm font-semibold leading-tight ${activePanel === "bid-email" ? "text-sky-700" : "text-slate-900"}`}>
                             Bid Email
                           </span>
-                          <span className="mt-0.5 block text-xs text-muted-foreground">Compose & send</span>
+                          <span className="mt-0.5 block text-sm text-slate-500">Compose & send</span>
                         </span>
                       </button>
                     </li>
                   </ol>
                 </div>
 
-                <div className="mt-4 rounded-2xl border border-accent/20 bg-accent-soft/60 p-4">
-                  <p className="text-xs font-semibold text-foreground">Tip</p>
-                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                <div className="mt-4 rounded-[20px] border border-sky-100 bg-sky-50/80 p-4">
+                  <p className="text-sm font-semibold uppercase tracking-[0.08em] text-sky-700">Tip</p>
+                  <p className="mt-1 text-sm leading-relaxed text-slate-600">
                     Step 1 creates your project. Steps 2-5 prepare your first bid package - nothing is sent until you finish step 5.
                   </p>
                 </div>
@@ -4384,7 +4424,7 @@ export default function NewBidPackagePage() {
                 <button
                   type="submit"
                   disabled={testSendLoading}
-                  className="rounded-md bg-orange-500 px-7 py-2 text-base font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-md bg-accent px-7 py-2 text-base font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {testSendLoading ? "Sending..." : "Send Test"}
                 </button>
@@ -4549,7 +4589,7 @@ export default function NewBidPackagePage() {
               <div className="space-y-3">
                 <div>
                   <div className="text-sm font-medium text-slate-700">Trades / Cost Codes</div>
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="mt-1 text-sm text-slate-500">
                     Add the trades this subcontractor performs. Matching trades in this bid package will be invited automatically.
                   </p>
                 </div>
@@ -4559,7 +4599,7 @@ export default function NewBidPackagePage() {
                     return (
                       <span
                         key={`new-sub-trade-${trade.id}`}
-                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700"
+                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm font-semibold text-slate-700"
                       >
                         {formatTradeLabel(trade)}
                         {locked ? (
@@ -4606,9 +4646,9 @@ export default function NewBidPackagePage() {
                         >
                           <div className="min-w-0">
                             <div className="text-sm font-semibold text-slate-800">{trade.code}</div>
-                            <div className="text-xs text-slate-500">{trade.description ?? "No description"}</div>
+                            <div className="text-sm text-slate-500">{trade.description ?? "No description"}</div>
                           </div>
-                          <span className="text-xs font-semibold text-blue-600">Add</span>
+                          <span className="text-sm font-semibold text-blue-600">Add</span>
                         </button>
                       ))
                     ) : (
@@ -4636,7 +4676,7 @@ export default function NewBidPackagePage() {
                 <button
                   type="submit"
                   disabled={newSubSaving}
-                  className="rounded-md bg-orange-500 px-8 py-2 text-base font-semibold text-white hover:bg-orange-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-md bg-accent px-8 py-2 text-base font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {newSubSaving ? "Saving..." : "Save Contractor"}
                 </button>
