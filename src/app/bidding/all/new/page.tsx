@@ -63,7 +63,18 @@ import {
   plainTextToEmailHtml,
   sanitizeEmailHtml,
 } from "@/lib/email/html";
-import { CalendarIcon, Ellipsis, Info, Trash2Icon } from "lucide-react";
+import {
+  CalendarIcon,
+  Ellipsis,
+  Eye,
+  FileStack,
+  FolderPlus,
+  FolderOpen,
+  Info,
+  Plus,
+  Trash2Icon,
+  Upload,
+} from "lucide-react";
 
 type BidPackageDraft = {
   project_name: string;
@@ -130,6 +141,31 @@ type UploadedBidFile = {
   uploadedAt: string;
   section: FileSectionKey;
   url: string;
+};
+
+const FILE_SECTION_META: Record<
+  FileSectionKey,
+  {
+    label: string;
+    shortLabel: string;
+    emptyLabel: string;
+  }
+> = {
+  drawings: {
+    label: "Drawings",
+    shortLabel: "Plans",
+    emptyLabel: "No drawings uploaded yet.",
+  },
+  documents: {
+    label: "Documents",
+    shortLabel: "Documents",
+    emptyLabel: "No documents uploaded yet.",
+  },
+  specifications: {
+    label: "Specifications",
+    shortLabel: "Specs",
+    emptyLabel: "No specifications uploaded yet.",
+  },
 };
 
 type CostCodeOption = {
@@ -1109,6 +1145,27 @@ export default function NewBidPackagePage() {
   const filesInActiveSection = useMemo(
     () => uploadedFiles.filter((file) => file.section === activeFileSection),
     [activeFileSection, uploadedFiles]
+  );
+  const filesBySection = useMemo(
+    () => ({
+      drawings: uploadedFiles.filter((file) => file.section === "drawings"),
+      documents: uploadedFiles.filter((file) => file.section === "documents"),
+      specifications: uploadedFiles.filter((file) => file.section === "specifications"),
+    }),
+    [uploadedFiles]
+  );
+  const latestUploadedFile = useMemo(
+    () =>
+      uploadedFiles.length
+        ? [...uploadedFiles].sort(
+            (left, right) => new Date(right.uploadedAt).getTime() - new Date(left.uploadedAt).getTime()
+          )[0]
+        : null,
+    [uploadedFiles]
+  );
+  const totalUploadedBytes = useMemo(
+    () => uploadedFiles.reduce((sum, file) => sum + file.size, 0),
+    [uploadedFiles]
   );
   const selectedPrimaryBiddingUser = useMemo(() => {
     if (!companyUserOptions.length) return null;
@@ -3452,122 +3509,287 @@ export default function NewBidPackagePage() {
           </>
         ) : activePanel === "files" ? (
           <>
-            <section className="rounded-xl border border-slate-200 bg-white p-5">
-              <h3 className="text-[18px] font-semibold text-slate-900">Files</h3>
-              <p className="mt-1 text-sm text-slate-600">
-                Upload documents here for subcontractors to download during bidding.
-              </p>
-              <div className="mt-6 grid gap-6 md:grid-cols-[340px_minmax(0,1fr)]">
-                <div>
-                  <div className="space-y-1 border border-slate-200 bg-slate-50">
-                    <button
-                      type="button"
-                      onClick={() => setActiveFileSection("drawings")}
-                      className={`flex w-full items-center px-4 py-3 text-left text-base ${
-                        activeFileSection === "drawings"
-                          ? "border-l-4 border-l-orange-400 bg-slate-100 font-semibold text-slate-800"
-                          : "font-medium text-slate-500 hover:bg-slate-100"
-                      }`}
-                    >
-                      Drawings
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveFileSection("documents")}
-                      className={`flex w-full items-center px-4 py-3 text-left text-base ${
-                        activeFileSection === "documents"
-                          ? "border-l-4 border-l-orange-400 bg-slate-100 font-semibold text-slate-800"
-                          : "font-medium text-slate-500 hover:bg-slate-100"
-                      }`}
-                    >
-                      Documents
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setActiveFileSection("specifications")}
-                      className={`flex w-full items-center px-4 py-3 text-left text-base ${
-                        activeFileSection === "specifications"
-                          ? "border-l-4 border-l-orange-400 bg-slate-100 font-semibold text-slate-800"
-                          : "font-medium text-slate-500 hover:bg-slate-100"
-                      }`}
-                    >
-                      Specifications
-                    </button>
-                  </div>
-                </div>
-                <div className="min-h-[540px]">
-                  <div className="mb-4 flex items-center justify-between gap-3">
-                    <div className="max-w-[220px]">
-                      <Select defaultValue="current">
-                        <SelectTrigger className="w-full rounded-lg border-slate-300 bg-white px-3 py-2 text-base text-slate-700 shadow-sm">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="current">Current</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        multiple
-                        accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.rtf,.zip,.dwg,.dxf,image/*"
-                        className="hidden"
-                        onChange={(event) => {
-                          handleUploadFiles(event.target.files);
-                          event.currentTarget.value = "";
-                        }}
-                      />
+            <div className="space-y-6">
+              <section>
+                <h3 className="text-[36px] font-semibold leading-none text-slate-950 [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+                  Files
+                </h3>
+                <p className="mt-3 max-w-3xl text-[17px] leading-7 text-slate-500">
+                  Upload the plans, specifications, and supporting documents subcontractors should receive with this bid package.
+                </p>
+              </section>
+
+              <FormCard
+                title="Upload Documents"
+                description="Add the files that should go out with this package. These uploads appear in the package preview below."
+                icon={<Upload className="size-5" strokeWidth={2.2} />}
+              >
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.rtf,.zip,.dwg,.dxf,image/*"
+                  className="hidden"
+                  onChange={(event) => {
+                    handleUploadFiles(event.target.files);
+                    event.currentTarget.value = "";
+                  }}
+                />
+
+                <div className="rounded-[28px] border border-dashed border-slate-200 bg-slate-50/40 px-8 py-10">
+                  <div className="flex flex-col items-center text-center">
+                    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-blue-600">
+                      <Upload className="h-4 w-4" strokeWidth={2.1} />
+                    </span>
+                    <h4 className="mt-6 text-[15px] font-semibold text-slate-950 [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+                      Drag and drop files here, or click to upload
+                    </h4>
+                    <p className="mt-2 text-sm text-slate-500">
+                      Accepts PDF, DWG, DOCX, XLSX · Max 100 MB per file
+                    </p>
+
+                    <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                        className="inline-flex h-11 items-center gap-2 rounded-lg bg-blue-600 px-6 text-base font-bold text-white shadow-sm hover:bg-blue-600/90"
                       >
-                        Upload files
+                        <Upload className="size-4" />
+                        Upload Files
+                      </button>
+                      <button
+                        type="button"
+                        className="inline-flex h-11 items-center gap-2 rounded-lg border border-slate-200 bg-white px-6 text-base font-semibold text-slate-900 hover:bg-slate-100"
+                      >
+                        <FolderPlus className="size-4 text-slate-700" />
+                        Create Folder
                       </button>
                     </div>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <div className="text-[18px] font-semibold text-slate-800">
-                      {activeFileSection === "drawings"
-                        ? "Drawings"
-                        : activeFileSection === "documents"
-                          ? "Documents"
-                          : "Specifications"}
-                    </div>
-                    <div className="flex items-center gap-4 text-xl text-slate-400">
-                      <span>☰</span>
-                      <span>▦</span>
+
+                    <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                      {["PDF", "DWG", "DOCX", "XLSX"].map((label) => (
+                        <span
+                          key={label}
+                          className="rounded-full border border-slate-200 bg-white px-3 py-1 text-sm font-sm text-slate-500"
+                        >
+                          {label}
+                        </span>
+                      ))}
                     </div>
                   </div>
-                  {fileError ? <p className="mt-2 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{fileError}</p> : null}
-                  {filesInActiveSection.length ? (
-                    <ul className="mt-4 space-y-3">
-                      {filesInActiveSection.map((file) => (
-                        <li key={file.id} className="rounded-lg border border-slate-200 bg-white px-3 py-3">
-                          <a
-                            href={file.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-sm font-semibold text-blue-700 hover:underline"
+                </div>
+
+                {fileError ? (
+                  <p className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                    {fileError}
+                  </p>
+                ) : null}
+              </FormCard>
+
+              <section className="grid gap-6 xl:grid-cols-2">
+                <article className="overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_24px_rgba(15,23,42,0.04)]">
+                  <div className="border-b border-slate-200 px-7 pb-5 pt-6">
+                    <div className="flex items-start gap-4">
+                      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-sky-600 ring-1 ring-sky-100">
+                        <Eye className="size-5" strokeWidth={2.2} />
+                      </span>
+                      <div>
+                        <h4 className="text-[20px] font-semibold leading-tight text-slate-950 [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+                          Bid Package Preview
+                        </h4>
+                        <p className="mt-1.5 text-[15px] leading-6 text-slate-500">
+                          What subcontractors will receive when you send this package.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="px-7 pb-7 pt-6">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-4">
+                        <div className="text-[13px] font-medium uppercase tracking-[0.14em] text-slate-400">
+                          Total Files
+                        </div>
+                        <div className="mt-2 text-[28px] font-semibold leading-none text-slate-950">
+                          {uploadedFiles.length}
+                        </div>
+                      </div>
+                      <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-4">
+                        <div className="text-[13px] font-medium uppercase tracking-[0.14em] text-slate-400">
+                          Total Size
+                        </div>
+                        <div className="mt-2 text-[28px] font-semibold leading-none text-slate-950">
+                          {totalUploadedBytes ? formatFileSize(totalUploadedBytes) : "0 B"}
+                        </div>
+                      </div>
+                      <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-4">
+                        <div className="text-[13px] font-medium uppercase tracking-[0.14em] text-slate-400">
+                          Plans
+                        </div>
+                        <div className="mt-2 text-[28px] font-semibold leading-none text-slate-950">
+                          {filesBySection.drawings.length}
+                        </div>
+                      </div>
+                      <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-4">
+                        <div className="text-[13px] font-medium uppercase tracking-[0.14em] text-slate-400">
+                          Specs
+                        </div>
+                        <div className="mt-2 text-[28px] font-semibold leading-none text-slate-950">
+                          {filesBySection.specifications.length}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 rounded-[18px] border border-slate-200 bg-white px-4 py-4">
+                      <div className="text-sm font-semibold text-slate-900">Included sections</div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {(["drawings", "documents", "specifications"] as FileSectionKey[]).map((section) => (
+                          <span
+                            key={section}
+                            className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-[13px] font-medium text-slate-600"
                           >
-                            {file.name}
-                          </a>
+                            {FILE_SECTION_META[section].shortLabel}: {filesBySection[section].length}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setPreviewModalOpen(true)}
+                      className="mt-5 inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      <Eye className="size-4" />
+                      Preview Package
+                    </button>
+                  </div>
+                </article>
+
+                <article className="overflow-hidden rounded-[20px] border border-slate-200 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_24px_rgba(15,23,42,0.04)]">
+                  <div className="border-b border-slate-200 px-7 pb-5 pt-6">
+                    <div className="flex items-start gap-4">
+                      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-sky-600 ring-1 ring-sky-100">
+                        <FileStack className="size-5" strokeWidth={2.2} />
+                      </span>
+                      <div>
+                        <h4 className="text-[20px] font-semibold leading-tight text-slate-950 [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+                          Version Control
+                        </h4>
+                        <p className="mt-1.5 text-[15px] leading-6 text-slate-500">
+                          Track the current document set and prepare future addenda.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-4 px-7 pb-7 pt-6">
+                    <div className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-4">
+                      <div className="flex items-start justify-between gap-4">
+                        <div>
+                          <div className="text-[16px] font-semibold text-slate-900">Document set 1</div>
                           <div className="mt-1 text-sm text-slate-500">
-                            {formatFileSize(file.size)} · Uploaded {new Date(file.uploadedAt).toLocaleString()}
+                            {latestUploadedFile
+                              ? `Last updated ${new Date(latestUploadedFile.uploadedAt).toLocaleString()}`
+                              : "No files uploaded yet."}
+                          </div>
+                        </div>
+                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-[13px] font-semibold text-emerald-700">
+                          Current
+                        </span>
+                      </div>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                        {(["drawings", "documents", "specifications"] as FileSectionKey[]).map((section) => (
+                          <div key={section} className="rounded-[14px] border border-slate-200 bg-white px-3 py-3">
+                            <div className="text-[13px] font-medium text-slate-400">
+                              {FILE_SECTION_META[section].label}
+                            </div>
+                            <div className="mt-1 text-[22px] font-semibold leading-none text-slate-950">
+                              {filesBySection[section].length}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-[18px] border border-dashed border-slate-300 bg-white px-4 py-4 text-sm text-slate-500">
+                      Addenda and revised document sets can be layered onto this package before invite emails go out.
+                    </div>
+
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                    >
+                      <Plus className="size-4" />
+                      Add Addendum
+                    </button>
+                  </div>
+                </article>
+              </section>
+
+              <FormCard
+                title="Project Files"
+                description="Review all uploaded files by section before moving to trade coverage."
+                icon={<FolderOpen className="size-5" strokeWidth={2.2} />}
+              >
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-wrap gap-2">
+                    {(["documents", "drawings", "specifications"] as FileSectionKey[]).map((section) => (
+                      <button
+                        key={section}
+                        type="button"
+                        onClick={() => setActiveFileSection(section)}
+                        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
+                          activeFileSection === section
+                            ? "bg-blue-50 text-blue-600 ring-1 ring-blue-100"
+                            : "border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                        }`}
+                      >
+                        {FILE_SECTION_META[section].label}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="text-sm text-slate-500">
+                    Showing <span className="font-semibold text-slate-700">{FILE_SECTION_META[activeFileSection].label}</span>
+                  </div>
+                </div>
+
+                <div className="mt-6 overflow-hidden rounded-[20px] border border-slate-200">
+                  <div className="grid grid-cols-[minmax(0,1.4fr)_140px_220px] gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3 text-[13px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+                    <div>File</div>
+                    <div>Size</div>
+                    <div>Uploaded</div>
+                  </div>
+
+                  {filesInActiveSection.length ? (
+                    <ul className="divide-y divide-slate-200 bg-white">
+                      {filesInActiveSection.map((file) => (
+                        <li key={file.id} className="grid grid-cols-[minmax(0,1.4fr)_140px_220px] gap-4 px-5 py-4">
+                          <div className="min-w-0">
+                            <a
+                              href={file.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="truncate text-[15px] font-semibold text-slate-900 hover:text-blue-700 hover:underline"
+                            >
+                              {file.name}
+                            </a>
+                            <div className="mt-1 text-sm text-slate-500">
+                              {FILE_SECTION_META[file.section].label}
+                            </div>
+                          </div>
+                          <div className="text-sm font-medium text-slate-600">{formatFileSize(file.size)}</div>
+                          <div className="text-sm text-slate-500">
+                            {new Date(file.uploadedAt).toLocaleString()}
                           </div>
                         </li>
                       ))}
                     </ul>
                   ) : (
-                    <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
-                      No files uploaded in this section yet.
+                    <div className="bg-white px-5 py-8 text-sm text-slate-500">
+                      {FILE_SECTION_META[activeFileSection].emptyLabel}
                     </div>
                   )}
                 </div>
-              </div>
-            </section>
+              </FormCard>
+            </div>
 
             {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
