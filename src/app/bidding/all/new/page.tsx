@@ -38,6 +38,13 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -70,6 +77,7 @@ import {
   ChevronRight,
   Ellipsis,
   Eye,
+  File,
   FileCode2,
   FileText,
   FileStack,
@@ -77,6 +85,7 @@ import {
   FolderOpen,
   Info,
   MoreHorizontal,
+  Pencil,
   Plus,
   Tag,
   Trash2Icon,
@@ -219,6 +228,20 @@ const FILE_UPLOAD_SECTION_OPTIONS = [
   { value: "scope_sheets", label: "Scope Sheets" },
   { value: "other", label: "Other" },
 ] as const satisfies Array<{ value: FileSectionKey; label: string }>;
+
+const FILE_FOLDER_OPTIONS = [
+  { value: "plans", label: "Plans" },
+  { value: "specs", label: "Specs" },
+  { value: "addenda", label: "Addenda" },
+  { value: "reports", label: "Reports" },
+] as const satisfies Array<{
+  value: (typeof FILE_UPLOAD_SECTION_OPTIONS)[number]["value"] extends infer T
+    ? T extends "plans" | "specs" | "addenda" | "reports"
+      ? T
+      : never
+    : never;
+  label: string;
+}>;
 
 function normalizeFileSectionKey(value: unknown): FileSectionKey {
   if (value === "drawings") return "plans";
@@ -694,6 +717,8 @@ const inputClass =
   "rounded-lg border-[1px] border-slate-300 bg-white px-3 py-2 text-[15px] leading-[28px] font-medium text-slate-900 shadow-none placeholder:text-slate-500 focus-visible:border-sky-500 focus-visible:ring-4 focus-visible:ring-sky-100";
 const selectFieldClass =
   "w-full border-[1px] border-slate-300 bg-white leading-[28px] font-medium text-slate-900 shadow-none focus-visible:border-sky-500 focus-visible:ring-4 focus-visible:ring-sky-100 [&_svg]:text-slate-400";
+const filesSectionHeadingClass =
+  "text-[20px] font-semibold leading-tight tracking-tight text-foreground [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]";
 
 function FormCard({
   id,
@@ -2122,6 +2147,79 @@ export default function NewBidPackagePage() {
     const timer = window.setTimeout(() => setToast(null), 3200);
     return () => window.clearTimeout(timer);
   }, [toast]);
+
+  const updateUploadedFile = (
+    fileId: string,
+    updater: (current: UploadedBidFile) => UploadedBidFile
+  ) => {
+    setUploadedFiles((prev) =>
+      prev.map((current) => (current.id === fileId ? updater(current) : current))
+    );
+  };
+
+  const getFolderSectionValue = (file: UploadedBidFile): "plans" | "specs" | "addenda" | "reports" =>
+    FILE_SECTION_META[file.section].groupKey;
+
+  const handlePreviewUploadedFile = (file: UploadedBidFile) => {
+    // This row does not have a dedicated preview modal yet, so fall back to the uploaded file URL.
+    window.open(file.url, "_blank", "noopener,noreferrer");
+  };
+
+  const handleRenameUploadedFile = (file: UploadedBidFile) => {
+    const nextName = window.prompt("Rename file", file.name)?.trim();
+    if (!nextName || nextName === file.name) return;
+
+    updateUploadedFile(file.id, (current) => ({
+      ...current,
+      name: nextName,
+    }));
+    setToast({ type: "success", message: `${file.name} was renamed.` });
+  };
+
+  const handleChangeUploadedFileTag = (file: UploadedBidFile, nextSection: FileSectionKey) => {
+    if (file.section === nextSection) return;
+
+    updateUploadedFile(file.id, (current) => ({
+      ...current,
+      section: nextSection,
+    }));
+    setToast({
+      type: "success",
+      message: `${file.name} is now tagged as ${FILE_SECTION_META[nextSection].label}.`,
+    });
+  };
+
+  const handleMoveUploadedFile = (
+    file: UploadedBidFile,
+    nextFolder: "plans" | "specs" | "addenda" | "reports"
+  ) => {
+    const currentFolder = getFolderSectionValue(file);
+    if (currentFolder === nextFolder) return;
+
+    updateUploadedFile(file.id, (current) => ({
+      ...current,
+      section:
+        nextFolder === "reports"
+          ? current.section === "reports" ||
+            current.section === "scope_sheets" ||
+            current.section === "other"
+            ? current.section
+            : "reports"
+          : nextFolder,
+    }));
+    setToast({
+      type: "success",
+      message: `${file.name} was moved to ${FILE_FOLDER_OPTIONS.find((option) => option.value === nextFolder)?.label}.`,
+    });
+  };
+
+  const handleDeleteUploadedFile = (file: UploadedBidFile) => {
+    const confirmed = window.confirm(`Delete ${file.name}?`);
+    if (!confirmed) return;
+
+    setUploadedFiles((prev) => prev.filter((current) => current.id !== file.id));
+    setToast({ type: "success", message: `${file.name} was deleted.` });
+  };
 
   const includedAttachments = useMemo(
     () => ({
@@ -3740,7 +3838,7 @@ export default function NewBidPackagePage() {
                       <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">
                         Bid Package Preview
                       </div>
-                      <h4 className="mt-2 text-2xl font-extrabold tracking-tight text-foreground">
+                      <h4 className={`mt-2 ${filesSectionHeadingClass}`}>
                         What subs will receive
                       </h4>
                     </div>
@@ -3793,7 +3891,7 @@ export default function NewBidPackagePage() {
                     <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">
                       Version Control
                     </div>
-                    <h4 className="mt-2 text-2xl font-extrabold tracking-tight text-foreground">
+                    <h4 className={`mt-2 ${filesSectionHeadingClass}`}>
                       Document set
                     </h4>
                   </div>
@@ -3849,7 +3947,7 @@ export default function NewBidPackagePage() {
                     <FolderOpen className="size-5" strokeWidth={2.2} />
                   </span>
                   <div className="min-w-0">
-                    <h3 className="text-2xl font-extrabold tracking-tight text-foreground [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+                    <h3 className={filesSectionHeadingClass}>
                       Project Files
                     </h3>
                     <p className="mt-2 max-w-3xl text-base text-muted-foreground">
@@ -3885,7 +3983,7 @@ export default function NewBidPackagePage() {
                             [group.key]: !prev[group.key],
                           }));
                         }}
-                        className="flex w-full items-center gap-4 py-6 text-left"
+                        className="flex w-full items-center gap-4 py-4 text-left"
                       >
                         {isExpanded ? (
                           <ChevronDown className="h-5 w-5 text-slate-500" />
@@ -3895,7 +3993,7 @@ export default function NewBidPackagePage() {
                         <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-50 text-orange-500">
                           <FolderOpen className="h-5 w-5" />
                         </span>
-                        <span className="text-2xl font-bold text-foreground">{group.label}</span>
+                        <span className="text-xl font-bold text-foreground">{group.label}</span>
                         <span className="inline-flex h-8 min-w-8 items-center justify-center rounded-full bg-surface-muted px-2 text-sm font-semibold text-muted-foreground">
                           {group.count}
                         </span>
@@ -3920,7 +4018,7 @@ export default function NewBidPackagePage() {
                               >
                                 <div className="flex min-w-0 items-center gap-4">
                                   <span
-                                    className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${
+                                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${
                                       file.name.toLowerCase().endsWith(".dwg") || file.name.toLowerCase().endsWith(".dxf")
                                         ? "bg-blue-50 text-blue-500"
                                         : file.name.toLowerCase().endsWith(".doc") || file.name.toLowerCase().endsWith(".docx")
@@ -3929,9 +4027,9 @@ export default function NewBidPackagePage() {
                                     }`}
                                   >
                                     {file.name.toLowerCase().endsWith(".dwg") || file.name.toLowerCase().endsWith(".dxf") ? (
-                                      <FileCode2 className="h-7 w-7" />
+                                      <FileCode2 className="h-5 w-5" />
                                     ) : (
-                                      <FileText className="h-7 w-7" />
+                                      <FileText className="h-5 w-5" />
                                     )}
                                   </span>
                                   <div className="min-w-0">
@@ -3939,7 +4037,7 @@ export default function NewBidPackagePage() {
                                       href={file.url}
                                       target="_blank"
                                       rel="noreferrer"
-                                      className="block truncate text-xl font-bold text-foreground hover:text-blue-700 hover:underline"
+                                      className="block truncate text-sm font-bold text-foreground hover:text-blue-700 hover:underline"
                                     >
                                       {file.name}
                                     </a>
@@ -3953,20 +4051,114 @@ export default function NewBidPackagePage() {
                                   <span
                                     className={`inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-sm font-semibold ${typeClasses}`}
                                   >
-                                    <Tag className="h-4 w-4" />
+                                    <Tag className="h-2 w-2" />
                                     {FILE_SECTION_META[file.section].badgeLabel}
                                   </span>
                                 </div>
-                                <div className="text-lg text-muted-foreground">{primaryBiddingContactDisplay || "Project Manager"}</div>
-                                <div className="text-lg text-muted-foreground">
+                                <div className="text-m text-muted-foreground">{primaryBiddingContactDisplay || "Project Manager"}</div>
+                                <div className="text-m text-muted-foreground">
                                   {new Date(file.uploadedAt).toLocaleDateString(undefined, {
                                     month: "short",
                                     day: "numeric",
                                     year: "numeric",
                                   })}
                                 </div>
-                                <div className="flex justify-center text-muted-foreground hover:text-foreground">
-                                  <MoreHorizontal className="h-5 w-5" />
+                                <div className="flex justify-center">
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <button
+                                        type="button"
+                                        aria-label="Open file actions"
+                                        className="inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-surface-muted hover:text-foreground"
+                                      >
+                                        <MoreHorizontal className="h-5 w-5" />
+                                      </button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent
+                                      align="end"
+                                      sideOffset={10}
+                                      className="min-w-[220px] overflow-hidden rounded-2xl border border-border bg-surface p-0 shadow-soft-md"
+                                    >
+                                      <DropdownMenuLabel className="px-5 pt-4 pb-2 text-sm font-semibold text-muted-foreground">
+                                        File actions
+                                      </DropdownMenuLabel>
+                                      <DropdownMenuItem
+                                        onClick={() => handlePreviewUploadedFile(file)}
+                                        className="h-11 cursor-pointer rounded-none px-5 py-3 text-base font-medium text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground [&_svg]:h-5 [&_svg]:w-5"
+                                      >
+                                        <Eye className="h-5 w-5" />
+                                        Preview
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem
+                                        onClick={() => handleRenameUploadedFile(file)}
+                                        className="h-11 cursor-pointer rounded-none px-5 py-3 text-base font-medium text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground [&_svg]:h-5 [&_svg]:w-5"
+                                      >
+                                        <Pencil className="h-5 w-5" />
+                                        Rename
+                                      </DropdownMenuItem>
+                                      <DropdownMenuSub>
+                                        <DropdownMenuSubTrigger className="h-11 cursor-pointer rounded-none px-5 py-3 text-base font-medium text-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground [&_svg]:h-5 [&_svg]:w-5">
+                                          <Tag className="h-5 w-5" />
+                                          Change tag
+                                        </DropdownMenuSubTrigger>
+                                        <DropdownMenuSubContent className="min-w-[220px] overflow-hidden rounded-2xl border border-border bg-surface p-1 shadow-soft-md">
+                                          <DropdownMenuRadioGroup
+                                            value={file.section}
+                                            onValueChange={(value) =>
+                                              handleChangeUploadedFileTag(file, value as FileSectionKey)
+                                            }
+                                          >
+                                            {FILE_UPLOAD_SECTION_OPTIONS.map((option) => (
+                                              <DropdownMenuRadioItem
+                                                key={option.value}
+                                                value={option.value}
+                                                className="h-11 cursor-pointer rounded-xl px-5 py-3 pr-10 text-base font-medium text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+                                              >
+                                                {option.label}
+                                              </DropdownMenuRadioItem>
+                                            ))}
+                                          </DropdownMenuRadioGroup>
+                                        </DropdownMenuSubContent>
+                                      </DropdownMenuSub>
+                                      <DropdownMenuSub>
+                                        <DropdownMenuSubTrigger className="h-11 cursor-pointer rounded-none px-5 py-3 text-base font-medium text-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground [&_svg]:h-5 [&_svg]:w-5">
+                                          <File className="h-5 w-5" />
+                                          Move to folder
+                                        </DropdownMenuSubTrigger>
+                                        <DropdownMenuSubContent className="min-w-[220px] overflow-hidden rounded-2xl border border-border bg-surface p-1 shadow-soft-md">
+                                          <DropdownMenuRadioGroup
+                                            value={getFolderSectionValue(file)}
+                                            onValueChange={(value) =>
+                                              handleMoveUploadedFile(
+                                                file,
+                                                value as "plans" | "specs" | "addenda" | "reports"
+                                              )
+                                            }
+                                          >
+                                            {FILE_FOLDER_OPTIONS.map((option) => (
+                                              <DropdownMenuRadioItem
+                                                key={option.value}
+                                                value={option.value}
+                                                className="h-11 cursor-pointer rounded-xl px-5 py-3 pr-10 text-base font-medium text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+                                              >
+                                                <FolderOpen className="h-5 w-5" />
+                                                {option.label}
+                                              </DropdownMenuRadioItem>
+                                            ))}
+                                          </DropdownMenuRadioGroup>
+                                        </DropdownMenuSubContent>
+                                      </DropdownMenuSub>
+                                      <DropdownMenuSeparator className="my-0 border-border" />
+                                      <DropdownMenuItem
+                                        variant="destructive"
+                                        onClick={() => handleDeleteUploadedFile(file)}
+                                        className="h-11 cursor-pointer rounded-none px-5 py-3 text-base font-medium data-[highlighted]:bg-destructive/10 [&_svg]:h-5 [&_svg]:w-5"
+                                      >
+                                        <Trash2Icon className="h-5 w-5 text-destructive" />
+                                        Delete
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
                                 </div>
                               </li>
                             );
