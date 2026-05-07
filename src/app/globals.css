@@ -200,6 +200,16 @@ html[data-mode="waiverdesk"] {
   html {
     @apply font-sans;
   }
+
+  button,
+  [role="button"] {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [role="button"][aria-disabled="true"] {
+    cursor: not-allowed;
+  }
 }
 
 @layer components {
