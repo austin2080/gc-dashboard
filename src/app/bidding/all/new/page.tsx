@@ -158,12 +158,28 @@ type UploadedBidFile = {
   uploadedAt: string;
   section: FileSectionKey;
   documentSetId: DocumentSetId;
+  folderId?: string | null;
   url: string;
+};
+
+type CustomFileFolder = {
+  id: string;
+  name: string;
+  section: FileSectionKey;
 };
 
 type RenameFileDialogState = {
   fileId: string;
   originalName: string;
+  draftName: string;
+};
+
+type DeleteFileDialogState = {
+  fileId: string;
+  fileName: string;
+};
+
+type NewFolderDialogState = {
   draftName: string;
 };
 
@@ -304,7 +320,13 @@ function mergeDocumentSetIds(
 
 function normalizeUploadedBidFile(value: unknown): UploadedBidFile | null {
   if (!value || typeof value !== "object") return null;
-  const row = value as Partial<UploadedBidFile> & { section?: unknown; documentSetId?: unknown; document_set_id?: unknown };
+  const row = value as Partial<UploadedBidFile> & {
+    section?: unknown;
+    documentSetId?: unknown;
+    document_set_id?: unknown;
+    folderId?: unknown;
+    folder_id?: unknown;
+  };
   if (
     typeof row.id !== "string" ||
     typeof row.name !== "string" ||
@@ -321,8 +343,46 @@ function normalizeUploadedBidFile(value: unknown): UploadedBidFile | null {
     uploadedAt: row.uploadedAt,
     section: normalizeFileSectionKey(row.section),
     documentSetId: normalizeDocumentSetId(row.documentSetId ?? row.document_set_id),
+    folderId:
+      typeof (row.folderId ?? row.folder_id) === "string"
+        ? (row.folderId ?? row.folder_id) as string
+        : null,
     url: row.url,
   };
+}
+
+function normalizeCustomFileFolder(value: unknown): CustomFileFolder | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Partial<CustomFileFolder> & { section?: unknown };
+  if (typeof row.id !== "string" || typeof row.name !== "string") return null;
+  return {
+    id: row.id,
+    name: row.name,
+    section: normalizeFileSectionKey(row.section),
+  };
+}
+
+function dataUrlToBlob(dataUrl: string): Blob | null {
+  const match = dataUrl.match(/^data:([^;,]+)?(;base64)?,(.*)$/);
+  if (!match) return null;
+  const mimeType = match[1] || "application/octet-stream";
+  const isBase64 = Boolean(match[2]);
+  const dataPart = match[3] ?? "";
+
+  try {
+    if (isBase64) {
+      const binary = atob(dataPart);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      return new Blob([bytes], { type: mimeType });
+    }
+
+    return new Blob([decodeURIComponent(dataPart)], { type: mimeType });
+  } catch {
+    return null;
+  }
 }
 
 type CostCodeOption = {
@@ -396,6 +456,7 @@ type BidPackageAutosavePayload = {
   assignedSubsByTradeId: Record<string, AssignedSub[]>;
   inviteQueryByTradeId: Record<string, string>;
   documentSetIds: DocumentSetId[];
+  customFolders: CustomFileFolder[];
   uploadedFiles: UploadedBidFile[];
 };
 
@@ -408,6 +469,7 @@ const INVITATION_EMAIL_DRAFT_STORAGE_KEY = "bidding-all-new-invitation-email-dra
 const BID_PACKAGE_AUTOSAVE_STORAGE_KEY = "bidding-all-new-package-autosave-v1";
 const BID_PROJECT_GENERAL_INFO_STORAGE_KEY = "bidding-project-general-info-v1";
 const BID_PACKAGE_FILES_STORAGE_KEY = "bidding-package-files-v1";
+const BID_PACKAGE_FOLDERS_STORAGE_KEY = "bidding-package-folders-v1";
 const BID_PACKAGE_DOCUMENT_SETS_STORAGE_KEY = "bidding-package-document-sets-v1";
 const TOKEN_LIST = [
   "{project_name}",
@@ -1067,6 +1129,34 @@ function writeBidPackageFiles(projectId: string, files: UploadedBidFile[]) {
   localStorage.setItem(BID_PACKAGE_FILES_STORAGE_KEY, JSON.stringify(current));
 }
 
+function readBidPackageFoldersMap(): Record<string, CustomFileFolder[]> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(BID_PACKAGE_FOLDERS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, CustomFileFolder[]> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (!Array.isArray(value)) continue;
+      next[key] = value.flatMap((item) => {
+        const normalized = normalizeCustomFileFolder(item);
+        return normalized ? [normalized] : [];
+      });
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function writeBidPackageFolders(projectId: string, folders: CustomFileFolder[]) {
+  if (typeof window === "undefined") return;
+  const current = readBidPackageFoldersMap();
+  current[projectId] = folders;
+  localStorage.setItem(BID_PACKAGE_FOLDERS_STORAGE_KEY, JSON.stringify(current));
+}
+
 function readBidPackageDocumentSetsMap(): Record<string, DocumentSetId[]> {
   if (typeof window === "undefined") return {};
   try {
@@ -1255,6 +1345,7 @@ export default function NewBidPackagePage() {
   const [activePanel, setActivePanel] = useState<"general" | "files" | "trade-coverage" | "invite-subs" | "bid-email">("general");
   const [activeFileSection, setActiveFileSection] = useState<FileSectionKey>("plans");
   const [selectedUploadSection, setSelectedUploadSection] = useState<FileSectionKey>("plans");
+  const [selectedUploadFolderId, setSelectedUploadFolderId] = useState<string>("__root__");
   const [expandedFileGroups, setExpandedFileGroups] = useState({
     plans: true,
     specs: true,
@@ -1297,13 +1388,17 @@ export default function NewBidPackagePage() {
   const [testDialogOpen, setTestDialogOpen] = useState(false);
   const [testSendEmail, setTestSendEmail] = useState("");
   const [testSendLoading, setTestSendLoading] = useState(false);
+  const [newFolderDialog, setNewFolderDialog] = useState<NewFolderDialogState | null>(null);
   const [renameFileDialog, setRenameFileDialog] = useState<RenameFileDialogState | null>(null);
   const [renameFileSaving, setRenameFileSaving] = useState(false);
+  const [deleteFileDialog, setDeleteFileDialog] = useState<DeleteFileDialogState | null>(null);
+  const [deleteFileSaving, setDeleteFileSaving] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [mailboxConnection, setMailboxConnection] = useState<MailboxConnectionSummary | null>(null);
   const [loadingMailboxConnection, setLoadingMailboxConnection] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [documentSetIds, setDocumentSetIds] = useState<DocumentSetId[]>([DEFAULT_DOCUMENT_SET_ID]);
+  const [customFolders, setCustomFolders] = useState<CustomFileFolder[]>([]);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedBidFile[]>([]);
   const [draft, setDraft] = useState<BidPackageDraft>(createDefaultDraft());
   const [prebidTimezone, setPrebidTimezone] = useState<(typeof PREBID_TIMEZONE_OPTIONS)[number]>("MST");
@@ -1335,6 +1430,56 @@ export default function NewBidPackagePage() {
     }),
     [uploadedFiles]
   );
+  const selectedUploadFolder = useMemo(
+    () => customFolders.find((folder) => folder.id === selectedUploadFolderId) ?? null,
+    [customFolders, selectedUploadFolderId]
+  );
+  const selectedUploadTargetValue =
+    selectedUploadFolderId === "__root__"
+      ? `section:${selectedUploadSection}`
+      : `folder:${selectedUploadFolderId}`;
+  const projectFileGroups = useMemo(() => {
+    const builtInGroups = [
+      {
+        key: "plans",
+        label: "Plans",
+        section: "plans" as const,
+        files: uploadedFiles.filter((file) => file.section === "plans" && !file.folderId),
+      },
+      {
+        key: "specs",
+        label: "Specs",
+        section: "specs" as const,
+        files: uploadedFiles.filter((file) => file.section === "specs" && !file.folderId),
+      },
+      {
+        key: "addenda",
+        label: "Addenda",
+        section: "addenda" as const,
+        files: uploadedFiles.filter((file) => file.section === "addenda" && !file.folderId),
+      },
+      {
+        key: "reports",
+        label: "Reports",
+        section: "reports" as const,
+        files: uploadedFiles.filter(
+          (file) => FILE_SECTION_META[file.section].groupKey === "reports" && !file.folderId
+        ),
+      },
+    ];
+
+    const customFolderGroups = customFolders.map((folder) => ({
+      key: folder.id,
+      label: folder.name,
+      section: FILE_SECTION_META[folder.section].groupKey as "plans" | "specs" | "addenda" | "reports",
+      files: uploadedFiles.filter((file) => file.folderId === folder.id),
+    }));
+
+    return [...builtInGroups, ...customFolderGroups].map((group) => ({
+      ...group,
+      count: group.files.length,
+    }));
+  }, [customFolders, uploadedFiles]);
   const latestUploadedFile = useMemo(
     () =>
       uploadedFiles.length
@@ -1431,6 +1576,7 @@ export default function NewBidPackagePage() {
                 uploadedAt: now,
                 section: selectedUploadSection,
                 documentSetId: DEFAULT_DOCUMENT_SET_ID,
+                folderId: selectedUploadFolderId === "__root__" ? null : selectedUploadFolderId,
                 url: reader.result,
               });
             };
@@ -1640,6 +1786,7 @@ export default function NewBidPackagePage() {
       let autosaveActiveFileSection: FileSectionKey | null = null;
       let autosaveCostCodeQuery: string | null = null;
       let autosaveDocumentSetIds: DocumentSetId[] | null = null;
+      let autosaveCustomFolders: CustomFileFolder[] | null = null;
       try {
         const raw = localStorage.getItem(getBidPackageAutosaveStorageKey(projectId));
         if (raw) {
@@ -1662,6 +1809,12 @@ export default function NewBidPackagePage() {
             typeof parsed.costCodeQuery === "string" ? parsed.costCodeQuery : null;
           autosaveDocumentSetIds = Array.isArray(parsed.documentSetIds)
             ? parsed.documentSetIds.map((item) => normalizeDocumentSetId(item))
+            : null;
+          autosaveCustomFolders = Array.isArray(parsed.customFolders)
+            ? parsed.customFolders.flatMap((item) => {
+                const normalized = normalizeCustomFileFolder(item);
+                return normalized ? [normalized] : [];
+              })
             : null;
         }
       } catch {
@@ -1743,6 +1896,7 @@ export default function NewBidPackagePage() {
         }));
       }
       const storedFiles = readBidPackageFilesMap()[projectId] ?? [];
+      setCustomFolders(autosaveCustomFolders ?? readBidPackageFoldersMap()[projectId] ?? []);
       setUploadedFiles(storedFiles);
       setDocumentSetIds(
         mergeDocumentSetIds(
@@ -1997,6 +2151,14 @@ export default function NewBidPackagePage() {
               return normalized ? [normalized] : [];
             })
           : [];
+        if (Array.isArray(parsed.customFolders)) {
+          setCustomFolders(
+            parsed.customFolders.flatMap((item) => {
+              const normalized = normalizeCustomFileFolder(item);
+              return normalized ? [normalized] : [];
+            })
+          );
+        }
         if (Array.isArray(parsed.documentSetIds)) {
           setDocumentSetIds(mergeDocumentSetIds(parsed.documentSetIds, autosavedFiles));
         } else {
@@ -2044,6 +2206,7 @@ export default function NewBidPackagePage() {
         assignedSubsByTradeId,
         inviteQueryByTradeId,
         documentSetIds,
+        customFolders,
         uploadedFiles,
       };
       try {
@@ -2060,6 +2223,7 @@ export default function NewBidPackagePage() {
     autosaveStorageKey,
     bidPackageAutosaveHydrated,
     costCodeQuery,
+    customFolders,
     documentSetIds,
     draft,
     inviteQueryByTradeId,
@@ -2243,6 +2407,16 @@ export default function NewBidPackagePage() {
   }, [toast]);
 
   useEffect(() => {
+    if (selectedUploadFolderId === "__root__") return;
+    const folderStillExists = customFolders.some(
+      (folder) => folder.id === selectedUploadFolderId && folder.section === selectedUploadSection
+    );
+    if (!folderStillExists) {
+      setSelectedUploadFolderId("__root__");
+    }
+  }, [customFolders, selectedUploadFolderId, selectedUploadSection]);
+
+  useEffect(() => {
     if (!renameFileDialog) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -2255,6 +2429,20 @@ export default function NewBidPackagePage() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [renameFileDialog]);
+
+  useEffect(() => {
+    if (!deleteFileDialog) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setDeleteFileDialog(null);
+        setDeleteFileSaving(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [deleteFileDialog]);
 
   const updateUploadedFile = (
     fileId: string,
@@ -2269,8 +2457,22 @@ export default function NewBidPackagePage() {
     FILE_SECTION_META[file.section].groupKey;
 
   const handlePreviewUploadedFile = (file: UploadedBidFile) => {
-    // This row does not have a dedicated preview modal yet, so fall back to the uploaded file URL.
-    window.open(file.url, "_blank", "noopener,noreferrer");
+    if (typeof window === "undefined") return;
+
+    let targetUrl = file.url;
+    if (file.url.startsWith("data:")) {
+      const blob = dataUrlToBlob(file.url);
+      if (blob) {
+        targetUrl = URL.createObjectURL(blob);
+        window.setTimeout(() => URL.revokeObjectURL(targetUrl), 60_000);
+      }
+    }
+
+    const link = document.createElement("a");
+    link.href = targetUrl;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.click();
   };
 
   const handleRenameUploadedFile = (file: UploadedBidFile) => {
@@ -2343,11 +2545,64 @@ export default function NewBidPackagePage() {
   };
 
   const handleDeleteUploadedFile = (file: UploadedBidFile) => {
-    const confirmed = window.confirm(`Delete ${file.name}?`);
-    if (!confirmed) return;
+    setDeleteFileDialog({
+      fileId: file.id,
+      fileName: file.name,
+    });
+  };
 
-    setUploadedFiles((prev) => prev.filter((current) => current.id !== file.id));
-    setToast({ type: "success", message: `${file.name} was deleted.` });
+  const closeDeleteFileDialog = () => {
+    if (deleteFileSaving) return;
+    setDeleteFileDialog(null);
+  };
+
+  const submitDeleteFileDialog = async () => {
+    if (!deleteFileDialog) return;
+
+    setDeleteFileSaving(true);
+    try {
+      setUploadedFiles((prev) =>
+        prev.filter((current) => current.id !== deleteFileDialog.fileId)
+      );
+      setDeleteFileDialog(null);
+      setToast({ type: "success", message: `${deleteFileDialog.fileName} was deleted.` });
+    } finally {
+      setDeleteFileSaving(false);
+    }
+  };
+
+  const closeNewFolderDialog = () => setNewFolderDialog(null);
+
+  const handleCreateFolder = () => {
+    setNewFolderDialog({ draftName: "" });
+  };
+
+  const submitNewFolderDialog = () => {
+    if (!newFolderDialog) return;
+    const nextName = newFolderDialog.draftName.trim();
+    if (!nextName) return;
+    const duplicateExists = customFolders.some(
+      (folder) =>
+        folder.section === selectedUploadSection &&
+        folder.name.trim().toLowerCase() === nextName.toLowerCase()
+    );
+    if (duplicateExists) {
+      setToast({ type: "error", message: `${nextName} already exists in this section.` });
+      return;
+    }
+
+    const nextFolder: CustomFileFolder = {
+      id: `folder-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      name: nextName,
+      section: selectedUploadSection,
+    };
+
+    setCustomFolders((prev) => [...prev, nextFolder]);
+    setExpandedFileGroups((prev) => ({ ...prev, [nextFolder.id]: true }));
+    setSelectedUploadFolderId(nextFolder.id);
+    setActiveFileSection(FILE_SECTION_META[selectedUploadSection].groupKey as FileSectionKey);
+    setNewFolderDialog(null);
+    setToast({ type: "success", message: `${nextName} folder created.` });
   };
 
   const includedAttachments = useMemo(
@@ -3049,6 +3304,7 @@ export default function NewBidPackagePage() {
               });
             }
             writeBidProjectGeneralInfo(editingProjectId, draft);
+            writeBidPackageFolders(editingProjectId, customFolders);
             writeBidPackageDocumentSets(editingProjectId, documentSetIds);
             writeBidPackageFiles(editingProjectId, uploadedFiles);
             localStorage.removeItem(getBidPackageAutosaveStorageKey(editingProjectId));
@@ -3154,6 +3410,7 @@ export default function NewBidPackagePage() {
             });
           }
           writeBidProjectGeneralInfo(created.id, { ...draft, package_number: packageNumberForSubmit });
+          writeBidPackageFolders(created.id, customFolders);
           writeBidPackageDocumentSets(created.id, documentSetIds);
           writeBidPackageFiles(created.id, uploadedFiles);
 
@@ -3883,7 +4140,23 @@ export default function NewBidPackagePage() {
                         <span>File Section</span>
                         <span className="text-red-500">*</span>
                       </div>
-                      <Select value={selectedUploadSection} onValueChange={(value) => setSelectedUploadSection(value as FileSectionKey)}>
+                      <Select
+                        value={selectedUploadTargetValue}
+                        onValueChange={(value) => {
+                          if (value.startsWith("folder:")) {
+                            const folderId = value.replace("folder:", "");
+                            const folder = customFolders.find((entry) => entry.id === folderId);
+                            if (!folder) return;
+                            setSelectedUploadSection(folder.section);
+                            setSelectedUploadFolderId(folder.id);
+                            return;
+                          }
+
+                          const nextSection = value.replace("section:", "") as FileSectionKey;
+                          setSelectedUploadSection(nextSection);
+                          setSelectedUploadFolderId("__root__");
+                        }}
+                      >
                         <SelectTrigger
                           size="field"
                           className="h-10 w-full rounded-2xl border border-border bg-surface px-5 text-lg font-medium text-foreground shadow-soft-sm"
@@ -3893,11 +4166,25 @@ export default function NewBidPackagePage() {
                         <SelectContent className="w-[var(--radix-select-trigger-width)] rounded-2xl border border-border bg-surface p-1 shadow-soft-md">
                           {FILE_UPLOAD_SECTION_OPTIONS.map((option) => (
                             <SelectItem
-                              key={option.value}
-                              value={option.value}
+                              key={`section-${option.value}`}
+                              value={`section:${option.value}`}
                               className="rounded-xl text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[state=checked]:bg-transparent data-[state=checked]:text-foreground data-[state=checked]:data-[highlighted]:bg-accent data-[state=checked]:data-[highlighted]:text-accent-foreground"
                             >
                               {option.label}
+                            </SelectItem>
+                          ))}
+                          {customFolders.length ? (
+                            <div className="px-3 pt-3 pb-1 text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                              Custom folders
+                            </div>
+                          ) : null}
+                          {customFolders.map((folder) => (
+                            <SelectItem
+                              key={`folder-${folder.id}`}
+                              value={`folder:${folder.id}`}
+                              className="rounded-xl text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[state=checked]:bg-transparent data-[state=checked]:text-foreground data-[state=checked]:data-[highlighted]:bg-accent data-[state=checked]:data-[highlighted]:text-accent-foreground"
+                            >
+                              {folder.name}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -3910,7 +4197,7 @@ export default function NewBidPackagePage() {
                             .toLowerCase()
                             .replace(/[^a-z0-9]+/g, "-")
                             .replace(/^-+|-+$/g, "") || "project"}
-                          /{selectedUploadSection}/
+                          /{selectedUploadSection}/{selectedUploadFolder ? `${selectedUploadFolder.name.replace(/[^a-zA-Z0-9-_ ]+/g, "").trim() || selectedUploadFolder.name}/` : ""}
                         </span>
                       </p>
                     </div>
@@ -3935,6 +4222,7 @@ export default function NewBidPackagePage() {
                       </button>
                       <button
                         type="button"
+                        onClick={handleCreateFolder}
                         className="inline-flex h-11 items-center gap-2 rounded-lg border border-slate-200 bg-white px-6 text-base font-semibold text-slate-900 hover:bg-slate-100"
                       >
                         <FolderPlus className="size-4 text-slate-700" />
@@ -3985,12 +4273,7 @@ export default function NewBidPackagePage() {
                   <div />
                 </div>
 
-                {([
-                  { key: "plans", label: "Plans", count: filesBySection.plans.length, files: filesBySection.plans, section: "plans" as const },
-                  { key: "specs", label: "Specs", count: filesBySection.specs.length, files: filesBySection.specs, section: "specs" as const },
-                  { key: "addenda", label: "Addenda", count: filesBySection.addenda.length, files: filesBySection.addenda, section: "addenda" as const },
-                  { key: "reports", label: "Reports", count: filesBySection.reports.length, files: filesBySection.reports, section: "reports" as const },
-                ] as const).map((group) => {
+                {projectFileGroups.map((group) => {
                   const isExpanded = expandedFileGroups[group.key];
 
                   return (
@@ -4192,10 +4475,11 @@ export default function NewBidPackagePage() {
 
                 <div className="flex items-center justify-between border-b border-border py-7">
                   <div className="text-base text-muted-foreground">
-                    {uploadedFiles.length} file{uploadedFiles.length === 1 ? "" : "s"} across 4 folders
+                    {uploadedFiles.length} file{uploadedFiles.length === 1 ? "" : "s"} across {projectFileGroups.length} folder{projectFileGroups.length === 1 ? "" : "s"}
                   </div>
                   <button
                     type="button"
+                    onClick={handleCreateFolder}
                     className="inline-flex items-center gap-3 text-[15px] font-semibold text-blue-600 hover:text-blue-700"
                   >
                     <FolderPlus className="h-5 w-5" />
@@ -5310,6 +5594,120 @@ export default function NewBidPackagePage() {
                   className="h-10 rounded-xl bg-accent px-4 text-sm font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {renameFileSaving ? "Saving..." : "Save Changes"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+      {deleteFileDialog ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
+          <button
+            type="button"
+            className="absolute inset-0"
+            aria-label="Close delete file dialog"
+            onClick={closeDeleteFileDialog}
+          />
+          <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-border bg-surface shadow-soft-lg">
+            <div className="px-6 pt-6 pb-4">
+              <h2 className="text-xl font-bold text-foreground">Delete file</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Remove this file from the bid package and project files list.
+              </p>
+            </div>
+            <form
+              onSubmit={async (event) => {
+                event.preventDefault();
+                await submitDeleteFileDialog();
+              }}
+            >
+              <div className="px-6 pb-5">
+                <div className="text-sm font-semibold text-foreground">File name</div>
+                <div className="mt-2 rounded-xl border border-border bg-surface px-4 py-3 text-sm text-foreground shadow-soft-sm">
+                  {deleteFileDialog.fileName}
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  This action removes the file from this setup flow.
+                </p>
+              </div>
+              <div className="flex justify-end gap-3 border-t border-border bg-surface-muted/40 px-6 py-4">
+                <button
+                  type="button"
+                  onClick={closeDeleteFileDialog}
+                  disabled={deleteFileSaving}
+                  className="h-10 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-foreground hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={deleteFileSaving}
+                  className="h-10 rounded-xl bg-accent px-4 text-sm font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {deleteFileSaving ? "Deleting..." : "Delete File"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+      {newFolderDialog ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
+          <button
+            type="button"
+            className="absolute inset-0"
+            aria-label="Close new folder dialog"
+            onClick={closeNewFolderDialog}
+          />
+          <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-border bg-surface shadow-soft-lg">
+            <div className="px-6 pt-6 pb-4">
+              <h2 className="text-xl font-bold text-foreground">Create folder</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Add a new folder for files in {FILE_SECTION_META[selectedUploadSection].label}.
+              </p>
+            </div>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                submitNewFolderDialog();
+              }}
+            >
+              <div className="px-6 pb-5">
+                <label className="block">
+                  <span className="text-sm font-semibold text-foreground">Folder name</span>
+                  <input
+                    autoFocus
+                    type="text"
+                    value={newFolderDialog.draftName}
+                    onChange={(event) =>
+                      setNewFolderDialog((current) =>
+                        current
+                          ? {
+                              ...current,
+                              draftName: event.target.value,
+                            }
+                          : current
+                      )
+                    }
+                    className="mt-2 h-11 w-full rounded-xl border border-border bg-surface px-4 text-sm text-foreground shadow-soft-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    placeholder="Enter folder name"
+                  />
+                </label>
+              </div>
+              <div className="flex justify-end gap-3 border-t border-border bg-surface-muted/40 px-6 py-4">
+                <button
+                  type="button"
+                  onClick={closeNewFolderDialog}
+                  className="h-10 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-foreground hover:bg-surface-muted"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!newFolderDialog.draftName.trim()}
+                  className="h-10 rounded-xl bg-accent px-4 text-sm font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Create Folder
                 </button>
               </div>
             </form>
