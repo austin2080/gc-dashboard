@@ -65,13 +65,20 @@ import {
 } from "@/lib/email/html";
 import {
   CalendarIcon,
+  Check,
+  ChevronDown,
+  ChevronRight,
   Ellipsis,
   Eye,
+  FileCode2,
+  FileText,
   FileStack,
   FolderPlus,
   FolderOpen,
   Info,
+  MoreHorizontal,
   Plus,
+  Tag,
   Trash2Icon,
   Upload,
 } from "lucide-react";
@@ -132,7 +139,7 @@ type BidPackageDraft = {
   bid_submission_confirmation_message: string;
 };
 
-type FileSectionKey = "drawings" | "documents" | "specifications";
+type FileSectionKey = "plans" | "specs" | "addenda" | "reports" | "scope_sheets" | "other";
 
 type UploadedBidFile = {
   id: string;
@@ -149,24 +156,108 @@ const FILE_SECTION_META: Record<
     label: string;
     shortLabel: string;
     emptyLabel: string;
+    folderLabel: string;
+    badgeLabel: string;
+    groupKey: "plans" | "specs" | "addenda" | "reports";
   }
 > = {
-  drawings: {
-    label: "Drawings",
+  plans: {
+    label: "Plans",
     shortLabel: "Plans",
-    emptyLabel: "No drawings uploaded yet.",
+    emptyLabel: "No plans uploaded yet.",
+    folderLabel: "Plans",
+    badgeLabel: "Plan",
+    groupKey: "plans",
   },
-  documents: {
-    label: "Documents",
-    shortLabel: "Documents",
-    emptyLabel: "No documents uploaded yet.",
-  },
-  specifications: {
-    label: "Specifications",
+  specs: {
+    label: "Specs",
     shortLabel: "Specs",
-    emptyLabel: "No specifications uploaded yet.",
+    emptyLabel: "No specs uploaded yet.",
+    folderLabel: "Specs",
+    badgeLabel: "Spec",
+    groupKey: "specs",
+  },
+  addenda: {
+    label: "Addenda",
+    shortLabel: "Addenda",
+    emptyLabel: "No addenda uploaded yet.",
+    folderLabel: "Addenda",
+    badgeLabel: "Addendum",
+    groupKey: "addenda",
+  },
+  reports: {
+    label: "Reports",
+    shortLabel: "Reports",
+    emptyLabel: "No reports uploaded yet.",
+    folderLabel: "Reports",
+    badgeLabel: "Report",
+    groupKey: "reports",
+  },
+  scope_sheets: {
+    label: "Scope Sheets",
+    shortLabel: "Scope Sheets",
+    emptyLabel: "No scope sheets uploaded yet.",
+    folderLabel: "Reports",
+    badgeLabel: "Scope Sheet",
+    groupKey: "reports",
+  },
+  other: {
+    label: "Other",
+    shortLabel: "Other",
+    emptyLabel: "No other files uploaded yet.",
+    folderLabel: "Reports",
+    badgeLabel: "Other",
+    groupKey: "reports",
   },
 };
+
+const FILE_UPLOAD_SECTION_OPTIONS = [
+  { value: "plans", label: "Plans" },
+  { value: "specs", label: "Specs" },
+  { value: "addenda", label: "Addenda" },
+  { value: "reports", label: "Reports" },
+  { value: "scope_sheets", label: "Scope Sheets" },
+  { value: "other", label: "Other" },
+] as const satisfies Array<{ value: FileSectionKey; label: string }>;
+
+function normalizeFileSectionKey(value: unknown): FileSectionKey {
+  if (value === "drawings") return "plans";
+  if (value === "specifications") return "specs";
+  if (value === "documents") return "addenda";
+  if (
+    value === "plans" ||
+    value === "specs" ||
+    value === "addenda" ||
+    value === "reports" ||
+    value === "scope_sheets" ||
+    value === "other"
+  ) {
+    return value;
+  }
+  return "other";
+}
+
+function normalizeUploadedBidFile(value: unknown): UploadedBidFile | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Partial<UploadedBidFile> & { section?: unknown };
+  if (
+    typeof row.id !== "string" ||
+    typeof row.name !== "string" ||
+    typeof row.size !== "number" ||
+    typeof row.uploadedAt !== "string" ||
+    typeof row.url !== "string"
+  ) {
+    return null;
+  }
+  return {
+    id: row.id,
+    name: row.name,
+    size: row.size,
+    uploadedAt: row.uploadedAt,
+    section: normalizeFileSectionKey(row.section),
+    url: row.url,
+  };
+}
 
 type CostCodeOption = {
   id: string;
@@ -889,30 +980,8 @@ function readBidPackageFilesMap(): Record<string, UploadedBidFile[]> {
     for (const [key, value] of Object.entries(parsed)) {
       if (!Array.isArray(value)) continue;
       next[key] = value.flatMap((item) => {
-        if (!item || typeof item !== "object") return [];
-        const row = item as Partial<UploadedBidFile>;
-        if (
-          typeof row.id !== "string" ||
-          typeof row.name !== "string" ||
-          typeof row.size !== "number" ||
-          typeof row.uploadedAt !== "string" ||
-          typeof row.url !== "string" ||
-          (row.section !== "drawings" &&
-            row.section !== "documents" &&
-            row.section !== "specifications")
-        ) {
-          return [];
-        }
-        return [
-          {
-            id: row.id,
-            name: row.name,
-            size: row.size,
-            uploadedAt: row.uploadedAt,
-            section: row.section,
-            url: row.url,
-          },
-        ];
+        const normalized = normalizeUploadedBidFile(item);
+        return normalized ? [normalized] : [];
       });
     }
     return next;
@@ -1088,7 +1157,14 @@ export default function NewBidPackagePage() {
   const [error, setError] = useState<string | null>(null);
   const [loadingExistingProject, setLoadingExistingProject] = useState(false);
   const [activePanel, setActivePanel] = useState<"general" | "files" | "trade-coverage" | "invite-subs" | "bid-email">("general");
-  const [activeFileSection, setActiveFileSection] = useState<FileSectionKey>("documents");
+  const [activeFileSection, setActiveFileSection] = useState<FileSectionKey>("plans");
+  const [selectedUploadSection, setSelectedUploadSection] = useState<FileSectionKey>("plans");
+  const [expandedFileGroups, setExpandedFileGroups] = useState({
+    plans: true,
+    specs: true,
+    addenda: true,
+    reports: false,
+  });
   const [costCodes, setCostCodes] = useState<CostCodeOption[]>([]);
   const [loadingCostCodes, setLoadingCostCodes] = useState(false);
   const [costCodeLoadError, setCostCodeLoadError] = useState<string | null>(null);
@@ -1143,14 +1219,20 @@ export default function NewBidPackagePage() {
     [editingProjectId]
   );
   const filesInActiveSection = useMemo(
-    () => uploadedFiles.filter((file) => file.section === activeFileSection),
+    () =>
+      uploadedFiles.filter((file) =>
+        activeFileSection === "reports"
+          ? FILE_SECTION_META[file.section].groupKey === "reports"
+          : file.section === activeFileSection
+      ),
     [activeFileSection, uploadedFiles]
   );
   const filesBySection = useMemo(
     () => ({
-      drawings: uploadedFiles.filter((file) => file.section === "drawings"),
-      documents: uploadedFiles.filter((file) => file.section === "documents"),
-      specifications: uploadedFiles.filter((file) => file.section === "specifications"),
+      plans: uploadedFiles.filter((file) => file.section === "plans"),
+      specs: uploadedFiles.filter((file) => file.section === "specs"),
+      addenda: uploadedFiles.filter((file) => file.section === "addenda"),
+      reports: uploadedFiles.filter((file) => FILE_SECTION_META[file.section].groupKey === "reports"),
     }),
     [uploadedFiles]
   );
@@ -1225,7 +1307,7 @@ export default function NewBidPackagePage() {
 
   const handleUploadFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    setActiveFileSection("documents");
+    setActiveFileSection(FILE_SECTION_META[selectedUploadSection].groupKey);
     const next = Array.from(files);
     if (next.length > 25) {
       setFileError("Upload up to 25 files at a time.");
@@ -1248,7 +1330,7 @@ export default function NewBidPackagePage() {
                 name: file.name,
                 size: file.size,
                 uploadedAt: now,
-                section: "documents" as FileSectionKey,
+                section: selectedUploadSection,
                 url: reader.result,
               });
             };
@@ -1472,7 +1554,9 @@ export default function NewBidPackagePage() {
               ? parsed.inviteQueryByTradeId
               : null;
           autosaveActivePanel = parsed.activePanel ?? null;
-          autosaveActiveFileSection = parsed.activeFileSection ?? null;
+          autosaveActiveFileSection = parsed.activeFileSection
+            ? normalizeFileSectionKey(parsed.activeFileSection)
+            : null;
           autosaveCostCodeQuery =
             typeof parsed.costCodeQuery === "string" ? parsed.costCodeQuery : null;
         }
@@ -1563,6 +1647,7 @@ export default function NewBidPackagePage() {
       }
       if (autosaveActiveFileSection) {
         setActiveFileSection(autosaveActiveFileSection);
+        setSelectedUploadSection(autosaveActiveFileSection);
       }
       if (autosaveCostCodeQuery !== null) {
         setCostCodeQuery(autosaveCostCodeQuery);
@@ -1779,7 +1864,9 @@ export default function NewBidPackagePage() {
         }
         setActivePanel("general");
         if (parsed.activeFileSection) {
-          setActiveFileSection(parsed.activeFileSection);
+          const normalizedSection = normalizeFileSectionKey(parsed.activeFileSection);
+          setActiveFileSection(normalizedSection);
+          setSelectedUploadSection(normalizedSection);
         }
         if (typeof parsed.costCodeQuery === "string") {
           setCostCodeQuery(parsed.costCodeQuery);
@@ -1794,7 +1881,12 @@ export default function NewBidPackagePage() {
           setInviteQueryByTradeId(parsed.inviteQueryByTradeId);
         }
         if (Array.isArray(parsed.uploadedFiles)) {
-          setUploadedFiles(parsed.uploadedFiles);
+          setUploadedFiles(
+            parsed.uploadedFiles.flatMap((item) => {
+              const normalized = normalizeUploadedBidFile(item);
+              return normalized ? [normalized] : [];
+            })
+          );
         }
       }
     } catch {
@@ -2033,9 +2125,9 @@ export default function NewBidPackagePage() {
 
   const includedAttachments = useMemo(
     () => ({
-      drawings: uploadedFiles.filter((file) => file.section === "drawings").length,
-      documents: uploadedFiles.filter((file) => file.section === "documents").length,
-      specifications: uploadedFiles.filter((file) => file.section === "specifications").length,
+      plans: uploadedFiles.filter((file) => file.section === "plans").length,
+      addenda: uploadedFiles.filter((file) => file.section === "addenda").length,
+      specs: uploadedFiles.filter((file) => file.section === "specs").length,
     }),
     [uploadedFiles]
   );
@@ -2334,12 +2426,13 @@ export default function NewBidPackagePage() {
                 key={`prebid-timezone-${option}`}
                 type="button"
                 onClick={() => setPrebidTimezone(option)}
-                className={`rounded-sm px-3 py-2 text-left text-sm font-semibold ${
-                  prebidTimezone === option
-                    ? "bg-blue-100 text-blue-950"
-                    : "text-slate-700 hover:bg-slate-100"
+                className={`flex items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold text-slate-700 hover:bg-accent hover:text-accent-foreground ${
+                  prebidTimezone === option ? "text-slate-900" : ""
                 }`}
               >
+                <span className="flex h-4 w-4 items-center justify-center">
+                  {prebidTimezone === option ? <Check className="h-4 w-4" /> : null}
+                </span>
                 {option}
               </button>
             ))}
@@ -3241,10 +3334,18 @@ export default function NewBidPackagePage() {
                       <CommandList>
                         <CommandEmpty>No city found.</CommandEmpty>
                         <CommandGroup>
-                          <CommandItem value="Select City" onSelect={() => selectProjectTaxCity("__none")}>
+                          <CommandItem
+                            value="Select City"
+                            data-checked={!selectedProjectTaxCity && !isManualTaxRate ? "true" : undefined}
+                            onSelect={() => selectProjectTaxCity("__none")}
+                          >
                             Select City
                           </CommandItem>
-                          <CommandItem value="Other" onSelect={() => selectProjectTaxCity(MANUAL_TAX_CITY_VALUE)}>
+                          <CommandItem
+                            value="Other"
+                            data-checked={isManualTaxRate ? "true" : undefined}
+                            onSelect={() => selectProjectTaxCity(MANUAL_TAX_CITY_VALUE)}
+                          >
                             Other
                           </CommandItem>
                         </CommandGroup>
@@ -3254,6 +3355,7 @@ export default function NewBidPackagePage() {
                               <CommandItem
                                 key={`project-tax-city-${option.id}`}
                                 value={`${option.city} ${option.state}`}
+                                data-checked={draft.tax_city_number === option.id ? "true" : undefined}
                                 onSelect={() => selectProjectTaxCity(option.id)}
                               >
                                 {option.city} ({option.state})
@@ -3547,6 +3649,42 @@ export default function NewBidPackagePage() {
 
                 <div className="rounded-[28px] border-2 border-dashed border-slate-200 bg-slate-50/40 px-8 py-10">
                   <div className="flex flex-col items-center text-center">
+                    <div className="mx-auto mb-6 flex w-full max-w-[460px] flex-col text-left">
+                      <div className="mb-2 flex items-center gap-1 text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                        <span>File Section</span>
+                        <span className="text-red-500">*</span>
+                      </div>
+                      <Select value={selectedUploadSection} onValueChange={(value) => setSelectedUploadSection(value as FileSectionKey)}>
+                        <SelectTrigger
+                          size="field"
+                          className="h-10 w-full rounded-2xl border border-border bg-surface px-5 text-lg font-medium text-foreground shadow-soft-sm"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="w-[var(--radix-select-trigger-width)] rounded-2xl border border-border bg-surface p-1 shadow-soft-md">
+                          {FILE_UPLOAD_SECTION_OPTIONS.map((option) => (
+                            <SelectItem
+                              key={option.value}
+                              value={option.value}
+                              className="rounded-xl text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[state=checked]:bg-transparent data-[state=checked]:text-foreground data-[state=checked]:data-[highlighted]:bg-accent data-[state=checked]:data-[highlighted]:text-accent-foreground"
+                            >
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="mt-3 text-base text-muted-foreground">
+                        Files will be saved under{" "}
+                        <span className="font-mono text-[15px] text-slate-700">
+                          projects/{(draft.project_name || "project")
+                            .trim()
+                            .toLowerCase()
+                            .replace(/[^a-z0-9]+/g, "-")
+                            .replace(/^-+|-+$/g, "") || "project"}
+                          /{selectedUploadSection}/
+                        </span>
+                      </p>
+                    </div>
                     <span className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-50 text-blue-600">
                       <Upload className="h-4 w-4" strokeWidth={2.1} />
                     </span>
@@ -3622,15 +3760,15 @@ export default function NewBidPackagePage() {
                       <div className="mt-2 text-sm font-semibold text-muted-foreground">Total files</div>
                     </div>
                     <div className="rounded-xl border border-border bg-surface-muted/30 p-5">
-                      <div className="text-3xl font-extrabold text-foreground">{filesBySection.drawings.length}</div>
+                      <div className="text-3xl font-extrabold text-foreground">{filesBySection.plans.length}</div>
                       <div className="mt-2 text-sm font-semibold text-muted-foreground">Plans</div>
                     </div>
                     <div className="rounded-xl border border-border bg-surface-muted/30 p-5">
-                      <div className="text-3xl font-extrabold text-foreground">{filesBySection.specifications.length}</div>
+                      <div className="text-3xl font-extrabold text-foreground">{filesBySection.specs.length}</div>
                       <div className="mt-2 text-sm font-semibold text-muted-foreground">Specs</div>
                     </div>
                     <div className="rounded-xl border border-border bg-surface-muted/30 p-5">
-                      <div className="text-3xl font-extrabold text-foreground">0</div>
+                      <div className="text-3xl font-extrabold text-foreground">{filesBySection.addenda.length}</div>
                       <div className="mt-2 text-sm font-semibold text-muted-foreground">Addenda</div>
                     </div>
                   </div>
@@ -3705,71 +3843,153 @@ export default function NewBidPackagePage() {
                 </article>
               </section>
 
-              <FormCard
-                title="Project Files"
-                description="Review all uploaded files by section before moving to trade coverage."
-                icon={<FolderOpen className="size-5" strokeWidth={2.2} />}
-              >
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex flex-wrap gap-2">
-                    {(["documents", "drawings", "specifications"] as FileSectionKey[]).map((section) => (
+              <section className="bg-surface px-7 pt-5">
+                <div className="flex items-start gap-4 border-b border-border pb-5">
+                  <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-sky-600 ring-1 ring-sky-100">
+                    <FolderOpen className="size-5" strokeWidth={2.2} />
+                  </span>
+                  <div className="min-w-0">
+                    <h3 className="text-2xl font-extrabold tracking-tight text-foreground [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+                      Project Files
+                    </h3>
+                    <p className="mt-2 max-w-3xl text-base text-muted-foreground">
+                      Organize files into folders. Drag to reorder, tag for clarity, and rename anytime.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-[minmax(0,1.8fr)_140px_180px_160px_32px] gap-4 border-b border-border py-4 text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                  <div>Name</div>
+                  <div>Type</div>
+                  <div>Uploaded by</div>
+                  <div>Date</div>
+                  <div />
+                </div>
+
+                {([
+                  { key: "plans", label: "Plans", count: filesBySection.plans.length, files: filesBySection.plans, section: "plans" as const },
+                  { key: "specs", label: "Specs", count: filesBySection.specs.length, files: filesBySection.specs, section: "specs" as const },
+                  { key: "addenda", label: "Addenda", count: filesBySection.addenda.length, files: filesBySection.addenda, section: "addenda" as const },
+                  { key: "reports", label: "Reports", count: filesBySection.reports.length, files: filesBySection.reports, section: "reports" as const },
+                ] as const).map((group) => {
+                  const isExpanded = expandedFileGroups[group.key];
+
+                  return (
+                    <div key={group.key} className="border-b border-border">
                       <button
-                        key={section}
                         type="button"
-                        onClick={() => setActiveFileSection(section)}
-                        className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                          activeFileSection === section
-                            ? "bg-blue-50 text-blue-600 ring-1 ring-blue-100"
-                            : "border border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
-                        }`}
+                        onClick={() => {
+                          if (group.section) setActiveFileSection(group.section);
+                          setExpandedFileGroups((prev) => ({
+                            ...prev,
+                            [group.key]: !prev[group.key],
+                          }));
+                        }}
+                        className="flex w-full items-center gap-4 py-6 text-left"
                       >
-                        {FILE_SECTION_META[section].label}
+                        {isExpanded ? (
+                          <ChevronDown className="h-5 w-5 text-slate-500" />
+                        ) : (
+                          <ChevronRight className="h-5 w-5 text-slate-500" />
+                        )}
+                        <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-50 text-orange-500">
+                          <FolderOpen className="h-5 w-5" />
+                        </span>
+                        <span className="text-2xl font-bold text-foreground">{group.label}</span>
+                        <span className="inline-flex h-8 min-w-8 items-center justify-center rounded-full bg-surface-muted px-2 text-sm font-semibold text-muted-foreground">
+                          {group.count}
+                        </span>
                       </button>
-                    ))}
-                  </div>
-                  <div className="text-sm text-slate-500">
-                    Showing <span className="font-semibold text-slate-700">{FILE_SECTION_META[activeFileSection].label}</span>
-                  </div>
-                </div>
 
-                <div className="mt-6 overflow-hidden rounded-[20px] border border-slate-200">
-                  <div className="grid grid-cols-[minmax(0,1.4fr)_140px_220px] gap-4 border-b border-slate-200 bg-slate-50 px-5 py-3 text-[13px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-                    <div>File</div>
-                    <div>Size</div>
-                    <div>Uploaded</div>
-                  </div>
+                      {isExpanded && group.files.length ? (
+                        <ul className="space-y-2 pb-6">
+                          {group.files.map((file) => {
+                            const typeClasses =
+                              file.section === "plans"
+                                ? "border-blue-200 bg-blue-50 text-blue-600"
+                                : file.section === "specs"
+                                  ? "border-violet-200 bg-violet-50 text-violet-600"
+                                  : file.section === "addenda"
+                                    ? "border-orange-200 bg-orange-50 text-orange-500"
+                                    : "border-slate-200 bg-slate-50 text-slate-500";
 
-                  {filesInActiveSection.length ? (
-                    <ul className="divide-y divide-slate-200 bg-white">
-                      {filesInActiveSection.map((file) => (
-                        <li key={file.id} className="grid grid-cols-[minmax(0,1.4fr)_140px_220px] gap-4 px-5 py-4">
-                          <div className="min-w-0">
-                            <a
-                              href={file.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="truncate text-[15px] font-semibold text-slate-900 hover:text-blue-700 hover:underline"
-                            >
-                              {file.name}
-                            </a>
-                            <div className="mt-1 text-sm text-slate-500">
-                              {FILE_SECTION_META[file.section].label}
-                            </div>
-                          </div>
-                          <div className="text-sm font-medium text-slate-600">{formatFileSize(file.size)}</div>
-                          <div className="text-sm text-slate-500">
-                            {new Date(file.uploadedAt).toLocaleString()}
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <div className="bg-white px-5 py-8 text-sm text-slate-500">
-                      {FILE_SECTION_META[activeFileSection].emptyLabel}
+                            return (
+                              <li
+                                key={file.id}
+                                className="grid grid-cols-[minmax(0,1.8fr)_140px_180px_160px_32px] items-center gap-4 rounded-2xl px-4 py-4 transition-colors hover:bg-surface-muted/60"
+                              >
+                                <div className="flex min-w-0 items-center gap-4">
+                                  <span
+                                    className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl ${
+                                      file.name.toLowerCase().endsWith(".dwg") || file.name.toLowerCase().endsWith(".dxf")
+                                        ? "bg-blue-50 text-blue-500"
+                                        : file.name.toLowerCase().endsWith(".doc") || file.name.toLowerCase().endsWith(".docx")
+                                          ? "bg-sky-50 text-sky-500"
+                                          : "bg-rose-50 text-red-500"
+                                    }`}
+                                  >
+                                    {file.name.toLowerCase().endsWith(".dwg") || file.name.toLowerCase().endsWith(".dxf") ? (
+                                      <FileCode2 className="h-7 w-7" />
+                                    ) : (
+                                      <FileText className="h-7 w-7" />
+                                    )}
+                                  </span>
+                                  <div className="min-w-0">
+                                    <a
+                                      href={file.url}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="block truncate text-xl font-bold text-foreground hover:text-blue-700 hover:underline"
+                                    >
+                                      {file.name}
+                                    </a>
+                                    <div className="mt-1 text-sm text-muted-foreground">
+                                      {formatFileSize(file.size)} <span className="px-1 text-slate-300">•</span>{" "}
+                                    {file.section === "addenda" ? "Add. 1" : "v1"}
+                                    </div>
+                                  </div>
+                                </div>
+                                <div>
+                                  <span
+                                    className={`inline-flex items-center gap-2 rounded-full border px-4 py-1.5 text-sm font-semibold ${typeClasses}`}
+                                  >
+                                    <Tag className="h-4 w-4" />
+                                    {FILE_SECTION_META[file.section].badgeLabel}
+                                  </span>
+                                </div>
+                                <div className="text-lg text-muted-foreground">{primaryBiddingContactDisplay || "Project Manager"}</div>
+                                <div className="text-lg text-muted-foreground">
+                                  {new Date(file.uploadedAt).toLocaleDateString(undefined, {
+                                    month: "short",
+                                    day: "numeric",
+                                    year: "numeric",
+                                  })}
+                                </div>
+                                <div className="flex justify-center text-muted-foreground hover:text-foreground">
+                                  <MoreHorizontal className="h-5 w-5" />
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      ) : null}
                     </div>
-                  )}
+                  );
+                })}
+
+                <div className="flex items-center justify-between border-b border-border py-7">
+                  <div className="text-base text-muted-foreground">
+                    {uploadedFiles.length} file{uploadedFiles.length === 1 ? "" : "s"} across 4 folders
+                  </div>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-3 text-[15px] font-semibold text-blue-600 hover:text-blue-700"
+                  >
+                    <FolderPlus className="h-5 w-5" />
+                    New folder
+                  </button>
                 </div>
-              </FormCard>
+              </section>
             </div>
 
             {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
@@ -4183,13 +4403,13 @@ export default function NewBidPackagePage() {
                   <div className="text-sm font-semibold text-slate-700">Included Attachments</div>
                   <div className="mt-3 grid gap-2 sm:grid-cols-3">
                     <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                      Drawings: <span className="font-semibold">{includedAttachments.drawings || "None"}</span>
+                      Plans: <span className="font-semibold">{includedAttachments.plans || "None"}</span>
                     </div>
                     <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                      Specs: <span className="font-semibold">{includedAttachments.specifications || "None"}</span>
+                      Specs: <span className="font-semibold">{includedAttachments.specs || "None"}</span>
                     </div>
                     <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                      Documents: <span className="font-semibold">{includedAttachments.documents || "None"}</span>
+                      Addenda: <span className="font-semibold">{includedAttachments.addenda || "None"}</span>
                     </div>
                   </div>
                 </article>

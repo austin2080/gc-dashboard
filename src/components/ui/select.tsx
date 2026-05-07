@@ -121,7 +121,7 @@ function SelectItem({
       data-slot="select-item"
       data-indicator-position={indicatorPosition}
       className={cn(
-        "relative flex h-11 w-full cursor-pointer items-center gap-1.5 rounded-lg px-4 py-2 text-sm leading-[28px] font-medium text-foreground outline-hidden select-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[state=checked]:bg-accent data-[state=checked]:text-accent-foreground data-[indicator-position=left]:pl-10 data-[indicator-position=left]:pr-4 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:h-4 [&_svg]:w-4 [&_svg]:shrink-0 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+        "relative flex h-11 w-full cursor-pointer items-center gap-1.5 rounded-lg px-4 py-2 text-sm leading-[28px] font-medium text-foreground outline-hidden select-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[state=checked]:bg-transparent data-[state=checked]:text-foreground data-[state=checked]:data-[highlighted]:bg-accent data-[state=checked]:data-[highlighted]:text-accent-foreground data-[indicator-position=left]:pl-10 data-[indicator-position=left]:pr-4 data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:h-4 [&_svg]:w-4 [&_svg]:shrink-0 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
         className
       )}
       {...props}

@@ -155,13 +155,15 @@ function CommandItem({
     <CommandPrimitive.Item
       data-slot="command-item"
       className={cn(
-        "group/command-item relative flex h-11 cursor-pointer items-center gap-2 rounded-xl px-4 py-2 text-sm leading-[28px] font-medium text-foreground outline-hidden select-none hover:bg-accent hover:text-accent-foreground in-data-[slot=dialog-content]:rounded-xl! data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-selected:bg-accent data-selected:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:h-4 [&_svg]:w-4 [&_svg]:shrink-0 hover:*:[svg]:text-accent-foreground data-selected:*:[svg]:text-accent-foreground",
+        "group/command-item relative flex h-11 cursor-pointer items-center gap-2 rounded-xl px-4 py-2 pl-10 text-sm leading-[28px] font-medium text-foreground outline-hidden select-none hover:bg-accent hover:text-accent-foreground in-data-[slot=dialog-content]:rounded-xl! data-[checked=true]:bg-transparent data-[checked=true]:text-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 data-selected:bg-accent data-selected:text-accent-foreground data-[checked=true]:data-selected:bg-accent data-[checked=true]:data-selected:text-accent-foreground [&_svg]:pointer-events-none [&_svg]:h-4 [&_svg]:w-4 [&_svg]:shrink-0 hover:*:[svg]:text-accent-foreground data-selected:*:[svg]:text-accent-foreground",
         className
       )}
       {...props}
     >
+      <span className="pointer-events-none absolute left-4 flex h-4 w-4 items-center justify-center">
+        <CheckIcon className="opacity-0 group-has-data-[slot=command-shortcut]/command-item:hidden group-data-[selected=true]/command-item:opacity-0 group-data-[checked=true]/command-item:opacity-100" />
+      </span>
       {children}
-      <CheckIcon className="ml-auto opacity-0 group-has-data-[slot=command-shortcut]/command-item:hidden group-data-[checked=true]/command-item:opacity-100" />
     </CommandPrimitive.Item>
   )
 }
