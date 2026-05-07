@@ -4514,29 +4514,29 @@ export default function NewBidPackagePage() {
 
                   <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
                     <div className="rounded-xl border border-border bg-surface-muted/30 p-5">
-                      <div className="text-3xl font-extrabold text-foreground">{uploadedFiles.length}</div>
+                      <div className="text-2xl font-extrabold text-foreground">{uploadedFiles.length}</div>
                       <div className="mt-2 text-sm font-semibold text-muted-foreground">Total Files</div>
                     </div>
                     <div className="rounded-xl border border-border bg-surface-muted/30 p-5">
-                      <div className="text-3xl font-extrabold text-foreground">{filesBySection.plans.length}</div>
+                      <div className="text-2xl font-extrabold text-foreground">{filesBySection.plans.length}</div>
                       <div className="mt-2 text-sm font-semibold text-muted-foreground">Plans</div>
                     </div>
                     <div className="rounded-xl border border-border bg-surface-muted/30 p-5">
-                      <div className="text-3xl font-extrabold text-foreground">{filesBySection.specs.length}</div>
+                      <div className="text-2xl font-extrabold text-foreground">{filesBySection.specs.length}</div>
                       <div className="mt-2 text-sm font-semibold text-muted-foreground">Specs</div>
                     </div>
                     <div className="rounded-xl border border-border bg-surface-muted/30 p-5">
-                      <div className="text-3xl font-extrabold text-foreground">{filesBySection.addenda.length}</div>
+                      <div className="text-2xl font-extrabold text-foreground">{filesBySection.addenda.length}</div>
                       <div className="mt-2 text-sm font-semibold text-muted-foreground">Addenda</div>
                     </div>
                     <div className="rounded-xl border border-border bg-surface-muted/30 p-5">
-                      <div className="text-3xl font-extrabold text-foreground">
+                      <div className="text-2xl font-extrabold text-foreground">
                         {uploadedFiles.filter((file) => file.section === "scope_sheets").length}
                       </div>
                       <div className="mt-2 text-sm font-semibold text-muted-foreground">Scope Sheets</div>
                     </div>
                     <div className="rounded-xl border border-border bg-surface-muted/30 p-5">
-                      <div className="text-3xl font-extrabold text-foreground">{formatFileSize(totalUploadedBytes)}</div>
+                      <div className="text-2xl font-extrabold text-foreground">{formatFileSize(totalUploadedBytes)}</div>
                       <div className="mt-2 text-sm font-semibold text-muted-foreground">Total Size</div>
                     </div>
                   </div>
