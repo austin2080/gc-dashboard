@@ -149,6 +149,7 @@ type BidPackageDraft = {
 };
 
 type FileSectionKey = "plans" | "specs" | "addenda" | "reports" | "scope_sheets" | "other";
+type DocumentSetId = "version_1" | `addendum_${number}`;
 
 type UploadedBidFile = {
   id: string;
@@ -156,7 +157,14 @@ type UploadedBidFile = {
   size: number;
   uploadedAt: string;
   section: FileSectionKey;
+  documentSetId: DocumentSetId;
   url: string;
+};
+
+type RenameFileDialogState = {
+  fileId: string;
+  originalName: string;
+  draftName: string;
 };
 
 const FILE_SECTION_META: Record<
@@ -243,6 +251,8 @@ const FILE_FOLDER_OPTIONS = [
   label: string;
 }>;
 
+const DEFAULT_DOCUMENT_SET_ID: DocumentSetId = "version_1";
+
 function normalizeFileSectionKey(value: unknown): FileSectionKey {
   if (value === "drawings") return "plans";
   if (value === "specifications") return "specs";
@@ -260,9 +270,41 @@ function normalizeFileSectionKey(value: unknown): FileSectionKey {
   return "other";
 }
 
+function normalizeDocumentSetId(value: unknown): DocumentSetId {
+  if (value === DEFAULT_DOCUMENT_SET_ID) return DEFAULT_DOCUMENT_SET_ID;
+  if (typeof value === "string" && /^addendum_\d+$/.test(value)) {
+    return value as DocumentSetId;
+  }
+  return DEFAULT_DOCUMENT_SET_ID;
+}
+
+function mergeDocumentSetIds(
+  documentSetIds: readonly DocumentSetId[] | null | undefined,
+  files: readonly UploadedBidFile[] = []
+): DocumentSetId[] {
+  const next: DocumentSetId[] = [DEFAULT_DOCUMENT_SET_ID];
+  const seen = new Set<DocumentSetId>(next);
+
+  for (const value of documentSetIds ?? []) {
+    const normalized = normalizeDocumentSetId(value);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    next.push(normalized);
+  }
+
+  for (const file of files) {
+    const normalized = normalizeDocumentSetId(file.documentSetId);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    next.push(normalized);
+  }
+
+  return next;
+}
+
 function normalizeUploadedBidFile(value: unknown): UploadedBidFile | null {
   if (!value || typeof value !== "object") return null;
-  const row = value as Partial<UploadedBidFile> & { section?: unknown };
+  const row = value as Partial<UploadedBidFile> & { section?: unknown; documentSetId?: unknown; document_set_id?: unknown };
   if (
     typeof row.id !== "string" ||
     typeof row.name !== "string" ||
@@ -278,6 +320,7 @@ function normalizeUploadedBidFile(value: unknown): UploadedBidFile | null {
     size: row.size,
     uploadedAt: row.uploadedAt,
     section: normalizeFileSectionKey(row.section),
+    documentSetId: normalizeDocumentSetId(row.documentSetId ?? row.document_set_id),
     url: row.url,
   };
 }
@@ -352,6 +395,7 @@ type BidPackageAutosavePayload = {
   selectedTrades: SelectedTrade[];
   assignedSubsByTradeId: Record<string, AssignedSub[]>;
   inviteQueryByTradeId: Record<string, string>;
+  documentSetIds: DocumentSetId[];
   uploadedFiles: UploadedBidFile[];
 };
 
@@ -364,6 +408,7 @@ const INVITATION_EMAIL_DRAFT_STORAGE_KEY = "bidding-all-new-invitation-email-dra
 const BID_PACKAGE_AUTOSAVE_STORAGE_KEY = "bidding-all-new-package-autosave-v1";
 const BID_PROJECT_GENERAL_INFO_STORAGE_KEY = "bidding-project-general-info-v1";
 const BID_PACKAGE_FILES_STORAGE_KEY = "bidding-package-files-v1";
+const BID_PACKAGE_DOCUMENT_SETS_STORAGE_KEY = "bidding-package-document-sets-v1";
 const TOKEN_LIST = [
   "{project_name}",
   "{bid_package_name}",
@@ -1022,6 +1067,32 @@ function writeBidPackageFiles(projectId: string, files: UploadedBidFile[]) {
   localStorage.setItem(BID_PACKAGE_FILES_STORAGE_KEY, JSON.stringify(current));
 }
 
+function readBidPackageDocumentSetsMap(): Record<string, DocumentSetId[]> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(BID_PACKAGE_DOCUMENT_SETS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return {};
+    const next: Record<string, DocumentSetId[]> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      next[key] = mergeDocumentSetIds(
+        Array.isArray(value) ? value.map((item) => normalizeDocumentSetId(item)) : undefined
+      );
+    }
+    return next;
+  } catch {
+    return {};
+  }
+}
+
+function writeBidPackageDocumentSets(projectId: string, documentSetIds: DocumentSetId[]) {
+  if (typeof window === "undefined") return;
+  const current = readBidPackageDocumentSetsMap();
+  current[projectId] = mergeDocumentSetIds(documentSetIds);
+  localStorage.setItem(BID_PACKAGE_DOCUMENT_SETS_STORAGE_KEY, JSON.stringify(current));
+}
+
 type BidProjectGeneralInfoCacheRow = {
   projectName: string;
   projectNumber: string;
@@ -1226,10 +1297,13 @@ export default function NewBidPackagePage() {
   const [testDialogOpen, setTestDialogOpen] = useState(false);
   const [testSendEmail, setTestSendEmail] = useState("");
   const [testSendLoading, setTestSendLoading] = useState(false);
+  const [renameFileDialog, setRenameFileDialog] = useState<RenameFileDialogState | null>(null);
+  const [renameFileSaving, setRenameFileSaving] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [mailboxConnection, setMailboxConnection] = useState<MailboxConnectionSummary | null>(null);
   const [loadingMailboxConnection, setLoadingMailboxConnection] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [documentSetIds, setDocumentSetIds] = useState<DocumentSetId[]>([DEFAULT_DOCUMENT_SET_ID]);
   const [uploadedFiles, setUploadedFiles] = useState<UploadedBidFile[]>([]);
   const [draft, setDraft] = useState<BidPackageDraft>(createDefaultDraft());
   const [prebidTimezone, setPrebidTimezone] = useState<(typeof PREBID_TIMEZONE_OPTIONS)[number]>("MST");
@@ -1356,6 +1430,7 @@ export default function NewBidPackagePage() {
                 size: file.size,
                 uploadedAt: now,
                 section: selectedUploadSection,
+                documentSetId: DEFAULT_DOCUMENT_SET_ID,
                 url: reader.result,
               });
             };
@@ -1564,6 +1639,7 @@ export default function NewBidPackagePage() {
         | null = null;
       let autosaveActiveFileSection: FileSectionKey | null = null;
       let autosaveCostCodeQuery: string | null = null;
+      let autosaveDocumentSetIds: DocumentSetId[] | null = null;
       try {
         const raw = localStorage.getItem(getBidPackageAutosaveStorageKey(projectId));
         if (raw) {
@@ -1584,6 +1660,9 @@ export default function NewBidPackagePage() {
             : null;
           autosaveCostCodeQuery =
             typeof parsed.costCodeQuery === "string" ? parsed.costCodeQuery : null;
+          autosaveDocumentSetIds = Array.isArray(parsed.documentSetIds)
+            ? parsed.documentSetIds.map((item) => normalizeDocumentSetId(item))
+            : null;
         }
       } catch {
         // Ignore malformed autosave payloads.
@@ -1663,7 +1742,14 @@ export default function NewBidPackagePage() {
           requireAcknowledgement: prev.requireAcknowledgement,
         }));
       }
-      setUploadedFiles(readBidPackageFilesMap()[projectId] ?? []);
+      const storedFiles = readBidPackageFilesMap()[projectId] ?? [];
+      setUploadedFiles(storedFiles);
+      setDocumentSetIds(
+        mergeDocumentSetIds(
+          autosaveDocumentSetIds ?? readBidPackageDocumentSetsMap()[projectId],
+          storedFiles
+        )
+      );
       if (autosaveInviteQueryByTradeId) {
         setInviteQueryByTradeId(autosaveInviteQueryByTradeId);
       }
@@ -1905,13 +1991,19 @@ export default function NewBidPackagePage() {
         if (parsed.inviteQueryByTradeId && typeof parsed.inviteQueryByTradeId === "object") {
           setInviteQueryByTradeId(parsed.inviteQueryByTradeId);
         }
-        if (Array.isArray(parsed.uploadedFiles)) {
-          setUploadedFiles(
-            parsed.uploadedFiles.flatMap((item) => {
+        const autosavedFiles = Array.isArray(parsed.uploadedFiles)
+          ? parsed.uploadedFiles.flatMap((item) => {
               const normalized = normalizeUploadedBidFile(item);
               return normalized ? [normalized] : [];
             })
-          );
+          : [];
+        if (Array.isArray(parsed.documentSetIds)) {
+          setDocumentSetIds(mergeDocumentSetIds(parsed.documentSetIds, autosavedFiles));
+        } else {
+          setDocumentSetIds(mergeDocumentSetIds(undefined, autosavedFiles));
+        }
+        if (Array.isArray(parsed.uploadedFiles)) {
+          setUploadedFiles(autosavedFiles);
         }
       }
     } catch {
@@ -1951,6 +2043,7 @@ export default function NewBidPackagePage() {
         selectedTrades,
         assignedSubsByTradeId,
         inviteQueryByTradeId,
+        documentSetIds,
         uploadedFiles,
       };
       try {
@@ -1967,6 +2060,7 @@ export default function NewBidPackagePage() {
     autosaveStorageKey,
     bidPackageAutosaveHydrated,
     costCodeQuery,
+    documentSetIds,
     draft,
     inviteQueryByTradeId,
     selectedTrades,
@@ -2148,6 +2242,20 @@ export default function NewBidPackagePage() {
     return () => window.clearTimeout(timer);
   }, [toast]);
 
+  useEffect(() => {
+    if (!renameFileDialog) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setRenameFileDialog(null);
+        setRenameFileSaving(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [renameFileDialog]);
+
   const updateUploadedFile = (
     fileId: string,
     updater: (current: UploadedBidFile) => UploadedBidFile
@@ -2166,14 +2274,35 @@ export default function NewBidPackagePage() {
   };
 
   const handleRenameUploadedFile = (file: UploadedBidFile) => {
-    const nextName = window.prompt("Rename file", file.name)?.trim();
-    if (!nextName || nextName === file.name) return;
+    setRenameFileDialog({
+      fileId: file.id,
+      originalName: file.name,
+      draftName: file.name,
+    });
+  };
 
-    updateUploadedFile(file.id, (current) => ({
-      ...current,
-      name: nextName,
-    }));
-    setToast({ type: "success", message: `${file.name} was renamed.` });
+  const closeRenameFileDialog = () => {
+    if (renameFileSaving) return;
+    setRenameFileDialog(null);
+  };
+
+  const submitRenameFileDialog = async () => {
+    if (!renameFileDialog) return;
+
+    const nextName = renameFileDialog.draftName.trim();
+    if (!nextName || nextName === renameFileDialog.originalName) return;
+
+    setRenameFileSaving(true);
+    try {
+      updateUploadedFile(renameFileDialog.fileId, (current) => ({
+        ...current,
+        name: nextName,
+      }));
+      setRenameFileDialog(null);
+      setToast({ type: "success", message: `${renameFileDialog.originalName} was renamed.` });
+    } finally {
+      setRenameFileSaving(false);
+    }
   };
 
   const handleChangeUploadedFileTag = (file: UploadedBidFile, nextSection: FileSectionKey) => {
@@ -2920,6 +3049,7 @@ export default function NewBidPackagePage() {
               });
             }
             writeBidProjectGeneralInfo(editingProjectId, draft);
+            writeBidPackageDocumentSets(editingProjectId, documentSetIds);
             writeBidPackageFiles(editingProjectId, uploadedFiles);
             localStorage.removeItem(getBidPackageAutosaveStorageKey(editingProjectId));
 
@@ -3024,6 +3154,7 @@ export default function NewBidPackagePage() {
             });
           }
           writeBidProjectGeneralInfo(created.id, { ...draft, package_number: packageNumberForSubmit });
+          writeBidPackageDocumentSets(created.id, documentSetIds);
           writeBidPackageFiles(created.id, uploadedFiles);
 
           setDraft(createDefaultDraft());
@@ -3720,7 +3851,7 @@ export default function NewBidPackagePage() {
           <>
             <div className="space-y-6">
               <section>
-                <h3 className="text-[36px] font-semibold leading-none text-slate-950 [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+                <h3 className="text-2xl font-semibold leading-none text-slate-950 [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
                   Files
                 </h3>
                 <p className="mt-3 max-w-3xl text-[17px] leading-7 text-slate-500">
@@ -3830,116 +3961,6 @@ export default function NewBidPackagePage() {
                   </p>
                 ) : null}
               </FormCard>
-
-              <section className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
-                <article className="rounded-2xl border border-border bg-surface p-5 shadow-soft-sm">
-                  <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                        Bid Package Preview
-                      </div>
-                      <h4 className={`mt-2 ${filesSectionHeadingClass}`}>
-                        What subs will receive
-                      </h4>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setPreviewModalOpen(true)}
-                      className="inline-flex h-11 items-center gap-2 rounded-xl border border-border bg-surface px-5 text-sm font-semibold text-foreground shadow-soft-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
-                    >
-                      <Eye className="h-4 w-4" />
-                      Preview package
-                    </button>
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-4">
-                    <div className="rounded-xl border border-border bg-surface-muted/30 p-5">
-                      <div className="text-3xl font-extrabold text-foreground">{uploadedFiles.length}</div>
-                      <div className="mt-2 text-sm font-semibold text-muted-foreground">Total files</div>
-                    </div>
-                    <div className="rounded-xl border border-border bg-surface-muted/30 p-5">
-                      <div className="text-3xl font-extrabold text-foreground">{filesBySection.plans.length}</div>
-                      <div className="mt-2 text-sm font-semibold text-muted-foreground">Plans</div>
-                    </div>
-                    <div className="rounded-xl border border-border bg-surface-muted/30 p-5">
-                      <div className="text-3xl font-extrabold text-foreground">{filesBySection.specs.length}</div>
-                      <div className="mt-2 text-sm font-semibold text-muted-foreground">Specs</div>
-                    </div>
-                    <div className="rounded-xl border border-border bg-surface-muted/30 p-5">
-                      <div className="text-3xl font-extrabold text-foreground">{filesBySection.addenda.length}</div>
-                      <div className="mt-2 text-sm font-semibold text-muted-foreground">Addenda</div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 text-sm text-muted-foreground">
-                    Latest upload{" "}
-                    <span className="px-1">·</span>
-                    <span className="font-semibold text-foreground">
-                      {latestUploadedFile
-                        ? new Date(latestUploadedFile.uploadedAt).toLocaleDateString(undefined, {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })
-                        : "No uploads yet"}
-                    </span>
-                  </div>
-                </article>
-
-                <article className="rounded-2xl border border-border bg-surface p-5 shadow-soft-sm">
-                  <div className="mb-5">
-                    <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">
-                      Version Control
-                    </div>
-                    <h4 className={`mt-2 ${filesSectionHeadingClass}`}>
-                      Document set
-                    </h4>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-3">
-                      <div className="flex items-center justify-between gap-4">
-                        <div>
-                          <div className="text-base font-bold text-blue-600">Version 1</div>
-                          <div className="mt-1 text-sm text-muted-foreground">
-                            Initial upload{" "}
-                            <span className="px-1">·</span>
-                            {earliestUploadedFile
-                              ? new Date(earliestUploadedFile.uploadedAt).toLocaleDateString(undefined, {
-                                  month: "short",
-                                  day: "numeric",
-                                })
-                              : "No files yet"}
-                          </div>
-                        </div>
-                        <span className="rounded-full bg-blue-600 px-4 py-1.5 text-xs font-semibold text-white">
-                          Current
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border border-border bg-surface-muted/30 p-3">
-                      <div className="text-base font-bold text-foreground">Addendum 1</div>
-                      <div className="mt-1 text-sm text-muted-foreground">
-                        {latestUploadedFile
-                          ? `${new Date(latestUploadedFile.uploadedAt).toLocaleDateString(undefined, {
-                              month: "short",
-                              day: "numeric",
-                            })} · 1 file`
-                          : "No files yet · 0 files"}
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-surface text-sm font-semibold text-muted-foreground hover:border-accent hover:bg-accent hover:text-accent-foreground"
-                    >
-                      <Plus className="size-4" />
-                      Add Addendum
-                    </button>
-                  </div>
-                </article>
-              </section>
 
               <section className="bg-surface px-7 pt-5">
                 <div className="flex items-start gap-4 border-b border-border pb-5">
@@ -4181,6 +4202,95 @@ export default function NewBidPackagePage() {
                     New folder
                   </button>
                 </div>
+              </section>
+
+              <section>
+                <article className="rounded-2xl border border-border bg-surface p-5 shadow-soft-sm">
+                  <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                    <div>
+                      <div className="text-xs font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                        SUBCONTRACTOR PACKAGE PREVIEW
+                      </div>
+                      <h4 className={`mt-2 ${filesSectionHeadingClass}`}>
+                        What subs will receive
+                      </h4>
+                      <p className="mt-2 max-w-3xl text-base text-muted-foreground">
+                        Review the files and sections subcontractors will see before you send bid invites.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewModalOpen(true)}
+                      className="inline-flex h-11 items-center gap-2 rounded-xl border border-border bg-surface px-5 text-sm font-semibold text-foreground shadow-soft-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                    >
+                      <Eye className="h-4 w-4" />
+                      Preview Package
+                    </button>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
+                    <div className="rounded-xl border border-border bg-surface-muted/30 p-5">
+                      <div className="text-3xl font-extrabold text-foreground">{uploadedFiles.length}</div>
+                      <div className="mt-2 text-sm font-semibold text-muted-foreground">Total Files</div>
+                    </div>
+                    <div className="rounded-xl border border-border bg-surface-muted/30 p-5">
+                      <div className="text-3xl font-extrabold text-foreground">{filesBySection.plans.length}</div>
+                      <div className="mt-2 text-sm font-semibold text-muted-foreground">Plans</div>
+                    </div>
+                    <div className="rounded-xl border border-border bg-surface-muted/30 p-5">
+                      <div className="text-3xl font-extrabold text-foreground">{filesBySection.specs.length}</div>
+                      <div className="mt-2 text-sm font-semibold text-muted-foreground">Specs</div>
+                    </div>
+                    <div className="rounded-xl border border-border bg-surface-muted/30 p-5">
+                      <div className="text-3xl font-extrabold text-foreground">{filesBySection.addenda.length}</div>
+                      <div className="mt-2 text-sm font-semibold text-muted-foreground">Addenda</div>
+                    </div>
+                    <div className="rounded-xl border border-border bg-surface-muted/30 p-5">
+                      <div className="text-3xl font-extrabold text-foreground">
+                        {uploadedFiles.filter((file) => file.section === "scope_sheets").length}
+                      </div>
+                      <div className="mt-2 text-sm font-semibold text-muted-foreground">Scope Sheets</div>
+                    </div>
+                    <div className="rounded-xl border border-border bg-surface-muted/30 p-5">
+                      <div className="text-3xl font-extrabold text-foreground">{formatFileSize(totalUploadedBytes)}</div>
+                      <div className="mt-2 text-sm font-semibold text-muted-foreground">Total Size</div>
+                    </div>
+                  </div>
+
+                  <div className="mt-5">
+                    <div className="text-sm font-semibold text-foreground">Included sections</div>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {[
+                        { label: "Plans", count: filesBySection.plans.length },
+                        { label: "Specs", count: filesBySection.specs.length },
+                        { label: "Addenda", count: filesBySection.addenda.length },
+                        { label: "Scope Sheets", count: uploadedFiles.filter((file) => file.section === "scope_sheets").length },
+                      ].map((item) => (
+                        <span
+                          key={item.label}
+                          className="inline-flex items-center gap-2 rounded-full border border-border bg-surface-muted/30 px-3 py-1.5 text-sm font-semibold text-muted-foreground"
+                        >
+                          <span className="text-foreground">{item.label}</span>
+                          <span>{item.count}</span>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 text-sm text-muted-foreground">
+                    Latest upload{" "}
+                    <span className="px-1">·</span>
+                    <span className="font-semibold text-foreground">
+                      {latestUploadedFile
+                        ? new Date(latestUploadedFile.uploadedAt).toLocaleDateString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })
+                        : "No uploads yet"}
+                    </span>
+                  </div>
+                </article>
               </section>
             </div>
 
@@ -5034,12 +5144,6 @@ export default function NewBidPackagePage() {
                   </ol>
                 </div>
 
-                <div className="mt-4 rounded-[24px] border border-orange-200 bg-orange-50/40 p-6">
-                  <p className="text-[15px] font-semibold text-slate-900">Tip</p>
-                  <p className="mt-3 text-[15px] leading-[1.55] text-slate-500">
-                    Step 1 creates your project. Steps 2-5 prepare your first bid package - nothing is sent until you finish step 5.
-                  </p>
-                </div>
             </div>
           </aside>
         </div>
@@ -5136,6 +5240,76 @@ export default function NewBidPackagePage() {
                   className="rounded-md bg-accent px-7 py-2 text-base font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {testSendLoading ? "Sending..." : "Send Test"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+      {renameFileDialog ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
+          <button
+            type="button"
+            className="absolute inset-0"
+            aria-label="Close rename file dialog"
+            onClick={closeRenameFileDialog}
+          />
+          <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-border bg-surface shadow-soft-lg">
+            <div className="px-6 pt-6 pb-4">
+              <h2 className="text-xl font-bold text-foreground">Rename file</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Update the file name shown in this bid package.
+              </p>
+            </div>
+            <form
+              onSubmit={async (event) => {
+                event.preventDefault();
+                await submitRenameFileDialog();
+              }}
+            >
+              <div className="px-6 pb-5">
+                <label className="block">
+                  <span className="text-sm font-semibold text-foreground">File name</span>
+                  <input
+                    autoFocus
+                    type="text"
+                    value={renameFileDialog.draftName}
+                    onChange={(event) =>
+                      setRenameFileDialog((current) =>
+                        current
+                          ? {
+                              ...current,
+                              draftName: event.target.value,
+                            }
+                          : current
+                      )
+                    }
+                    className="mt-2 h-11 w-full rounded-xl border border-border bg-surface px-4 text-sm text-foreground shadow-soft-sm focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  />
+                </label>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Keep the file extension if you still want it displayed.
+                </p>
+              </div>
+              <div className="flex justify-end gap-3 border-t border-border bg-surface-muted/40 px-6 py-4">
+                <button
+                  type="button"
+                  onClick={closeRenameFileDialog}
+                  disabled={renameFileSaving}
+                  className="h-10 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-foreground hover:bg-surface-muted disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    renameFileSaving ||
+                    !renameFileDialog.draftName.trim() ||
+                    renameFileDialog.draftName.trim() === renameFileDialog.originalName
+                  }
+                  className="h-10 rounded-xl bg-accent px-4 text-sm font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {renameFileSaving ? "Saving..." : "Save Changes"}
                 </button>
               </div>
             </form>
