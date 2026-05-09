@@ -81,12 +81,14 @@ import {
   FileCode2,
   FileText,
   FileStack,
+  Filter,
   FolderPlus,
   FolderOpen,
   Info,
   MoreHorizontal,
   Pencil,
   Plus,
+  Search,
   Tag,
   Trash2Icon,
   Upload,
@@ -389,6 +391,13 @@ type CostCodeOption = {
   id: string;
   code: string;
   description: string | null;
+  divisionCode: string;
+  divisionLabel: string;
+};
+
+type DivisionFilterOption = {
+  value: string;
+  label: string;
 };
 
 type SelectedTrade = {
@@ -962,7 +971,48 @@ function buildTradeLabel(trade: { code: string; description: string | null }): s
   return `${trade.code}${trade.description ? ` ${trade.description}` : ""}`.trim();
 }
 
+function normalizeCostCodeKey(code: string) {
+  return code.replace(/[^0-9A-Za-z]/g, "");
+}
+
+function isStandardDivisionNumber(normalizedCode: string) {
+  if (!/^\d{2}$/.test(normalizedCode)) return false;
+  const divisionNumber = Number.parseInt(normalizedCode, 10);
+  return divisionNumber >= 0 && divisionNumber <= 49;
+}
+
+function isDivisionTitleCostCode(code: string) {
+  const normalized = normalizeCostCodeKey(code);
+  if (isStandardDivisionNumber(normalized)) return true;
+  return (
+    /^\d{8}$/.test(normalized) &&
+    isStandardDivisionNumber(normalized.slice(0, 2)) &&
+    normalized.slice(2, 4) === normalized.slice(0, 2) &&
+    normalized.slice(4) === "0000"
+  );
+}
+
+function getDivisionCodeFromCostCode(code: string) {
+  return normalizeCostCodeKey(code).slice(0, 2);
+}
+
+function buildDivisionLabel(divisionCode: string, title: string) {
+  const trimmedTitle = title.trim();
+  if (!divisionCode) return trimmedTitle || "Other";
+  if (!trimmedTitle) return divisionCode;
+  return `${divisionCode} ${trimmedTitle}`.trim();
+}
+
 function mapSettingsCostCodeOptions(settingsRows: ReturnType<typeof getWorkspaceCostCodes>) {
+  const divisionTitleByCode = new Map<string, string>();
+
+  for (const row of settingsRows) {
+    if (!row.usedIn.divisionTitle && !isDivisionTitleCostCode(row.code)) continue;
+    const divisionCode = getDivisionCodeFromCostCode(row.code);
+    if (!divisionCode || divisionTitleByCode.has(divisionCode)) continue;
+    divisionTitleByCode.set(divisionCode, row.description.trim());
+  }
+
   const merged: CostCodeOption[] = [];
   const seenCodes = new Set<string>();
 
@@ -971,10 +1021,17 @@ function mapSettingsCostCodeOptions(settingsRows: ReturnType<typeof getWorkspace
     const normalizedCode = row.code.trim().toLowerCase();
     if (!normalizedCode || seenCodes.has(normalizedCode)) continue;
     seenCodes.add(normalizedCode);
+    const divisionCode = getDivisionCodeFromCostCode(row.code);
+    const divisionTitle =
+      row.usedIn.divisionTitle || isDivisionTitleCostCode(row.code)
+        ? row.description.trim()
+        : divisionTitleByCode.get(divisionCode) ?? "";
     merged.push({
       id: `settings-cost-code-${row.id}`,
       code: row.code.trim(),
       description: row.description.trim() || null,
+      divisionCode,
+      divisionLabel: buildDivisionLabel(divisionCode, divisionTitle),
     });
   }
 
@@ -1356,6 +1413,7 @@ export default function NewBidPackagePage() {
   const [loadingCostCodes, setLoadingCostCodes] = useState(false);
   const [costCodeLoadError, setCostCodeLoadError] = useState<string | null>(null);
   const [costCodeQuery, setCostCodeQuery] = useState("");
+  const [selectedDivisionFilter, setSelectedDivisionFilter] = useState("__all__");
   const [selectedTrades, setSelectedTrades] = useState<SelectedTrade[]>([]);
   const [subOptions, setSubOptions] = useState<SubOption[]>([]);
   const [loadingSubOptions, setLoadingSubOptions] = useState(false);
@@ -1619,10 +1677,14 @@ export default function NewBidPackagePage() {
             if (!row || typeof row !== "object") return null;
             const raw = row as { id?: unknown; code?: unknown; description?: unknown };
             if (typeof raw.id !== "string" || typeof raw.code !== "string") return null;
+            const code = raw.code.trim();
+            const divisionCode = getDivisionCodeFromCostCode(code);
             return {
               id: raw.id,
-              code: raw.code,
+              code,
               description: typeof raw.description === "string" ? raw.description : null,
+              divisionCode,
+              divisionLabel: buildDivisionLabel(divisionCode, ""),
             } satisfies CostCodeOption;
           })
           .filter((row): row is CostCodeOption => Boolean(row));
@@ -2231,15 +2293,36 @@ export default function NewBidPackagePage() {
     uploadedFiles,
   ]);
 
+  const divisionFilterOptions = useMemo(() => {
+    const options = new Map<string, DivisionFilterOption>();
+
+    for (const code of costCodes) {
+      if (!code.divisionCode) continue;
+      if (options.has(code.divisionCode)) continue;
+      options.set(code.divisionCode, {
+        value: code.divisionCode,
+        label: code.divisionLabel || code.divisionCode,
+      });
+    }
+
+    return Array.from(options.values()).sort((left, right) =>
+      left.value.localeCompare(right.value, undefined, {
+        numeric: true,
+        sensitivity: "base",
+      })
+    );
+  }, [costCodes]);
+
   const filteredCostCodes = useMemo(() => {
     const assigned = new Set(selectedTrades.map((trade) => trade.id));
     const query = costCodeQuery.trim().toLowerCase();
     return costCodes.filter((code) => {
       if (assigned.has(code.id)) return false;
+      if (selectedDivisionFilter !== "__all__" && code.divisionCode !== selectedDivisionFilter) return false;
       if (!query) return true;
-      return `${code.code} ${code.description ?? ""}`.toLowerCase().includes(query);
+      return `${code.code} ${code.description ?? ""} ${code.divisionLabel}`.toLowerCase().includes(query);
     });
-  }, [costCodeQuery, costCodes, selectedTrades]);
+  }, [costCodeQuery, costCodes, selectedDivisionFilter, selectedTrades]);
 
   const sortedProjectTaxCityOptions = useMemo(
     () =>
@@ -3426,7 +3509,7 @@ export default function NewBidPackagePage() {
         {activePanel === "general" ? (
           <>
         <section className="space-y-2">
-          <h2 className="text-[30px] font-extrabold leading-[1.1] tracking-[-0.03em] text-slate-950 [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+          <h2 className="text-2xl font-extrabold leading-[1.1] tracking-[-0.03em] text-slate-950 [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
             General Information
           </h2>
           <p className="text-[15px] leading-6 text-slate-500">
@@ -4108,7 +4191,7 @@ export default function NewBidPackagePage() {
           <>
             <div className="space-y-6">
               <section>
-                <h3 className="text-2xl font-semibold leading-none text-slate-950 [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+                <h3 className="text-2xl font-extrabold leading-[1.1] tracking-[-0.03em] text-slate-950 [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
                   Files
                 </h3>
                 <p className="mt-3 max-w-3xl text-[17px] leading-7 text-slate-500">
@@ -4607,74 +4690,136 @@ export default function NewBidPackagePage() {
           </>
         ) : activePanel === "trade-coverage" ? (
           <>
-            <section className="rounded-xl border border-slate-200 bg-white p-5">
-              <h3 className="text-[18px] font-semibold text-slate-900">Trade Coverage</h3>
-              <p className="mt-2 text-sm text-slate-600">
-                Select the trades you need covered for this package. Subcontractor assignment happens in the next step.
-              </p>
+            <div className="space-y-6">
+              <section>
+                <h3 className="text-2xl font-extrabold leading-none text-slate-950 [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+                  Select Trades
+                </h3>
+                <p className="mt-1 max-w-3xl text-[16px] leading-7 text-slate-500">
+                  Choose the trades and scopes that should be included in this bid package.
+                </p>
+              </section>
 
-              <div className="mt-5 grid items-stretch gap-5 xl:h-[calc(100vh-18rem)] xl:grid-cols-2">
-                <div className="flex min-h-[28rem] flex-col rounded-[12px] border-[0.5px] border-[#D3D1C7] bg-[#F8F8F7] p-4 xl:min-h-0 xl:h-full">
-                  <div className="text-sm font-semibold text-slate-800">Add Trades By Cost Code</div>
-                  <input
-                    value={costCodeQuery}
-                    onChange={(event) => setCostCodeQuery(event.target.value)}
-                    placeholder="Search cost codes"
-                    className="mt-3 w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
-                  />
-                  <div className="mt-3 min-h-0 flex-1 overflow-auto rounded-md border border-slate-200 bg-white">
-                    {loadingCostCodes ? (
-                      <div className="px-3 py-3 text-sm text-slate-500">Loading cost codes...</div>
-                    ) : filteredCostCodes.length ? (
-                      filteredCostCodes.map((code) => (
-                        <div key={code.id} className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 last:border-b-0">
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-semibold text-slate-800">{code.code}</div>
-                            <div className="truncate text-sm text-slate-500">{code.description ?? "No description"}</div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => addTradeFromCostCode(code)}
-                            className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                          >
-                            Add
-                          </button>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="px-3 py-3 text-sm text-slate-500">{costCodeLoadError ?? "No cost codes found."}</div>
-                    )}
+              <section className="rounded-xl border border-slate-200 bg-white p-5">
+                <div className="mx-[-20px] mt-[-20px] mb-5 border-b border-slate-200 px-5 py-5">
+                  <div className="flex items-start gap-4">
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+                      <FileStack className="size-5" strokeWidth={2.2} />
+                    </span>
+                    <div className="min-w-0">
+                      <h3 className="text-[20px] font-semibold leading-none text-slate-950 [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+                        Trade Selection
+                      </h3>
+                      <p className="mt-1 max-w-3xl text-[15px] leading-7 text-slate-500">
+                        Add scopes from your cost code library or import from the estimate.
+                      </p>
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex min-h-[28rem] flex-col overflow-hidden rounded-[12px] border-[0.5px] border-[#B5D4F4] bg-[#E6F1FB] text-[#185FA5] xl:min-h-0 xl:h-full">
-                  <div className="bg-[#E6F1FB] px-4 py-3 text-sm font-semibold text-[#0C447C]">Selected Trades</div>
-                  <div className="min-h-0 flex-1 overflow-auto divide-y divide-[#B5D4F4]">
-                    {selectedTrades.length ? (
-                      selectedTrades.map((trade) => (
-                        <div key={trade.id} className="px-4 py-3 text-sm text-[#185FA5]">
-                          <div className="flex items-center justify-between gap-2">
+                <div className="grid items-stretch gap-5 xl:h-[calc(100vh-18rem)] xl:grid-cols-2">
+                  <div className="flex min-h-[28rem] flex-col overflow-hidden rounded-[24px] border border-slate-200 bg-white xl:min-h-0 xl:h-full">
+                    <div className="px-6 pt-4 pb-4">
+                      <div className="text-[16px] font-semibold text-slate-900">Scope Library</div>
+
+                      <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]">
+                        <label className="relative block">
+                          <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                          <input
+                            value={costCodeQuery}
+                            onChange={(event) => setCostCodeQuery(event.target.value)}
+                            placeholder="Search cost codes or trades..."
+                            className="h-10 w-full rounded-[12px] border border-blue-500 bg-white pl-[46px] pr-4 text-[17px] text-slate-700 shadow-sm outline-none ring-4 ring-blue-100 placeholder:text-slate-400 focus:border-blue-500"
+                          />
+                        </label>
+
+                        <Select value={selectedDivisionFilter} onValueChange={setSelectedDivisionFilter}>
+                          <SelectTrigger
+                            size="field"
+                            className="h-10 w-full rounded-[12px] border border-slate-200 bg-white px-5 text-[17px] font-semibold text-slate-900 shadow-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                          >
+                            <span className="flex items-center gap-2">
+                              <Filter className="h-5 w-5 text-current" />
+                              <SelectValue placeholder="All divisions" />
+                            </span>
+                          </SelectTrigger>
+                          <SelectContent className="min-w-[260px] rounded-2xl border border-slate-200 bg-white p-1 shadow-soft-md">
+                            <SelectItem
+                              value="__all__"
+                              className="min-h-11 rounded-xl py-2 text-foreground leading-6 data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[state=checked]:bg-transparent data-[state=checked]:text-foreground data-[state=checked]:data-[highlighted]:bg-accent data-[state=checked]:data-[highlighted]:text-accent-foreground"
+                            >
+                              All divisions
+                            </SelectItem>
+                            {divisionFilterOptions.map((option) => (
+                              <SelectItem
+                                key={option.value}
+                                value={option.value}
+                                className="min-h-11 rounded-xl py-2 text-foreground leading-6 data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[state=checked]:bg-transparent data-[state=checked]:text-foreground data-[state=checked]:data-[highlighted]:bg-accent data-[state=checked]:data-[highlighted]:text-accent-foreground"
+                              >
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="border-t border-slate-200" />
+
+                    <div className="min-h-0 flex-1 overflow-auto bg-[#F8F8F7] p-4">
+                      {loadingCostCodes ? (
+                        <div className="px-3 py-3 text-sm text-slate-500">Loading cost codes...</div>
+                      ) : filteredCostCodes.length ? (
+                        filteredCostCodes.map((code) => (
+                          <div key={code.id} className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 last:border-b-0">
                             <div className="min-w-0">
-                              <div className="truncate font-medium text-[#0C447C]">{trade.code}</div>
-                              <div className="truncate text-sm text-[#185FA5]">{trade.description ?? "No description"}</div>
+                              <div className="truncate text-sm font-semibold text-slate-800">{code.code}</div>
+                              <div className="truncate text-sm text-slate-500">{code.description ?? "No description"}</div>
                             </div>
                             <button
                               type="button"
-                              onClick={() => removeTrade(trade.id)}
-                              className="rounded border-[0.5px] border-[#B5D4F4] bg-transparent px-1.5 py-0.5 text-[11px] font-semibold text-[#185FA5] hover:bg-transparent"
+                              onClick={() => addTradeFromCostCode(code)}
+                              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
                             >
-                              Remove
+                              Add
                             </button>
                           </div>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="px-4 py-4 text-sm text-[#185FA5]">Select one or more trades above to build coverage rows.</div>
-                    )}
+                        ))
+                      ) : (
+                        <div className="px-3 py-3 text-sm text-slate-500">{costCodeLoadError ?? "No cost codes found."}</div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex min-h-[28rem] flex-col overflow-hidden rounded-[12px] border-[0.5px] border-[#B5D4F4] bg-[#E6F1FB] text-[#185FA5] xl:min-h-0 xl:h-full">
+                    <div className="bg-[#E6F1FB] px-4 py-3 text-sm font-semibold text-[#0C447C]">Selected Trades</div>
+                    <div className="min-h-0 flex-1 overflow-auto divide-y divide-[#B5D4F4]">
+                      {selectedTrades.length ? (
+                        selectedTrades.map((trade) => (
+                          <div key={trade.id} className="px-4 py-3 text-sm text-[#185FA5]">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="truncate font-medium text-[#0C447C]">{trade.code}</div>
+                                <div className="truncate text-sm text-[#185FA5]">{trade.description ?? "No description"}</div>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => removeTrade(trade.id)}
+                                className="rounded border-[0.5px] border-[#B5D4F4] bg-transparent px-1.5 py-0.5 text-[11px] font-semibold text-[#185FA5] hover:bg-transparent"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="px-4 py-4 text-sm text-[#185FA5]">Select one or more trades above to build coverage rows.</div>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </section>
+              </section>
+            </div>
 
             {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
