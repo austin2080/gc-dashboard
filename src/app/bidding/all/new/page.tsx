@@ -92,6 +92,8 @@ import {
   Tag,
   Trash2Icon,
   Upload,
+  Users,
+  X,
 } from "lucide-react";
 
 type BidPackageDraft = {
@@ -2327,16 +2329,16 @@ export default function NewBidPackagePage() {
     );
   }, [costCodes]);
 
+  const selectedTradeIds = useMemo(() => new Set(selectedTrades.map((trade) => trade.id)), [selectedTrades]);
+
   const filteredCostCodes = useMemo(() => {
-    const assigned = new Set(selectedTrades.map((trade) => trade.id));
     const query = costCodeQuery.trim().toLowerCase();
     return costCodes.filter((code) => {
-      if (assigned.has(code.id)) return false;
       if (selectedDivisionFilter !== "__all__" && code.divisionCode !== selectedDivisionFilter) return false;
       if (!query) return true;
       return `${code.code} ${code.description ?? ""} ${code.divisionLabel}`.toLowerCase().includes(query);
     });
-  }, [costCodeQuery, costCodes, selectedDivisionFilter, selectedTrades]);
+  }, [costCodeQuery, costCodes, selectedDivisionFilter]);
 
   const groupedFilteredCostCodes = useMemo(() => {
     const groups = new Map<string, CostCodeOption[]>();
@@ -2399,6 +2401,26 @@ export default function NewBidPackagePage() {
 
     return counts;
   }, [costCodes, subOptions]);
+
+  const selectedTradeCards = useMemo(
+    () =>
+      selectedTrades.map((trade) => {
+        const matchingCostCode = costCodes.find((code) => code.id === trade.id);
+        const matchingSubs = matchingCostCode
+          ? subCountByDivisionLabel.get(matchingCostCode.divisionLabel) ?? 0
+          : 0;
+        return {
+          ...trade,
+          matchingSubs,
+        };
+      }),
+    [costCodes, selectedTrades, subCountByDivisionLabel]
+  );
+
+  const totalSelectedTradeMatchingSubs = useMemo(
+    () => selectedTradeCards.reduce((sum, trade) => sum + trade.matchingSubs, 0),
+    [selectedTradeCards]
+  );
 
   const sortedProjectTaxCityOptions = useMemo(
     () =>
@@ -4793,7 +4815,7 @@ export default function NewBidPackagePage() {
                   </div>
                 </div>
 
-                <div className="grid items-stretch gap-5 xl:h-[calc(100vh-18rem)] xl:grid-cols-2">
+                <div className="grid items-stretch gap-5 xl:h-[calc(100vh-15rem)] xl:grid-cols-2">
                   <div className="flex min-h-[28rem] flex-col overflow-hidden rounded-[24px] border border-slate-200 bg-white xl:min-h-0 xl:h-full">
                     <div className="px-6 pt-4 pb-4">
                       <div className="text-[16px] font-semibold text-slate-900">Scope Library</div>
@@ -4848,7 +4870,7 @@ export default function NewBidPackagePage() {
                       ) : groupedFilteredCostCodes.length ? (
                         <div className="space-y-3">
                           {groupedFilteredCostCodes.map((group) => (
-                            <div key={group.label} className="space-y-3">
+                            <div key={group.label} className="space-y-4">
                               <div className="flex items-center gap-2 px-2">
                                 <div className="shrink-0 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
                                   {group.divisionCode ? `DIV ${group.divisionCode}` : "OTHER"}
@@ -4859,6 +4881,7 @@ export default function NewBidPackagePage() {
 
                               <div className="space-y-3">
                                 {group.codes.map((code) => {
+                                  const isAdded = selectedTradeIds.has(code.id);
                                   const subCount = subCountByDivisionLabel.get(code.divisionLabel) ?? 0;
                                   const subCountToneClass =
                                     subCount === 0
@@ -4866,44 +4889,79 @@ export default function NewBidPackagePage() {
                                       : subCount <= 4
                                         ? "bg-yellow-400"
                                         : "bg-emerald-500";
+                                  const subCountDotClass = isAdded ? `${subCountToneClass} opacity-70` : subCountToneClass;
                                   const subCountLabel = subCount === 1 ? "sub" : "subs";
 
                                   return (
-                                  <div
-                                    key={code.id}
-                                    className="rounded-[28px] border border-slate-200 bg-white px-5 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:px-3 md:py-3"
-                                  >
-                                    <div className="flex items-start justify-between gap-3 md:gap-4">
-                                      <div className="min-w-0 flex-1">
-                                        <div className="flex items-center gap-3 md:gap-4">
-                                          <span className="inline-flex shrink-0 items-center rounded-full border border-slate-200 bg-[#FCFDFE] px-2 py-1 text-sm font-bold tracking-[0.18em] text-slate-500 md:px-1 md:py-1 md:text-[10px]">
-                                            {code.code}
-                                          </span>
-                                          <div className="min-w-0 text-m font-bold tracking-tight text-slate-900 md:text-m">
-                                            <div className="truncate">{code.description ?? "No description"}</div>
+                                    <div
+                                      key={code.id}
+                                      className={`rounded-[28px] border px-5 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:px-3 md:py-3 ${
+                                        isAdded ? "border-slate-200 bg-slate-50/80" : "border-slate-200 bg-white"
+                                      }`}
+                                    >
+                                      <div className="flex items-start justify-between gap-3 md:gap-4">
+                                        <div className="min-w-0 flex-1">
+                                          <div className="flex items-center gap-3 md:gap-4">
+                                            <span
+                                              className={`inline-flex shrink-0 items-center rounded-full border px-2 py-1 text-sm font-bold tracking-[0.18em] md:px-1 md:py-1 md:text-[10px] ${
+                                                isAdded
+                                                  ? "border-slate-200 bg-white text-slate-400"
+                                                  : "border-slate-200 bg-[#FCFDFE] text-slate-500"
+                                              }`}
+                                            >
+                                              {code.code}
+                                            </span>
+                                            <div
+                                              className={`min-w-0 text-m font-bold tracking-tight md:text-m ${
+                                                isAdded ? "text-slate-500" : "text-slate-900"
+                                              }`}
+                                            >
+                                              <div className="truncate">{code.description ?? "No description"}</div>
+                                            </div>
+                                          </div>
+                                          <div className="mt-1 flex items-center justify-between gap-4">
+                                            <div
+                                              className={`min-w-0 truncate text-sm leading-6 md:text-sm ${
+                                                isAdded ? "text-slate-400" : "text-slate-500"
+                                              }`}
+                                            >
+                                              {code.description ?? "No description"}
+                                            </div>
+                                            <div
+                                              className={`inline-flex shrink-0 items-center gap-1 text-xs font-semibold ${
+                                                isAdded ? "text-slate-400" : "text-slate-500"
+                                              }`}
+                                            >
+                                              <span className={`h-1.5 w-1.5 rounded-full ${subCountDotClass}`} />
+                                              {subCount} {subCountLabel}
+                                            </div>
                                           </div>
                                         </div>
-                                        <div className="mt-1 flex items-center justify-between gap-4">
-                                          <div className="min-w-0 truncate text-sm leading-6 text-slate-500 md:text-sm">
-                                            {code.description ?? "No description"}
-                                          </div>
-                                          <div className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-slate-500">
-                                            <span className={`h-1.5 w-1.5 rounded-full ${subCountToneClass}`} />
-                                            {subCount} {subCountLabel}
-                                          </div>
-                                        </div>
-                                      </div>
 
-                                      <button
-                                        type="button"
-                                        onClick={() => addTradeFromCostCode(code)}
-                                        className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-3 py-2 text-base font-semibold text-[#356DFF] hover:bg-blue-50 hover:text-[#2456dc] md:gap-2 md:px-4 md:text-[15px]"
-                                      >
-                                        <Plus className="h-4 w-4 md:h-4 md:w-4" />
-                                        Add
-                                      </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => addTradeFromCostCode(code)}
+                                          disabled={isAdded}
+                                          className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-2 text-base font-semibold md:gap-2 md:px-4 md:text-[14px] ${
+                                            isAdded
+                                              ? "cursor-default bg-emerald-50/60 text-[rgba(37,177,112,0.7)]"
+                                              : "cursor-pointer text-[#356DFF] hover:bg-blue-50 hover:text-[#2456dc]"
+                                          }`}
+                                        >
+                                          {isAdded ? (
+                                            <>
+                                              <Check className="h-4 w-4 md:h-4 md:w-4" />
+                                              Added
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Plus className="h-4 w-4 md:h-4 md:w-4" />
+                                              Add
+                                            </>
+                                          )}
+                                        </button>
+                                      </div>
                                     </div>
-                                  </div>
                                   );
                                 })}
                               </div>
@@ -4916,29 +4974,80 @@ export default function NewBidPackagePage() {
                     </div>
                   </div>
 
-                  <div className="flex min-h-[28rem] flex-col overflow-hidden rounded-[12px] border-[0.5px] border-[#B5D4F4] bg-[#E6F1FB] text-[#185FA5] xl:min-h-0 xl:h-full">
-                    <div className="bg-[#E6F1FB] px-4 py-3 text-sm font-semibold text-[#0C447C]">Selected Trades</div>
-                    <div className="min-h-0 flex-1 overflow-auto divide-y divide-[#B5D4F4]">
-                      {selectedTrades.length ? (
-                        selectedTrades.map((trade) => (
-                          <div key={trade.id} className="px-4 py-3 text-sm text-[#185FA5]">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="min-w-0">
-                                <div className="truncate font-medium text-[#0C447C]">{trade.code}</div>
-                                <div className="truncate text-sm text-[#185FA5]">{trade.description ?? "No description"}</div>
+                  <div className="flex min-h-[28rem] flex-col overflow-hidden rounded-[24px] border border-[#D9E6FF] bg-white xl:min-h-0 xl:h-full">
+                    <div className="flex items-center justify-between gap-4 border-b border-[#D9E6FF] px-6 py-4">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="text-[16px] font-semibold text-slate-900">Selected Trades</div>
+                        <span className="inline-flex shrink-0 items-center rounded-full bg-[#356DFF] px-3 py-1 text-[11px] font-extrabold text-white">
+                          {selectedTrades.length} selected
+                        </span>
+                      </div>
+                      <div className="shrink-0 text-[11px] font-semibold text-slate-500">
+                        ~{totalSelectedTradeMatchingSubs} matching subs
+                      </div>
+                    </div>
+
+                    <div className="min-h-0 flex-1 overflow-auto bg-[#FAFBFF] p-4">
+                      {selectedTradeCards.length ? (
+                        <div className="space-y-4">
+                          {selectedTradeCards.map((trade) => (
+                            (() => {
+                              const availabilityPillClass =
+                                trade.matchingSubs === 0
+                                  ? "border-red-200 bg-red-50 text-red-600"
+                                  : trade.matchingSubs <= 4
+                                    ? "border-yellow-200 bg-yellow-50 text-yellow-700"
+                                    : "border-emerald-200 bg-emerald-50 text-emerald-600";
+
+                              return (
+                            <div
+                              key={trade.id}
+                              className="rounded-[28px] border border-slate-200 bg-white px-5 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:px-3 md:py-3"
+                            >
+                              <div className="flex items-start justify-between gap-3 md:gap-4">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-3 md:gap-4">
+                                    <span className="inline-flex shrink-0 items-center rounded-full border border-slate-200 bg-[#FCFDFE] px-2 py-1 text-sm font-bold tracking-[0.18em] text-slate-500 md:px-1 md:py-1 md:text-[10px]">
+                                      {trade.code}
+                                    </span>
+                                    <div className="min-w-0 text-m font-bold tracking-tight text-slate-900 md:text-m">
+                                      <div className="truncate">{trade.description ?? "No description"}</div>
+                                    </div>
+                                  </div>
+                                  <div className="mt-3 flex items-center gap-3">
+                                    <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${availabilityPillClass}`}>
+                                      <Users className="h-3.5 w-3.5" />
+                                      {trade.matchingSubs} {trade.matchingSubs === 1 ? "sub" : "subs"} available
+                                    </span>
+                                  </div>
+                                </div>
+
+                                <button
+                                  type="button"
+                                  onClick={() => removeTrade(trade.id)}
+                                  className="inline-flex shrink-0 cursor-pointer items-center justify-center rounded-full p-2 text-slate-400 hover:bg-slate-50 hover:text-slate-600"
+                                  aria-label={`Remove ${trade.description ?? trade.code}`}
+                                >
+                                  <X className="h-5 w-5" />
+                                </button>
                               </div>
-                              <button
-                                type="button"
-                                onClick={() => removeTrade(trade.id)}
-                                className="rounded border-[0.5px] border-[#B5D4F4] bg-transparent px-1.5 py-0.5 text-[11px] font-semibold text-[#185FA5] hover:bg-transparent"
-                              >
-                                Remove
-                              </button>
                             </div>
-                          </div>
-                        ))
+                              );
+                            })()
+                          ))}
+                        </div>
                       ) : (
-                        <div className="px-4 py-4 text-sm text-[#185FA5]">Select one or more trades above to build coverage rows.</div>
+                        <div className="flex h-full min-h-[24rem] flex-col items-center justify-center px-6 text-center">
+                          <span className="flex h-12 w-12 items-center justify-center rounded-[28px] bg-white text-[#356DFF] shadow-[0_8px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-100">
+                            <FileStack className="h-5 w-5" strokeWidth={2.1} />
+                          </span>
+                          <h4 className="mt-6 max-w-xl text-lg font-bold tracking-tight text-slate-900">
+                            This bid package currently has no scopes selected.
+                          </h4>
+                          <p className="mt-1 max-w-lg text-sm leading-8 text-slate-500">
+                            Select one or more trades above to build coverage rows.
+                          </p>
+                        </div>
                       )}
                     </div>
                   </div>
