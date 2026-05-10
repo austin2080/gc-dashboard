@@ -71,10 +71,13 @@ import {
   sanitizeEmailHtml,
 } from "@/lib/email/html";
 import {
+  ArrowRightLeft,
   CalendarIcon,
   Check,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Clock3,
   Ellipsis,
   Eye,
   File,
@@ -419,6 +422,7 @@ type AssignedSub = SubOption & {
   invited: boolean;
   willBid: boolean;
   bidInviteEmail: string;
+  responseStatus?: "draft" | "invited" | "viewed" | "bidding" | "submitted" | "declined";
 };
 
 type InvitationEmailDraft = {
@@ -1006,6 +1010,23 @@ function buildDivisionLabel(divisionCode: string, title: string) {
   return `${divisionCode} ${trimmedTitle}`.trim();
 }
 
+function normalizeTradeMatchValue(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function buildAssignedSubWithStatus(
+  sub: SubOption | AssignedSub,
+  responseStatus: AssignedSub["responseStatus"]
+): AssignedSub {
+  return {
+    ...sub,
+    invited: responseStatus !== "draft",
+    willBid: responseStatus === "bidding" || responseStatus === "submitted",
+    bidInviteEmail: "bidInviteEmail" in sub ? (sub.bidInviteEmail || sub.email || "") : (sub.email || ""),
+    responseStatus,
+  };
+}
+
 function mapSettingsCostCodeOptions(settingsRows: ReturnType<typeof getWorkspaceCostCodes>) {
   const divisionTitleByCode = new Map<string, string>();
 
@@ -1422,11 +1443,13 @@ export default function NewBidPackagePage() {
   const [loadingSubOptions, setLoadingSubOptions] = useState(false);
   const [companyUserOptions, setCompanyUserOptions] = useState<CompanyUserOption[]>([]);
   const [assignedSubsByTradeId, setAssignedSubsByTradeId] = useState<Record<string, AssignedSub[]>>({});
+  const [excludedInviteSubIdsByTradeId, setExcludedInviteSubIdsByTradeId] = useState<Record<string, string[]>>({});
   const [inviteSubsSearchQuery, setInviteSubsSearchQuery] = useState("");
   const [inviteSubsStatusFilter, setInviteSubsStatusFilter] = useState("__all__");
   const [inviteSubsTradeFilter, setInviteSubsTradeFilter] = useState("__all__");
   const [inviteQueryByTradeId, setInviteQueryByTradeId] = useState<Record<string, string>>({});
-  const [expandedInviteTradeId, setExpandedInviteTradeId] = useState<string | null>(null);
+  const [expandedInviteTradeIds, setExpandedInviteTradeIds] = useState<string[]>([]);
+  const previousActivePanelRef = useRef(activePanel);
   const [newSubDrawerTradeId, setNewSubDrawerTradeId] = useState<string | null>(null);
   const [newSubDraft, setNewSubDraft] = useState({
     company_name: "",
@@ -1963,6 +1986,16 @@ export default function NewBidPackagePage() {
           invited: bid.status !== "ghosted",
           willBid: bid.status === "bidding" || bid.status === "submitted",
           bidInviteEmail: subcontractor.email ?? "",
+          responseStatus:
+            bid.status === "submitted"
+              ? "submitted"
+              : bid.status === "bidding"
+                ? "bidding"
+                : bid.status === "declined"
+                  ? "declined"
+                  : bid.status !== "ghosted"
+                    ? "viewed"
+                    : "draft",
         });
         assignedByTrade[bid.trade_id] = current;
       });
@@ -2367,43 +2400,43 @@ export default function NewBidPackagePage() {
     });
   }, [filteredCostCodes]);
 
-  const subCountByDivisionLabel = useMemo(() => {
-    const counts = new Map<string, number>();
-    const companiesByDivision = new Map<string, Set<string>>();
-
-    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const matchedSubsByDivisionLabel = useMemo(() => {
+    const matches = new Map<string, SubOption[]>();
 
     for (const code of costCodes) {
       const divisionLabel = code.divisionLabel || "Other";
-      if (companiesByDivision.has(divisionLabel)) continue;
+      if (matches.has(divisionLabel)) continue;
 
       const divisionTitle = code.divisionLabel.replace(/^\d{2}\s*/, "").trim();
-      const normalizedDivisionTitle = normalize(divisionTitle);
-      const normalizedDivisionLabel = normalize(divisionLabel);
-      const matchedCompanies = new Set<string>();
-
-      for (const sub of subOptions) {
+      const normalizedDivisionTitle = normalizeTradeMatchValue(divisionTitle);
+      const normalizedDivisionLabel = normalizeTradeMatchValue(divisionLabel);
+      const matched = subOptions.filter((sub) => {
         const trade = (sub.trade ?? "").trim();
-        if (!trade) continue;
-        const normalizedTrade = normalize(trade);
-        if (!normalizedTrade) continue;
+        if (!trade) return false;
+        const normalizedTrade = normalizeTradeMatchValue(trade);
+        if (!normalizedTrade) return false;
 
-        const isMatch =
+        return (
           normalizedTrade.includes(normalizedDivisionTitle) ||
           normalizedDivisionTitle.includes(normalizedTrade) ||
           normalizedTrade.includes(normalizedDivisionLabel) ||
-          normalizedDivisionLabel.includes(normalizedTrade);
+          normalizedDivisionLabel.includes(normalizedTrade)
+        );
+      });
 
-        if (!isMatch) continue;
-        matchedCompanies.add(sub.id);
-      }
-
-      companiesByDivision.set(divisionLabel, matchedCompanies);
-      counts.set(divisionLabel, matchedCompanies.size);
+      matches.set(divisionLabel, matched);
     }
 
-    return counts;
+    return matches;
   }, [costCodes, subOptions]);
+
+  const subCountByDivisionLabel = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const [divisionLabel, subs] of matchedSubsByDivisionLabel.entries()) {
+      counts.set(divisionLabel, subs.length);
+    }
+    return counts;
+  }, [matchedSubsByDivisionLabel]);
 
   const selectedTradeCards = useMemo(
     () =>
@@ -2425,21 +2458,56 @@ export default function NewBidPackagePage() {
     [selectedTradeCards]
   );
 
+  const inviteSubsByTradeId = useMemo(() => {
+    const next = new Map<string, AssignedSub[]>();
+
+    for (const trade of selectedTrades) {
+      const matchingCostCode = costCodes.find((code) => code.id === trade.id);
+      const divisionLabel = matchingCostCode?.divisionLabel ?? "";
+      const matchedSubs = divisionLabel ? matchedSubsByDivisionLabel.get(divisionLabel) ?? [] : [];
+      const assigned = assignedSubsByTradeId[trade.id] ?? [];
+      const excludedIds = new Set(excludedInviteSubIdsByTradeId[trade.id] ?? []);
+      const assignedById = new Map(assigned.map((sub) => [sub.id, sub]));
+
+      const merged: AssignedSub[] = matchedSubs
+        .filter((sub) => !excludedIds.has(sub.id))
+        .map((sub) => {
+        const existing = assignedById.get(sub.id);
+        if (existing) return existing;
+        return buildAssignedSubWithStatus(sub, "invited");
+      });
+
+      for (const sub of assigned) {
+        if (merged.some((item) => item.id === sub.id)) continue;
+        merged.push(sub);
+      }
+
+      next.set(trade.id, merged);
+    }
+
+    return next;
+  }, [assignedSubsByTradeId, costCodes, excludedInviteSubIdsByTradeId, matchedSubsByDivisionLabel, selectedTrades]);
+
   const filteredInviteTrades = useMemo(() => {
     const query = inviteSubsSearchQuery.trim().toLowerCase();
 
     return selectedTrades.filter((trade) => {
       if (inviteSubsTradeFilter !== "__all__" && trade.id !== inviteSubsTradeFilter) return false;
 
-      const assigned = assignedSubsByTradeId[trade.id] ?? [];
+      const assigned = inviteSubsByTradeId.get(trade.id) ?? [];
       const matchesStatus =
         inviteSubsStatusFilter === "__all__"
           ? true
           : assigned.some((sub) => {
-              if (inviteSubsStatusFilter === "bidding") return sub.willBid;
-              if (inviteSubsStatusFilter === "invited") return sub.invited && !sub.willBid;
-              if (inviteSubsStatusFilter === "submitted") return false;
-              if (inviteSubsStatusFilter === "declined") return false;
+              if (inviteSubsStatusFilter === "bidding") return sub.responseStatus === "bidding";
+              if (inviteSubsStatusFilter === "invited") {
+                return (
+                  sub.responseStatus === "invited" ||
+                  sub.responseStatus === "viewed"
+                );
+              }
+              if (inviteSubsStatusFilter === "submitted") return sub.responseStatus === "submitted";
+              if (inviteSubsStatusFilter === "declined") return sub.responseStatus === "declined";
               return true;
             });
 
@@ -2454,7 +2522,7 @@ export default function NewBidPackagePage() {
       );
     });
   }, [
-    assignedSubsByTradeId,
+    inviteSubsByTradeId,
     inviteSubsSearchQuery,
     inviteSubsStatusFilter,
     inviteSubsTradeFilter,
@@ -2476,6 +2544,36 @@ export default function NewBidPackagePage() {
     });
     setNewSubError(null);
   };
+
+  useEffect(() => {
+    const wasInviteSubs = previousActivePanelRef.current === "invite-subs";
+    if (activePanel !== "invite-subs") {
+      previousActivePanelRef.current = activePanel;
+      return;
+    }
+    if (!selectedTrades.length) {
+      if (expandedInviteTradeIds.length) {
+        setExpandedInviteTradeIds([]);
+      }
+      previousActivePanelRef.current = activePanel;
+    } else {
+      if (!wasInviteSubs) {
+        setExpandedInviteTradeIds(
+          selectedTrades
+            .filter((trade) => (inviteSubsByTradeId.get(trade.id) ?? []).length > 0)
+            .map((trade) => trade.id)
+        );
+        previousActivePanelRef.current = activePanel;
+        return;
+      }
+      const selectedTradeIds = new Set(selectedTrades.map((trade) => trade.id));
+      const nextExpanded = expandedInviteTradeIds.filter((tradeId) => selectedTradeIds.has(tradeId));
+      if (nextExpanded.length !== expandedInviteTradeIds.length) {
+        setExpandedInviteTradeIds(nextExpanded);
+      }
+      previousActivePanelRef.current = activePanel;
+    }
+  }, [activePanel, expandedInviteTradeIds, inviteSubsByTradeId, selectedTrades]);
 
   const sortedProjectTaxCityOptions = useMemo(
     () =>
@@ -2562,9 +2660,16 @@ export default function NewBidPackagePage() {
       if (current.some((item) => item.id === sub.id)) return prev;
       return {
         ...prev,
-        [tradeId]: [...current, { ...sub, invited: false, willBid: false, bidInviteEmail: sub.email ?? "" }],
+        [tradeId]: [
+          ...current,
+          buildAssignedSubWithStatus(sub, "draft"),
+        ],
       };
     });
+    setExcludedInviteSubIdsByTradeId((prev) => ({
+      ...prev,
+      [tradeId]: (prev[tradeId] ?? []).filter((id) => id !== sub.id),
+    }));
   };
 
   const removeSubFromTrade = (tradeId: string, subId: string) => {
@@ -2572,6 +2677,14 @@ export default function NewBidPackagePage() {
       ...prev,
       [tradeId]: (prev[tradeId] ?? []).filter((item) => item.id !== subId),
     }));
+    setExcludedInviteSubIdsByTradeId((prev) => {
+      const current = prev[tradeId] ?? [];
+      if (current.includes(subId)) return prev;
+      return {
+        ...prev,
+        [tradeId]: [...current, subId],
+      };
+    });
   };
 
   const setSubInviteEmail = (tradeId: string, subId: string, value: string) => {
@@ -2586,6 +2699,56 @@ export default function NewBidPackagePage() {
           : item
       ),
     }));
+  };
+
+  const changeInviteSubStatus = (
+    tradeId: string,
+    sub: AssignedSub,
+    responseStatus: AssignedSub["responseStatus"]
+  ) => {
+    if (!responseStatus) return;
+    setAssignedSubsByTradeId((prev) => {
+      const current = prev[tradeId] ?? [];
+      const nextSub = buildAssignedSubWithStatus(sub, responseStatus);
+      const existingIndex = current.findIndex((item) => item.id === sub.id);
+      if (existingIndex === -1) {
+        return {
+          ...prev,
+          [tradeId]: [...current, nextSub],
+        };
+      }
+      return {
+        ...prev,
+        [tradeId]: current.map((item) => (item.id === sub.id ? nextSub : item)),
+      };
+    });
+    setExcludedInviteSubIdsByTradeId((prev) => ({
+      ...prev,
+      [tradeId]: (prev[tradeId] ?? []).filter((id) => id !== sub.id),
+    }));
+  };
+
+  const moveInviteSubToTrade = (fromTradeId: string, toTradeId: string, sub: AssignedSub) => {
+    if (fromTradeId === toTradeId) return;
+    setAssignedSubsByTradeId((prev) => {
+      const next = { ...prev };
+      next[fromTradeId] = (next[fromTradeId] ?? []).filter((item) => item.id !== sub.id);
+      const target = next[toTradeId] ?? [];
+      if (!target.some((item) => item.id === sub.id)) {
+        next[toTradeId] = [...target, sub];
+      }
+      return next;
+    });
+    setExcludedInviteSubIdsByTradeId((prev) => ({
+      ...prev,
+      [fromTradeId]: Array.from(new Set([...(prev[fromTradeId] ?? []), sub.id])),
+      [toTradeId]: (prev[toTradeId] ?? []).filter((id) => id !== sub.id),
+    }));
+    const targetTrade = selectedTrades.find((trade) => trade.id === toTradeId);
+    setToast({
+      type: "success",
+      message: `${sub.company} moved to ${targetTrade?.description ?? targetTrade?.code ?? "selected trade"}.`,
+    });
   };
 
   useEffect(() => {
@@ -5131,7 +5294,6 @@ export default function NewBidPackagePage() {
                 type="button"
                 onClick={() => {
                   setActivePanel("invite-subs");
-                  setExpandedInviteTradeId(selectedTrades[0]?.id ?? null);
                 }}
                 className="rounded-md bg-accent px-8 py-2 text-base font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
@@ -5151,26 +5313,26 @@ export default function NewBidPackagePage() {
                 </p>
               </section>
 
-              <section className="rounded-xl border border-slate-200 bg-white p-4">
-                {selectedTrades.length ? (
-                  <div className="space-y-4">
+              {selectedTrades.length ? (
+                <div className="space-y-4">
+                  <section className="rounded-xl border border-slate-200 bg-white p-4">
                     <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-soft-sm">
                       <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
-                        <div className="grid flex-1 gap-3 md:grid-cols-[minmax(0,1.35fr)_260px_240px]">
+                        <div className="grid flex-1 gap-3 md:grid-cols-[minmax(0,1.7fr)_160px_160px]">
                           <label className="relative block">
                             <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
                             <input
                               value={inviteSubsSearchQuery}
                               onChange={(event) => setInviteSubsSearchQuery(event.target.value)}
                               placeholder="Search subcontractors..."
-                              className="h-10 w-full rounded-[20px] border border-slate-200 bg-white pl-12 pr-4 text-[17px] text-slate-700 shadow-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                              className="h-10 w-full rounded-[20px] border border-slate-200 bg-white pl-12 pr-4 text-sm text-slate-700 shadow-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                             />
                           </label>
 
                           <Select value={inviteSubsStatusFilter} onValueChange={setInviteSubsStatusFilter}>
                             <SelectTrigger
                               size="field"
-                              className="h-10 w-full rounded-[20px] border border-slate-200 bg-white px-5 text-[17px] font-semibold text-slate-900 shadow-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                              className="h-10 w-full rounded-[20px] border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-900 shadow-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
                             >
                               <span className="flex items-center gap-2">
                                 <Filter className="h-5 w-5 text-current" />
@@ -5189,7 +5351,7 @@ export default function NewBidPackagePage() {
                           <Select value={inviteSubsTradeFilter} onValueChange={setInviteSubsTradeFilter}>
                             <SelectTrigger
                               size="field"
-                              className="h-10 w-full rounded-[20px] border border-slate-200 bg-white px-5 text-[17px] font-semibold text-slate-900 shadow-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                              className="h-10 w-full rounded-[20px] border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-900 shadow-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
                             >
                               <span className="flex items-center gap-2">
                                 <Filter className="h-5 w-5 text-current" />
@@ -5215,224 +5377,276 @@ export default function NewBidPackagePage() {
                           type="button"
                           onClick={openNewSubDrawerFromInviteToolbar}
                           disabled={!selectedTrades.length}
-                          className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-[20px] bg-[#356DFF] px-6 text-[17px] font-semibold text-white shadow-sm hover:bg-[#2456dc] disabled:cursor-not-allowed disabled:opacity-50 xl:ml-3"
+                          className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-[20px] bg-[#356DFF] px-6 text-sm font-semibold text-white shadow-sm hover:bg-[#2456dc] disabled:cursor-not-allowed disabled:opacity-50 xl:ml-3"
                         >
                           <Plus className="h-5 w-5" />
                           Add Subcontractor
                         </button>
                       </div>
                     </div>
+                  </section>
 
-                    {filteredInviteTrades.length ? (
-                      filteredInviteTrades.map((trade) => {
-                        const assigned = assignedSubsByTradeId[trade.id] ?? [];
-                        const expanded = expandedInviteTradeId === trade.id;
-                        const dueLabel = formatBidDueDateLabel(draft);
-                        const recommended = subOptions.filter((option) => {
-                          const assignedIds = new Set(assigned.map((item) => item.id));
-                          if (assignedIds.has(option.id)) return false;
-                          const query = (inviteQueryByTradeId[trade.id] ?? "").trim().toLowerCase();
-                          if (!query) return true;
-                          return option.company.toLowerCase().includes(query);
-                        });
+                  {filteredInviteTrades.length ? (
+                    filteredInviteTrades.map((trade) => {
+                        const assigned = inviteSubsByTradeId.get(trade.id) ?? [];
+                        const expanded = expandedInviteTradeIds.includes(trade.id);
+                        const invitedCount = assigned.filter((sub) =>
+                          sub.responseStatus === "invited" ||
+                          sub.responseStatus === "viewed" ||
+                          sub.responseStatus === "bidding" ||
+                          sub.responseStatus === "submitted"
+                        ).length;
+                        const biddingCount = assigned.filter((sub) => sub.responseStatus === "bidding").length;
+                        const submittedCount = assigned.filter((sub) => sub.responseStatus === "submitted").length;
                         return (
-                          <article key={`invite-${trade.id}`} className="overflow-hidden rounded-lg border border-slate-200">
-                          <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 px-4 py-3">
-                            <div className="flex items-center gap-3">
-                              {assigned.length > 0 ? (
-                                <span
-                                  className={`inline-flex size-7 items-center justify-center rounded-full text-sm text-white ${
-                                    assigned.length >= 3
-                                      ? "bg-emerald-600"
-                                      : assigned.length === 2
-                                        ? "bg-yellow-500"
-                                        : "bg-accent"
-                                  }`}
+                          <article key={`invite-${trade.id}`} className="overflow-hidden rounded-[28px] border border-slate-200 bg-white">
+                            <div className="flex items-start justify-between gap-4 px-4 py-4 md:px-6">
+                              <div className="flex min-w-0 items-start gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedInviteTradeIds((prev) =>
+                                      prev.includes(trade.id) ? prev.filter((id) => id !== trade.id) : [...prev, trade.id]
+                                    )
+                                  }
+                                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-50 text-slate-500"
+                                  aria-label={expanded ? `Collapse ${trade.description ?? trade.code}` : `Expand ${trade.description ?? trade.code}`}
                                 >
-                                  ✓
-                                </span>
-                              ) : null}
-                              <div className="flex flex-wrap items-baseline gap-x-2 text-slate-900">
-                                <span className="text-xl font-semibold">{trade.code}</span>
-                                {trade.description ? (
-                                  <span className="text-2xl font-medium text-slate-600">{trade.description}</span>
-                                ) : null}
-                              </div>
-                              <span
-                                className={`rounded px-2 py-0.5 text-sm font-semibold ${
-                                  assigned.length === 0 ? "bg-amber-100 text-amber-700" : "text-slate-600"
-                                }`}
-                              >
-                                {assigned.length === 0
-                                  ? "0 Selected"
-                                  : `Coverage: ${Math.min(assigned.length, 3)}/3 subs invited`}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-3 text-sm text-slate-600">
-                              <span>Due {dueLabel}</span>
-                              <button
-                                type="button"
-                                onClick={() => setExpandedInviteTradeId((prev) => (prev === trade.id ? null : trade.id))}
-                                className="inline-flex items-center rounded border border-slate-300 bg-white px-2 py-1 text-sm font-semibold text-slate-700"
-                              >
-                                {expanded ? "Hide" : "Manage"}
-                              </button>
-                            </div>
-                          </div>
-
-                          {expanded ? (
-                            <>
-                              <div className="border-t border-slate-200 px-4 py-3">
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="text-2xl font-semibold text-slate-900">Invite subs to this trade</div>
-                                  <button
-                                    type="button"
-                                    className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700"
-                                  >
-                                    Add
-                                  </button>
-                                </div>
-                              </div>
-
-                              <div className="grid border-t border-slate-200 lg:grid-cols-2">
-                                <div className="border-r border-slate-200 p-4">
-                                  <input
-                                    value={inviteQueryByTradeId[trade.id] ?? ""}
-                                    onChange={(event) =>
-                                      setInviteQueryByTradeId((prev) => ({ ...prev, [trade.id]: event.target.value }))
-                                    }
-                                    placeholder="Search all subs..."
-                                    className="mt-3 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-800 focus:border-blue-500 focus:outline-none"
-                                  />
-                                  <div className="mt-4 overflow-hidden rounded-md border border-slate-200">
-                                    {recommended.length ? (
-                                      recommended.slice(0, 8).map((sub) => (
-                                        <div key={`${trade.id}-rec-${sub.id}`} className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 last:border-b-0">
-                                          <div className="min-w-0">
-                                            <div className="truncate text-sm font-semibold text-slate-800">{sub.company}</div>
-                                            <div className="text-sm text-slate-500">{sub.email ?? "No email in directory"}</div>
-                                          </div>
-                                          <button
-                                            type="button"
-                                            onClick={() => addSubToTrade(trade.id, sub)}
-                                            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-semibold text-slate-900 hover:bg-slate-100"
-                                          >
-                                            + Add
-                                          </button>
-                                        </div>
-                                      ))
-                                    ) : (
-                                      <div className="px-3 py-4 text-sm text-slate-500">No matching subcontractors.</div>
-                                    )}
+                                  {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-5 w-5" />}
+                                </button>
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm font-bold tracking-[0.18em] text-slate-500 md:text-[10px]">
+                                      {trade.code}
+                                    </span>
+                                    <h4 className="truncate text-lg font-bold tracking-tight text-slate-900 md:text-lg">
+                                      {trade.description ?? trade.code}
+                                    </h4>
                                   </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setNewSubDrawerTradeId(trade.id);
-                                      setNewSubDraft({
-                                        company_name: "",
-                                        primary_contact: "",
-                                        email: "",
-                                        phone: "",
-                                      });
-                                      setNewSubError(null);
-                                    }}
-                                    className="mt-3 text-sm font-semibold text-blue-700 hover:underline"
-                                  >
-                                    + Add new subcontractor
-                                  </button>
+                                  <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-semibold text-slate-500">
+                                    <span><span className="font-bold text-slate-900">{invitedCount}</span> invited</span>
+                                    <span><span className="font-bold text-[#FF6A21]">{biddingCount}</span> bidding</span>
+                                    <span><span className="font-bold text-emerald-500">{submittedCount}</span> submitted</span>
+                                  </div>
                                 </div>
+                              </div>
 
-                                <div className="p-4">
-                                  <div className="mb-3 flex items-center justify-between gap-2">
-                                    <div className="text-3xl font-semibold text-slate-900">Invited subs</div>
-                                    <div className="text-sm text-slate-600">
-                                      Selected: <span className="font-semibold">{assigned.length}</span>
+                              <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setNewSubDrawerTradeId(trade.id);
+                                    setNewSubDraft({
+                                      company_name: "",
+                                      primary_contact: "",
+                                      email: "",
+                                      phone: "",
+                                    });
+                                    setNewSubError(null);
+                                  }}
+                                  className="inline-flex h-9 items-center gap-2 rounded-[20px] border border-[#356DFF] bg-white px-5 text-sm font-semibold text-[#356DFF] shadow-sm hover:bg-blue-50 hover:text-[#2456dc]"
+                                >
+                                  <Plus className="h-4 w-4" />
+                                  Add Sub
+                                </button>
+                              </div>
+                            </div>
+
+                            {expanded ? (
+                              <>
+                                <div className="border-t border-slate-200 bg-slate-50/50">
+                                  <div className="grid grid-cols-[40px_minmax(160px,1.05fr)_minmax(180px,0.95fr)_150px_190px_32px] items-center gap-x-5 px-5 py-3 text-xs font-extrabold uppercase tracking-[0.06em] text-slate-500">
+                                    <div className="flex justify-center">
+                                      <span className="h-5 w-5 rounded-full border-2 border-[#356DFF]" />
                                     </div>
+                                    <div>Subcontractor</div>
+                                    <div>Contact</div>
+                                    <div>Status</div>
+                                    <div>Last Activity</div>
+                                    <div aria-hidden="true" />
                                   </div>
-                                  <div className="overflow-hidden rounded-md border border-slate-200">
-                                    <div className="overflow-x-auto">
-                                      <div>
-                                        <div className="grid grid-cols-[minmax(0,1fr)_104px_88px_40px] bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
-                                          <div>Company</div>
-                                          <div>Invite Status</div>
-                                          <div>Status</div>
-                                          <div aria-hidden="true" />
+                                </div>
+
+                                {assigned.length ? (
+                                  assigned.map((sub) => {
+                                    const responseStatus = sub.responseStatus ?? (sub.willBid ? "bidding" : sub.invited ? "viewed" : "invited");
+                                    const statusPillClass =
+                                      responseStatus === "submitted"
+                                        ? "border-emerald-200 bg-emerald-50 text-emerald-600"
+                                        : responseStatus === "bidding"
+                                          ? "border-orange-200 bg-orange-50 text-[#FF6A21]"
+                                          : responseStatus === "viewed"
+                                            ? "border-blue-200 bg-blue-50 text-[#356DFF]"
+                                            : responseStatus === "declined"
+                                              ? "border-red-200 bg-red-50 text-red-500"
+                                              : "border-slate-200 bg-slate-50 text-slate-500";
+                                    const statusDotClass =
+                                      responseStatus === "submitted"
+                                        ? "bg-emerald-500"
+                                        : responseStatus === "bidding"
+                                          ? "bg-[#FF6A21]"
+                                          : responseStatus === "viewed"
+                                            ? "bg-[#356DFF]"
+                                            : responseStatus === "declined"
+                                              ? "bg-red-500"
+                                            : "bg-slate-400";
+                                    const statusLabel =
+                                      responseStatus === "submitted"
+                                        ? "Submitted"
+                                        : responseStatus === "bidding"
+                                          ? "Bidding"
+                                          : responseStatus === "viewed"
+                                            ? "Viewed"
+                                            : responseStatus === "declined"
+                                              ? "Declined"
+                                            : "Invited";
+                                    const activityLabel =
+                                      responseStatus === "submitted"
+                                        ? "Submitted bid"
+                                        : responseStatus === "bidding"
+                                          ? "Downloaded plans"
+                                          : responseStatus === "viewed"
+                                            ? "Opened email"
+                                            : responseStatus === "declined"
+                                              ? "Declined invite"
+                                            : "Invite sent";
+
+                                    return (
+                                      <div
+                                        key={`${trade.id}-assigned-${sub.id}`}
+                                        className="grid grid-cols-[40px_minmax(160px,1.05fr)_minmax(180px,0.95fr)_150px_190px_32px] items-center gap-x-5 border-t border-slate-200 px-5 py-5"
+                                      >
+                                        <div className="flex justify-center">
+                                          <span className="h-5 w-5 rounded-full border-2 border-[#356DFF]" />
                                         </div>
-                                        {assigned.length ? (
-                                          assigned.map((sub) => (
-                                            <div
-                                              key={`${trade.id}-assigned-${sub.id}`}
-                                              className="grid grid-cols-[minmax(0,1fr)_104px_88px_40px] border-t border-slate-200 px-3 py-2"
+                                        <div className="min-w-0">
+                                          <div className="truncate text-m font-bold text-slate-900">{sub.company}</div>
+                                        </div>
+                                        <div className="min-w-0">
+                                          <div className="truncate text-m text-slate-900">{sub.company}</div>
+                                          <div className="truncate text-xs text-slate-500">{sub.bidInviteEmail || sub.email || "No invite email set"}</div>
+                                        </div>
+                                        <div>
+                                          <span className={`inline-flex items-center gap-2 rounded-full border px-4 py-2 text-xs font-semibold ${statusPillClass}`}>
+                                            <span className={`h-2.5 w-2.5 rounded-full ${statusDotClass}`} />
+                                            {statusLabel}
+                                          </span>
+                                        </div>
+                                        <div className="flex min-w-0 items-center gap-2 text-sm text-slate-500">
+                                          {responseStatus === "submitted" ? (
+                                            <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                                          ) : responseStatus === "viewed" ? (
+                                            <Eye className="h-5 w-5 text-slate-400" />
+                                          ) : responseStatus === "declined" ? (
+                                            <Clock3 className="h-5 w-5 text-red-400" />
+                                          ) : (
+                                            <Upload className="h-5 w-5 text-slate-400" />
+                                          )}
+                                          <span className="truncate">{activityLabel}</span>
+                                        </div>
+                                        <div className="flex justify-end">
+                                          <DropdownMenu>
+                                            <DropdownMenuTrigger asChild>
+                                              <button
+                                                type="button"
+                                                className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
+                                                aria-label={`More actions for ${sub.company}`}
+                                                title={`More actions for ${sub.company}`}
+                                              >
+                                                <Ellipsis className="size-4" />
+                                              </button>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent
+                                              align="end"
+                                              className="min-w-[220px] overflow-hidden rounded-2xl border border-border bg-surface p-1 shadow-soft-md"
                                             >
-                                              <div className="min-w-0">
-                                                <div className="truncate text-sm font-semibold text-slate-800">{sub.company}</div>
-                                                <div className="text-sm text-slate-500">{sub.bidInviteEmail || "No invite email set"}</div>
-                                              </div>
-                                              <div className="pr-1 text-sm text-slate-600">{sub.invited ? "Invited" : "Not Sent"}</div>
-                                              <div>
-                                                <span
-                                                  className={`inline-flex rounded px-2 py-0.5 text-sm font-semibold ${
-                                                    sub.willBid
-                                                      ? "bg-emerald-100 text-emerald-700"
-                                                      : sub.invited
-                                                        ? "bg-slate-100 text-slate-700"
-                                                        : "bg-amber-100 text-amber-700"
-                                                  }`}
-                                                >
-                                                  {sub.willBid ? "Bidding" : sub.invited ? "Viewed" : "Draft"}
-                                                </span>
-                                              </div>
-                                              <div className="flex justify-end">
-                                                <DropdownMenu>
-                                                  <DropdownMenuTrigger asChild>
-                                                    <button
-                                                      type="button"
-                                                      className="inline-flex size-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                                                      aria-label={`More actions for ${sub.company}`}
-                                                      title={`More actions for ${sub.company}`}
-                                                    >
-                                                      <Ellipsis className="size-4" />
-                                                    </button>
-                                                  </DropdownMenuTrigger>
-                                                  <DropdownMenuContent align="end" className="w-40">
-                                                    <DropdownMenuItem
-                                                      variant="destructive"
-                                                      onClick={() => removeSubFromTrade(trade.id, sub.id)}
-                                                    >
-                                                      <Trash2Icon className="size-4" />
-                                                      Remove sub
-                                                    </DropdownMenuItem>
-                                                  </DropdownMenuContent>
-                                                </DropdownMenu>
-                                              </div>
-                                            </div>
-                                          ))
-                                        ) : (
-                                          <div className="border-t border-slate-200 px-3 py-4 text-sm text-slate-500">No subs added for this trade yet.</div>
-                                        )}
+                                              <DropdownMenuSub>
+                                                <DropdownMenuSubTrigger className="h-11 cursor-pointer rounded-xl px-5 py-3 text-base font-medium text-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground [&_svg]:h-5 [&_svg]:w-5">
+                                                  <ArrowRightLeft className="size-4" />
+                                                  Move to trade
+                                                </DropdownMenuSubTrigger>
+                                                <DropdownMenuSubContent className="min-w-[220px] overflow-hidden rounded-2xl border border-border bg-surface p-1 shadow-soft-md">
+                                                  {selectedTrades
+                                                    .filter((option) => option.id !== trade.id)
+                                                    .map((option) => (
+                                                      <DropdownMenuItem
+                                                        key={`move-${sub.id}-${option.id}`}
+                                                        onClick={() => moveInviteSubToTrade(trade.id, option.id, sub)}
+                                                        className="h-11 cursor-pointer rounded-xl px-5 py-3 text-base font-medium text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+                                                      >
+                                                        {option.description ?? option.code}
+                                                      </DropdownMenuItem>
+                                                    ))}
+                                                </DropdownMenuSubContent>
+                                              </DropdownMenuSub>
+                                              <DropdownMenuSub>
+                                                <DropdownMenuSubTrigger className="h-11 cursor-pointer rounded-xl px-5 py-3 text-base font-medium text-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground [&_svg]:h-5 [&_svg]:w-5">
+                                                  <CheckCircle2 className="size-4" />
+                                                  Change Status
+                                                </DropdownMenuSubTrigger>
+                                                <DropdownMenuSubContent className="min-w-[220px] overflow-hidden rounded-2xl border border-border bg-surface p-1 shadow-soft-md">
+                                                  <DropdownMenuRadioGroup
+                                                    value={sub.responseStatus ?? "invited"}
+                                                    onValueChange={(value) =>
+                                                      changeInviteSubStatus(trade.id, sub, value as AssignedSub["responseStatus"])
+                                                    }
+                                                  >
+                                                    {([
+                                                      { value: "invited", label: "Invited" },
+                                                      { value: "viewed", label: "Viewed" },
+                                                      { value: "bidding", label: "Bidding" },
+                                                      { value: "submitted", label: "Submitted" },
+                                                      { value: "declined", label: "Declined" },
+                                                    ] as const).map((option) => (
+                                                      <DropdownMenuRadioItem
+                                                        key={`status-${sub.id}-${option.value}`}
+                                                        value={option.value}
+                                                        className="h-11 cursor-pointer rounded-xl px-5 py-3 pr-10 text-base font-medium text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+                                                      >
+                                                        {option.label}
+                                                      </DropdownMenuRadioItem>
+                                                    ))}
+                                                  </DropdownMenuRadioGroup>
+                                                </DropdownMenuSubContent>
+                                              </DropdownMenuSub>
+                                              <DropdownMenuSeparator className="my-1 bg-border" />
+                                              <DropdownMenuItem
+                                                variant="destructive"
+                                                onClick={() => removeSubFromTrade(trade.id, sub.id)}
+                                                className="h-11 cursor-pointer rounded-xl px-5 py-3 text-base font-medium text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive"
+                                              >
+                                                <Trash2Icon className="size-4" />
+                                                Remove from trade
+                                              </DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                          </DropdownMenu>
+                                        </div>
                                       </div>
-                                    </div>
+                                    );
+                                  })
+                                ) : (
+                                  <div className="border-t border-slate-200 px-6 py-8 text-[16px] text-slate-500">
+                                    No subs added for this trade yet.
                                   </div>
-                                </div>
-                              </div>
-                            </>
-                          ) : null}
+                                )}
+                              </>
+                            ) : null}
                           </article>
                         );
-                      })
-                    ) : (
-                      <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
-                        No subcontractors or trades match the current filters.
-                      </div>
-                    )}
-                  </div>
-                ) : (
+                    })
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
+                      No subcontractors or trades match the current filters.
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <section className="rounded-xl border border-slate-200 bg-white p-4">
                   <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
                     No trades selected yet. Go to Trade Coverage and add trades first.
                   </div>
-                )}
-              </section>
+                </section>
+              )}
             </div>
 
             {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
