@@ -1422,6 +1422,9 @@ export default function NewBidPackagePage() {
   const [loadingSubOptions, setLoadingSubOptions] = useState(false);
   const [companyUserOptions, setCompanyUserOptions] = useState<CompanyUserOption[]>([]);
   const [assignedSubsByTradeId, setAssignedSubsByTradeId] = useState<Record<string, AssignedSub[]>>({});
+  const [inviteSubsSearchQuery, setInviteSubsSearchQuery] = useState("");
+  const [inviteSubsStatusFilter, setInviteSubsStatusFilter] = useState("__all__");
+  const [inviteSubsTradeFilter, setInviteSubsTradeFilter] = useState("__all__");
   const [inviteQueryByTradeId, setInviteQueryByTradeId] = useState<Record<string, string>>({});
   const [expandedInviteTradeId, setExpandedInviteTradeId] = useState<string | null>(null);
   const [newSubDrawerTradeId, setNewSubDrawerTradeId] = useState<string | null>(null);
@@ -2421,6 +2424,58 @@ export default function NewBidPackagePage() {
     () => selectedTradeCards.reduce((sum, trade) => sum + trade.matchingSubs, 0),
     [selectedTradeCards]
   );
+
+  const filteredInviteTrades = useMemo(() => {
+    const query = inviteSubsSearchQuery.trim().toLowerCase();
+
+    return selectedTrades.filter((trade) => {
+      if (inviteSubsTradeFilter !== "__all__" && trade.id !== inviteSubsTradeFilter) return false;
+
+      const assigned = assignedSubsByTradeId[trade.id] ?? [];
+      const matchesStatus =
+        inviteSubsStatusFilter === "__all__"
+          ? true
+          : assigned.some((sub) => {
+              if (inviteSubsStatusFilter === "bidding") return sub.willBid;
+              if (inviteSubsStatusFilter === "invited") return sub.invited && !sub.willBid;
+              if (inviteSubsStatusFilter === "submitted") return false;
+              if (inviteSubsStatusFilter === "declined") return false;
+              return true;
+            });
+
+      if (!matchesStatus) return false;
+      if (!query) return true;
+
+      const tradeText = `${trade.code} ${trade.description ?? ""}`.toLowerCase();
+      if (tradeText.includes(query)) return true;
+
+      return assigned.some((sub) =>
+        `${sub.company} ${sub.bidInviteEmail || sub.email || ""}`.toLowerCase().includes(query)
+      );
+    });
+  }, [
+    assignedSubsByTradeId,
+    inviteSubsSearchQuery,
+    inviteSubsStatusFilter,
+    inviteSubsTradeFilter,
+    selectedTrades,
+  ]);
+
+  const openNewSubDrawerFromInviteToolbar = () => {
+    const targetTradeId =
+      inviteSubsTradeFilter !== "__all__"
+        ? inviteSubsTradeFilter
+        : filteredInviteTrades[0]?.id ?? selectedTrades[0]?.id ?? null;
+    if (!targetTradeId) return;
+    setNewSubDrawerTradeId(targetTradeId);
+    setNewSubDraft({
+      company_name: "",
+      primary_contact: "",
+      email: "",
+      phone: "",
+    });
+    setNewSubError(null);
+  };
 
   const sortedProjectTaxCityOptions = useMemo(
     () =>
@@ -5086,28 +5141,102 @@ export default function NewBidPackagePage() {
           </>
         ) : activePanel === "invite-subs" ? (
           <>
-            <section className="rounded-xl border border-slate-200 bg-white p-0">
-              <div className="border-b border-slate-200 px-5 py-4">
-                <h3 className="text-[18px] font-semibold text-slate-900">Invite Subs</h3>
-                <p className="mt-1 text-sm text-slate-600">Invite subcontractors by trade and track response status.</p>
-              </div>
+            <div className="space-y-6">
+              <section>
+                <h3 className="text-2xl font-extrabold leading-none text-slate-950 [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+                  Invite Subs
+                </h3>
+                <p className="mt-1 max-w-3xl text-[16px] leading-7 text-slate-500">
+                  Invite subcontractors by trade and track response status.
+                </p>
+              </section>
 
-              <div className="p-4">
+              <section className="rounded-xl border border-slate-200 bg-white p-4">
                 {selectedTrades.length ? (
                   <div className="space-y-4">
-                    {selectedTrades.map((trade) => {
-                      const assigned = assignedSubsByTradeId[trade.id] ?? [];
-                      const expanded = expandedInviteTradeId === trade.id;
-                      const dueLabel = formatBidDueDateLabel(draft);
-                      const recommended = subOptions.filter((option) => {
-                        const assignedIds = new Set(assigned.map((item) => item.id));
-                        if (assignedIds.has(option.id)) return false;
-                        const query = (inviteQueryByTradeId[trade.id] ?? "").trim().toLowerCase();
-                        if (!query) return true;
-                        return option.company.toLowerCase().includes(query);
-                      });
-                      return (
-                        <article key={`invite-${trade.id}`} className="overflow-hidden rounded-lg border border-slate-200">
+                    <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-soft-sm">
+                      <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+                        <div className="grid flex-1 gap-3 md:grid-cols-[minmax(0,1.35fr)_260px_240px]">
+                          <label className="relative block">
+                            <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                            <input
+                              value={inviteSubsSearchQuery}
+                              onChange={(event) => setInviteSubsSearchQuery(event.target.value)}
+                              placeholder="Search subcontractors..."
+                              className="h-10 w-full rounded-[20px] border border-slate-200 bg-white pl-12 pr-4 text-[17px] text-slate-700 shadow-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                            />
+                          </label>
+
+                          <Select value={inviteSubsStatusFilter} onValueChange={setInviteSubsStatusFilter}>
+                            <SelectTrigger
+                              size="field"
+                              className="h-10 w-full rounded-[20px] border border-slate-200 bg-white px-5 text-[17px] font-semibold text-slate-900 shadow-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                            >
+                              <span className="flex items-center gap-2">
+                                <Filter className="h-5 w-5 text-current" />
+                                <SelectValue placeholder="All statuses" />
+                              </span>
+                            </SelectTrigger>
+                            <SelectContent className="min-w-[220px] rounded-2xl border border-slate-200 bg-white p-1 shadow-soft-md">
+                              <SelectItem value="__all__" className="rounded-xl text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground">All statuses</SelectItem>
+                              <SelectItem value="invited" className="rounded-xl text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground">Invited</SelectItem>
+                              <SelectItem value="bidding" className="rounded-xl text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground">Bidding</SelectItem>
+                              <SelectItem value="submitted" className="rounded-xl text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground">Submitted</SelectItem>
+                              <SelectItem value="declined" className="rounded-xl text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground">Declined</SelectItem>
+                            </SelectContent>
+                          </Select>
+
+                          <Select value={inviteSubsTradeFilter} onValueChange={setInviteSubsTradeFilter}>
+                            <SelectTrigger
+                              size="field"
+                              className="h-10 w-full rounded-[20px] border border-slate-200 bg-white px-5 text-[17px] font-semibold text-slate-900 shadow-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                            >
+                              <span className="flex items-center gap-2">
+                                <Filter className="h-5 w-5 text-current" />
+                                <SelectValue placeholder="All trades" />
+                              </span>
+                            </SelectTrigger>
+                            <SelectContent className="min-w-[220px] rounded-2xl border border-slate-200 bg-white p-1 shadow-soft-md">
+                              <SelectItem value="__all__" className="rounded-xl text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground">All trades</SelectItem>
+                              {selectedTrades.map((trade) => (
+                                <SelectItem
+                                  key={`invite-filter-${trade.id}`}
+                                  value={trade.id}
+                                  className="rounded-xl text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+                                >
+                                  {trade.description ?? trade.code}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={openNewSubDrawerFromInviteToolbar}
+                          disabled={!selectedTrades.length}
+                          className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-[20px] bg-[#356DFF] px-6 text-[17px] font-semibold text-white shadow-sm hover:bg-[#2456dc] disabled:cursor-not-allowed disabled:opacity-50 xl:ml-3"
+                        >
+                          <Plus className="h-5 w-5" />
+                          Add Subcontractor
+                        </button>
+                      </div>
+                    </div>
+
+                    {filteredInviteTrades.length ? (
+                      filteredInviteTrades.map((trade) => {
+                        const assigned = assignedSubsByTradeId[trade.id] ?? [];
+                        const expanded = expandedInviteTradeId === trade.id;
+                        const dueLabel = formatBidDueDateLabel(draft);
+                        const recommended = subOptions.filter((option) => {
+                          const assignedIds = new Set(assigned.map((item) => item.id));
+                          if (assignedIds.has(option.id)) return false;
+                          const query = (inviteQueryByTradeId[trade.id] ?? "").trim().toLowerCase();
+                          if (!query) return true;
+                          return option.company.toLowerCase().includes(query);
+                        });
+                        return (
+                          <article key={`invite-${trade.id}`} className="overflow-hidden rounded-lg border border-slate-200">
                           <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-50 px-4 py-3">
                             <div className="flex items-center gap-3">
                               {assigned.length > 0 ? (
@@ -5289,17 +5418,22 @@ export default function NewBidPackagePage() {
                               </div>
                             </>
                           ) : null}
-                        </article>
-                      );
-                    })}
+                          </article>
+                        );
+                      })
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
+                        No subcontractors or trades match the current filters.
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-sm text-slate-600">
                     No trades selected yet. Go to Trade Coverage and add trades first.
                   </div>
                 )}
-              </div>
-            </section>
+              </section>
+            </div>
 
             {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
