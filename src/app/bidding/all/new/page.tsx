@@ -410,6 +410,7 @@ type SubOption = {
   id: string;
   company: string;
   email?: string | null;
+  trade?: string | null;
 };
 
 type AssignedSub = SubOption & {
@@ -1790,7 +1791,15 @@ export default function NewBidPackagePage() {
       try {
         const response = await fetch("/api/directory/overview", { cache: "no-store" });
         const payload = (await response.json().catch(() => null)) as
-          | { companies?: Array<{ id?: string; name?: string; email?: string | null }>; error?: string }
+          | {
+              companies?: Array<{
+                id?: string;
+                name?: string;
+                email?: string | null;
+                trade?: string | null;
+              }>;
+              error?: string;
+            }
           | null;
         if (!active) return;
         if (!response.ok) {
@@ -1802,7 +1811,12 @@ export default function NewBidPackagePage() {
           ? payload.companies.flatMap((company): SubOption[] => {
               if (!company?.id || !company?.name) return [];
               return [
-                { id: company.id, company: company.name, email: company.email ?? null },
+                {
+                  id: company.id,
+                  company: company.name,
+                  email: company.email ?? null,
+                  trade: company.trade ?? null,
+                },
               ];
             })
           : [];
@@ -2323,6 +2337,68 @@ export default function NewBidPackagePage() {
       return `${code.code} ${code.description ?? ""} ${code.divisionLabel}`.toLowerCase().includes(query);
     });
   }, [costCodeQuery, costCodes, selectedDivisionFilter, selectedTrades]);
+
+  const groupedFilteredCostCodes = useMemo(() => {
+    const groups = new Map<string, CostCodeOption[]>();
+
+    for (const code of filteredCostCodes) {
+      const groupLabel = code.divisionLabel || "Other";
+      const existing = groups.get(groupLabel);
+      if (existing) {
+        existing.push(code);
+        continue;
+      }
+      groups.set(groupLabel, [code]);
+    }
+
+    return Array.from(groups.entries()).map(([label, codes]) => {
+      const match = label.match(/^(\d{2})\s*(.*)$/);
+      return {
+        label,
+        divisionCode: match?.[1] ?? "",
+        divisionTitle: match?.[2]?.trim() || label,
+        codes,
+      };
+    });
+  }, [filteredCostCodes]);
+
+  const subCountByDivisionLabel = useMemo(() => {
+    const counts = new Map<string, number>();
+    const companiesByDivision = new Map<string, Set<string>>();
+
+    const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+    for (const code of costCodes) {
+      const divisionLabel = code.divisionLabel || "Other";
+      if (companiesByDivision.has(divisionLabel)) continue;
+
+      const divisionTitle = code.divisionLabel.replace(/^\d{2}\s*/, "").trim();
+      const normalizedDivisionTitle = normalize(divisionTitle);
+      const normalizedDivisionLabel = normalize(divisionLabel);
+      const matchedCompanies = new Set<string>();
+
+      for (const sub of subOptions) {
+        const trade = (sub.trade ?? "").trim();
+        if (!trade) continue;
+        const normalizedTrade = normalize(trade);
+        if (!normalizedTrade) continue;
+
+        const isMatch =
+          normalizedTrade.includes(normalizedDivisionTitle) ||
+          normalizedDivisionTitle.includes(normalizedTrade) ||
+          normalizedTrade.includes(normalizedDivisionLabel) ||
+          normalizedDivisionLabel.includes(normalizedTrade);
+
+        if (!isMatch) continue;
+        matchedCompanies.add(sub.id);
+      }
+
+      companiesByDivision.set(divisionLabel, matchedCompanies);
+      counts.set(divisionLabel, matchedCompanies.size);
+    }
+
+    return counts;
+  }, [costCodes, subOptions]);
 
   const sortedProjectTaxCityOptions = useMemo(
     () =>
@@ -4729,7 +4805,7 @@ export default function NewBidPackagePage() {
                             value={costCodeQuery}
                             onChange={(event) => setCostCodeQuery(event.target.value)}
                             placeholder="Search cost codes or trades..."
-                            className="h-10 w-full rounded-[12px] border border-blue-500 bg-white pl-[46px] pr-4 text-[17px] text-slate-700 shadow-sm outline-none ring-4 ring-blue-100 placeholder:text-slate-400 focus:border-blue-500"
+                            className="h-10 w-full rounded-[12px] border border-slate-200 bg-white pl-[46px] pr-4 text-[17px] text-slate-700 shadow-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                           />
                         </label>
 
@@ -4766,25 +4842,74 @@ export default function NewBidPackagePage() {
 
                     <div className="border-t border-slate-200" />
 
-                    <div className="min-h-0 flex-1 overflow-auto bg-[#F8F8F7] p-4">
+                    <div className="min-h-0 flex-1 overflow-auto bg-[#FCFCFB] p-4">
                       {loadingCostCodes ? (
                         <div className="px-3 py-3 text-sm text-slate-500">Loading cost codes...</div>
-                      ) : filteredCostCodes.length ? (
-                        filteredCostCodes.map((code) => (
-                          <div key={code.id} className="flex items-center justify-between gap-3 border-b border-slate-100 px-3 py-2 last:border-b-0">
-                            <div className="min-w-0">
-                              <div className="truncate text-sm font-semibold text-slate-800">{code.code}</div>
-                              <div className="truncate text-sm text-slate-500">{code.description ?? "No description"}</div>
+                      ) : groupedFilteredCostCodes.length ? (
+                        <div className="space-y-3">
+                          {groupedFilteredCostCodes.map((group) => (
+                            <div key={group.label} className="space-y-3">
+                              <div className="flex items-center gap-2 px-2">
+                                <div className="shrink-0 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                                  {group.divisionCode ? `DIV ${group.divisionCode}` : "OTHER"}
+                                </div>
+                                <div className="text-[14px] font-semibold text-slate-400">{group.divisionTitle}</div>
+                                <div className="h-px flex-1 bg-slate-200" />
+                              </div>
+
+                              <div className="space-y-3">
+                                {group.codes.map((code) => {
+                                  const subCount = subCountByDivisionLabel.get(code.divisionLabel) ?? 0;
+                                  const subCountToneClass =
+                                    subCount === 0
+                                      ? "bg-red-500"
+                                      : subCount <= 4
+                                        ? "bg-yellow-400"
+                                        : "bg-emerald-500";
+                                  const subCountLabel = subCount === 1 ? "sub" : "subs";
+
+                                  return (
+                                  <div
+                                    key={code.id}
+                                    className="rounded-[28px] border border-slate-200 bg-white px-5 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:px-3 md:py-3"
+                                  >
+                                    <div className="flex items-start justify-between gap-3 md:gap-4">
+                                      <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-3 md:gap-4">
+                                          <span className="inline-flex shrink-0 items-center rounded-full border border-slate-200 bg-[#FCFDFE] px-2 py-1 text-sm font-bold tracking-[0.18em] text-slate-500 md:px-1 md:py-1 md:text-[10px]">
+                                            {code.code}
+                                          </span>
+                                          <div className="min-w-0 text-m font-bold tracking-tight text-slate-900 md:text-m">
+                                            <div className="truncate">{code.description ?? "No description"}</div>
+                                          </div>
+                                        </div>
+                                        <div className="mt-1 flex items-center justify-between gap-4">
+                                          <div className="min-w-0 truncate text-sm leading-6 text-slate-500 md:text-sm">
+                                            {code.description ?? "No description"}
+                                          </div>
+                                          <div className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-slate-500">
+                                            <span className={`h-1.5 w-1.5 rounded-full ${subCountToneClass}`} />
+                                            {subCount} {subCountLabel}
+                                          </div>
+                                        </div>
+                                      </div>
+
+                                      <button
+                                        type="button"
+                                        onClick={() => addTradeFromCostCode(code)}
+                                        className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-3 py-2 text-base font-semibold text-[#356DFF] hover:bg-blue-50 hover:text-[#2456dc] md:gap-2 md:px-4 md:text-[15px]"
+                                      >
+                                        <Plus className="h-4 w-4 md:h-4 md:w-4" />
+                                        Add
+                                      </button>
+                                    </div>
+                                  </div>
+                                  );
+                                })}
+                              </div>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => addTradeFromCostCode(code)}
-                              className="rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                            >
-                              Add
-                            </button>
-                          </div>
-                        ))
+                          ))}
+                        </div>
                       ) : (
                         <div className="px-3 py-3 text-sm text-slate-500">{costCodeLoadError ?? "No cost codes found."}</div>
                       )}
