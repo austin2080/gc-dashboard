@@ -3,10 +3,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { Activity, BadgeCheck, Building2, Download, Filter, Plus, Search, Upload, UsersRound } from "lucide-react";
 import { Company, ProjectCompany, ProjectDirectoryEntry } from "@/lib/directory/types";
 import CompanyFormModal from "@/components/directory/company-form-modal";
 import CompanyDetailPanel from "@/components/directory/company-detail-panel";
 import { listCompanyCostCodesForCurrentCompany, type CompanyCostCode } from "@/lib/bidding/store";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 type TradeSelection = {
   type: "cost_code" | "custom";
@@ -64,6 +72,18 @@ function formatTradeSelectionLabel(selection: TradeSelection): string {
     return `${selection.code ?? ""}${selection.title ? ` ${selection.title}` : ""}`.trim();
   }
   return selection.title.trim();
+}
+
+function formatTradeFilterLabel(value: string): string {
+  return value
+    .split(/\s*\|\s*/)
+    .map((entry) => entry.replace(/^\d{2}(?:[-\s]\d{2}){0,3}\s*/, "").trim())
+    .filter(Boolean)
+    .join(" | ");
+}
+
+function filterWidthStyle(label: string, minCh: number) {
+  return { width: `${Math.max(minCh, label.length + 5)}ch` };
 }
 
 function dedupeTradeSelections(selections: TradeSelection[]): TradeSelection[] {
@@ -158,6 +178,8 @@ export default function DirectoryPageClient() {
   const [query, setQuery] = useState("");
   const [tradeFilter, setTradeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("active");
+  const [locationFilter, setLocationFilter] = useState("all");
+  const [ratingFilter, setRatingFilter] = useState("all");
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
@@ -276,6 +298,29 @@ export default function DirectoryPageClient() {
     const set = new Set(companies.map((c) => c.trade).filter(Boolean));
     return Array.from(set) as string[];
   }, [companies]);
+
+  const selectedTradeFilterLabel = tradeFilter === "all" ? "All Trades" : formatTradeFilterLabel(tradeFilter);
+  const selectedStatusFilterLabel =
+    statusFilter === "all" ? "All Status" : statusFilter === "active" ? "Active" : "Inactive";
+  const selectedLocationFilterLabel = locationFilter === "all" ? "All Locations" : locationFilter;
+  const selectedRatingFilterLabel = ratingFilter === "all" ? "Any Rating" : ratingFilter;
+
+  const locationOptions = useMemo(() => {
+    const values = new Set(
+      companies
+        .map((company) => {
+          const city = company.city?.trim();
+          const state = company.state?.trim();
+          if (city && state) return `${city}, ${state}`;
+          if (state) return state;
+          if (city) return city;
+          return null;
+        })
+        .filter(Boolean)
+    );
+    return Array.from(values).sort((left, right) => left.localeCompare(right));
+  }, [companies]);
+
   const filteredCompanies = useMemo(() => {
     const q = query.trim().toLowerCase();
     return companies.filter((company) => {
@@ -287,19 +332,37 @@ export default function DirectoryPageClient() {
       const matchesTrade = tradeFilter === "all" || (company.trade ?? "") === tradeFilter;
       const matchesStatus =
         statusFilter === "all" || (statusFilter === "active" ? company.isActive : !company.isActive);
-      return matchesQuery && matchesTrade && matchesStatus;
+      const companyLocation = (() => {
+        const city = company.city?.trim();
+        const state = company.state?.trim();
+        if (city && state) return `${city}, ${state}`;
+        if (state) return state;
+        if (city) return city;
+        return "";
+      })();
+      const matchesLocation = locationFilter === "all" || companyLocation === locationFilter;
+      const matchesRating = ratingFilter === "all";
+      return matchesQuery && matchesTrade && matchesStatus && matchesLocation && matchesRating;
     });
-  }, [companies, query, tradeFilter, statusFilter]);
+  }, [companies, locationFilter, query, ratingFilter, statusFilter, tradeFilter]);
 
   const directoryStats = useMemo(() => {
     const activeCount = companies.filter((company) => company.isActive).length;
     const inactiveCount = companies.length - activeCount;
     const assignedCount = new Set(relations.map((relation) => relation.companyId)).size;
+    const uniqueTrades = new Set(
+      companies.flatMap((company) =>
+        parseTradeSelectionsFromValue(company.trade).map((selection) => normalizeTradeValue(selection.title))
+      )
+    ).size;
+    const activeShare = companies.length ? Math.round((activeCount / companies.length) * 100) : 0;
     return {
       total: companies.length,
       active: activeCount,
       inactive: inactiveCount,
       assigned: assignedCount,
+      uniqueTrades,
+      activeShare,
     };
   }, [companies, relations]);
 
@@ -631,85 +694,210 @@ export default function DirectoryPageClient() {
   }
 
   return (
-    <div className="space-y-4">
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <article className="rounded-lg border bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-black/60">Total subs</p>
-          <p className="mt-2 text-2xl font-semibold">{directoryStats.total}</p>
-        </article>
-        <article className="rounded-lg border bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-black/60">Active</p>
-          <p className="mt-2 text-2xl font-semibold text-emerald-700">{directoryStats.active}</p>
-        </article>
-        <article className="rounded-lg border bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-black/60">Inactive</p>
-          <p className="mt-2 text-2xl font-semibold text-slate-600">{directoryStats.inactive}</p>
-        </article>
-        <article className="rounded-lg border bg-white p-4">
-          <p className="text-xs uppercase tracking-wide text-black/60">Assigned to projects</p>
-          <p className="mt-2 text-2xl font-semibold">{directoryStats.assigned}</p>
-        </article>
+    <div className="space-y-6">
+      <section className="flex flex-wrap items-end justify-between gap-4">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-extrabold leading-none text-slate-950 [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+            Subs Directory
+          </h1>
+          <p className="max-w-4xl text-[16px] leading-7 text-slate-500">
+            Manage subcontractors, contacts, trades, bid history, and performance across all projects.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="inline-flex h-11 items-center gap-2 rounded-[16px] border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50"
+            disabled={importing}
+          >
+            <Upload className="h-5 w-5" />
+            {importing ? "Importing..." : "Import CSV"}
+          </button>
+          <button
+            onClick={() => downloadCsv("directory-export.csv", buildCsv(companies))}
+            className="inline-flex h-11 items-center gap-2 rounded-[16px] border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-900 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={companies.length === 0}
+          >
+            <Download className="h-5 w-5" />
+            Export
+          </button>
+          <button
+            onClick={openAddModal}
+            className="inline-flex h-11 items-center gap-2 rounded-[16px] bg-[#356DFF] px-5 text-sm font-semibold text-white shadow-sm hover:bg-[#2456dc]"
+          >
+            <Plus className="h-5 w-5" />
+            Add Subcontractor
+          </button>
+        </div>
       </section>
 
-      <section className="rounded-lg border">
-        <div className="space-y-4 border-b p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold">Sub Directory</h2>
-              <p className="text-sm text-black/70">Search, filter by trade, and jump into subcontractor profiles.</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button onClick={openAddModal} className="rounded border border-black bg-black px-4 py-2 text-sm text-white">
-                Add New Sub
-              </button>
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="rounded border px-4 py-2 text-sm"
-                disabled={importing}
-              >
-                {importing ? "Importing..." : "Import CSV"}
-              </button>
-              <button
-                onClick={() => downloadCsv("directory-export.csv", buildCsv(companies))}
-                className="rounded border px-4 py-2 text-sm"
-                disabled={companies.length === 0}
-              >
-                Export CSV
-              </button>
-            </div>
-          </div>
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          {
+            label: "Total Subs",
+            value: String(directoryStats.total),
+            helper: "",
+            icon: Building2,
+          },
+          {
+            label: "Active Subs",
+            value: String(directoryStats.active),
+            helper: `${directoryStats.activeShare}% of directory`,
+            icon: BadgeCheck,
+          },
+          {
+            label: "Trades Covered",
+            value: String(directoryStats.uniqueTrades),
+            helper: "Unique trades",
+            icon: UsersRound,
+          },
+          {
+            label: "Avg Response Rate",
+            value: "—",
+            helper: "No ratings yet",
+            icon: Activity,
+          },
+        ].map((card) => {
+          const Icon = card.icon;
+          return (
+            <article key={card.label} className="rounded-[24px] border border-slate-200 bg-white px-6 py-4 shadow-soft-sm">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">{card.label}</p>
+                  <p className="mt-3 text-3xl font-bold leading-none tracking-tight text-slate-950">{card.value}</p>
+                  {card.helper ? <p className="mt-3 text-xs font-medium text-slate-500">{card.helper}</p> : null}
+                </div>
+                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[18px] bg-[#EEF2FF] text-[#356DFF]">
+                  <Icon className="h-5 w-5" />
+                </span>
+              </div>
+            </article>
+          );
+        })}
+      </section>
 
+      <section className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-soft-sm">
+        <div className="border-b border-slate-200 px-6 py-4">
           <div className="flex flex-wrap items-center gap-3">
-            <input className="min-w-[220px] flex-1 rounded border border-black/20 px-3 py-2 text-sm" placeholder="Search company, contact, or email" value={query} onChange={(event) => setQuery(event.target.value)} />
-            <select className="rounded border border-black/20 px-3 py-2 text-sm" value={tradeFilter} onChange={(event) => setTradeFilter(event.target.value)}>
-            <option value="all">All trades</option>
-            {tradeOptions.map((trade) => (
-              <option key={trade} value={trade}>
-                {trade}
-              </option>
-            ))}
-          </select>
-          <select className="rounded border border-black/20 px-3 py-2 text-sm" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-            <option value="all">All statuses</option>
-            <option value="active">Active</option>
-            <option value="inactive">Inactive</option>
-          </select>
-          <button
-            onClick={() => downloadCsv("directory-template.csv", buildCsv([]))}
-            className="rounded border px-4 py-2 text-sm"
-          >
-            Download Template
-          </button>
-          <p className="ml-auto text-xs text-black/60">{filteredCompanies.length} result(s)</p>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            onChange={(event) => handleImport(event.target.files?.[0])}
-          />
+            <label className="relative min-w-[360px] flex-1">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+              <input
+                className="h-10 w-full rounded-[20px] border border-slate-200 bg-white pl-12 pr-4 text-sm text-slate-700 shadow-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                placeholder="Search subs, contacts, trades, or email..."
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </label>
+            <div className="shrink-0" style={filterWidthStyle(selectedTradeFilterLabel, 14)}>
+              <Select value={tradeFilter} onValueChange={setTradeFilter}>
+                <SelectTrigger
+                  size="field"
+                  className="h-10 w-full rounded-[20px] border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-900 shadow-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                >
+                  <span className="flex items-center gap-2">
+                    <Filter className="h-4 w-4 text-current" />
+                    <SelectValue placeholder="All Trades" />
+                  </span>
+                </SelectTrigger>
+                <SelectContent className="min-w-[220px] rounded-2xl border border-slate-200 bg-white p-1 shadow-soft-md">
+                  <SelectItem value="all" className="rounded-xl text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground">
+                    All Trades
+                  </SelectItem>
+                  {tradeOptions.map((trade) => (
+                    <SelectItem
+                      key={trade}
+                      value={trade}
+                      className="rounded-xl text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+                    >
+                      {formatTradeFilterLabel(trade)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="shrink-0" style={filterWidthStyle(selectedStatusFilterLabel, 12)}>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger
+                  size="field"
+                  className="h-10 w-full rounded-[20px] border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-900 shadow-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                >
+                  <span className="flex items-center gap-2">
+                    <Filter className="h-4 w-4 text-current" />
+                    <SelectValue placeholder="All Status" />
+                  </span>
+                </SelectTrigger>
+                <SelectContent className="min-w-[220px] rounded-2xl border border-slate-200 bg-white p-1 shadow-soft-md">
+                  <SelectItem value="all" className="rounded-xl text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground">
+                    All Status
+                  </SelectItem>
+                  <SelectItem value="active" className="rounded-xl text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground">
+                    Active
+                  </SelectItem>
+                  <SelectItem value="inactive" className="rounded-xl text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground">
+                    Inactive
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="shrink-0" style={filterWidthStyle(selectedLocationFilterLabel, 15)}>
+              <Select value={locationFilter} onValueChange={setLocationFilter}>
+                <SelectTrigger
+                  size="field"
+                  className="h-10 w-full rounded-[20px] border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-900 shadow-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                >
+                  <span className="flex items-center gap-2">
+                    <Filter className="h-4 w-4 text-current" />
+                    <SelectValue placeholder="All Locations" />
+                  </span>
+                </SelectTrigger>
+                <SelectContent className="min-w-[240px] rounded-2xl border border-slate-200 bg-white p-1 shadow-soft-md">
+                  <SelectItem value="all" className="rounded-xl text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground">
+                    All Locations
+                  </SelectItem>
+                  {locationOptions.map((location) => (
+                    <SelectItem
+                      key={location}
+                      value={location}
+                      className="rounded-xl text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+                    >
+                      {location}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="shrink-0" style={filterWidthStyle(selectedRatingFilterLabel, 17)}>
+              <Select value={ratingFilter} onValueChange={setRatingFilter}>
+                <SelectTrigger
+                  size="field"
+                  className="h-10 w-full rounded-[20px] border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-900 shadow-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                >
+                  <span className="flex items-center gap-2">
+                    <Filter className="h-4 w-4 text-current" />
+                    <SelectValue placeholder="Any Rating" />
+                  </span>
+                </SelectTrigger>
+                <SelectContent className="min-w-[220px] rounded-2xl border border-slate-200 bg-white p-1 shadow-soft-md">
+                  <SelectItem value="all" className="rounded-xl text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground">
+                    Any Rating
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <p className="text-sm font-medium text-slate-500">{filteredCompanies.length} of {companies.length}</p>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(event) => handleImport(event.target.files?.[0])}
+            />
+          </div>
         </div>
-        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-soft-sm">
         {toast ? (
           <div className={`border-b px-4 py-2 text-sm ${toast.type === "error" ? "text-red-600" : "text-emerald-700"}`}>
             {toast.message}
