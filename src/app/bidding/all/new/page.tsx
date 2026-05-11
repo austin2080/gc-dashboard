@@ -1447,6 +1447,9 @@ export default function NewBidPackagePage() {
   const [inviteSubsSearchQuery, setInviteSubsSearchQuery] = useState("");
   const [inviteSubsStatusFilter, setInviteSubsStatusFilter] = useState("__all__");
   const [inviteSubsTradeFilter, setInviteSubsTradeFilter] = useState("__all__");
+  const [inviteTradeDrawerOpen, setInviteTradeDrawerOpen] = useState(false);
+  const [inviteTradeQuery, setInviteTradeQuery] = useState("");
+  const [inviteTradeDivisionFilter, setInviteTradeDivisionFilter] = useState("__all__");
   const [inviteQueryByTradeId, setInviteQueryByTradeId] = useState<Record<string, string>>({});
   const [expandedInviteTradeIds, setExpandedInviteTradeIds] = useState<string[]>([]);
   const previousActivePanelRef = useRef(activePanel);
@@ -2400,6 +2403,39 @@ export default function NewBidPackagePage() {
     });
   }, [filteredCostCodes]);
 
+  const filteredInviteTradeCostCodes = useMemo(() => {
+    const query = inviteTradeQuery.trim().toLowerCase();
+    return costCodes.filter((code) => {
+      if (inviteTradeDivisionFilter !== "__all__" && code.divisionCode !== inviteTradeDivisionFilter) return false;
+      if (!query) return true;
+      return `${code.code} ${code.description ?? ""} ${code.divisionLabel}`.toLowerCase().includes(query);
+    });
+  }, [costCodes, inviteTradeDivisionFilter, inviteTradeQuery]);
+
+  const groupedInviteTradeCostCodes = useMemo(() => {
+    const groups = new Map<string, CostCodeOption[]>();
+
+    for (const code of filteredInviteTradeCostCodes) {
+      const groupLabel = code.divisionLabel || "Other";
+      const existing = groups.get(groupLabel);
+      if (existing) {
+        existing.push(code);
+        continue;
+      }
+      groups.set(groupLabel, [code]);
+    }
+
+    return Array.from(groups.entries()).map(([label, codes]) => {
+      const match = label.match(/^(\d{2})\s*(.*)$/);
+      return {
+        label,
+        divisionCode: match?.[1] ?? "",
+        divisionTitle: match?.[2]?.trim() || label,
+        codes,
+      };
+    });
+  }, [filteredInviteTradeCostCodes]);
+
   const matchedSubsByDivisionLabel = useMemo(() => {
     const matches = new Map<string, SubOption[]>();
 
@@ -2529,22 +2565,6 @@ export default function NewBidPackagePage() {
     selectedTrades,
   ]);
 
-  const openNewSubDrawerFromInviteToolbar = () => {
-    const targetTradeId =
-      inviteSubsTradeFilter !== "__all__"
-        ? inviteSubsTradeFilter
-        : filteredInviteTrades[0]?.id ?? selectedTrades[0]?.id ?? null;
-    if (!targetTradeId) return;
-    setNewSubDrawerTradeId(targetTradeId);
-    setNewSubDraft({
-      company_name: "",
-      primary_contact: "",
-      email: "",
-      phone: "",
-    });
-    setNewSubError(null);
-  };
-
   useEffect(() => {
     const wasInviteSubs = previousActivePanelRef.current === "invite-subs";
     if (activePanel !== "invite-subs") {
@@ -2643,6 +2663,13 @@ export default function NewBidPackagePage() {
       if (prev.some((trade) => trade.id === costCode.id)) return prev;
       return [...prev, { id: costCode.id, code: costCode.code, description: costCode.description }];
     });
+  };
+
+  const addTradeFromInviteDrawer = (costCode: CostCodeOption) => {
+    addTradeFromCostCode(costCode);
+    if ((subCountByDivisionLabel.get(costCode.divisionLabel) ?? 0) > 0) {
+      setExpandedInviteTradeIds((prev) => (prev.includes(costCode.id) ? prev : [...prev, costCode.id]));
+    }
   };
 
   const removeTrade = (tradeId: string) => {
@@ -5375,12 +5402,11 @@ export default function NewBidPackagePage() {
 
                         <button
                           type="button"
-                          onClick={openNewSubDrawerFromInviteToolbar}
-                          disabled={!selectedTrades.length}
+                          onClick={() => setInviteTradeDrawerOpen(true)}
                           className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-[20px] bg-[#356DFF] px-6 text-sm font-semibold text-white shadow-sm hover:bg-[#2456dc] disabled:cursor-not-allowed disabled:opacity-50 xl:ml-3"
                         >
                           <Plus className="h-5 w-5" />
-                          Add Subcontractor
+                          Add Trade
                         </button>
                       </div>
                     </div>
@@ -6454,6 +6480,190 @@ export default function NewBidPackagePage() {
           >
             {toast.message}
           </div>
+        </div>
+      ) : null}
+      {inviteTradeDrawerOpen ? (
+        <div className="fixed inset-0 z-50">
+          <button
+            type="button"
+            className="absolute inset-0 bg-slate-950/40"
+            aria-label="Close trade library drawer"
+            onClick={() => setInviteTradeDrawerOpen(false)}
+          />
+          <aside className="absolute right-0 top-0 flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl">
+            <div className="border-b border-slate-200 px-6 py-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h2 className="text-2xl font-semibold text-slate-900">Scope Library</h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Select trades from your cost code library to add them to the invite list.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInviteTradeDrawerOpen(false)}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                  aria-label="Close trade library drawer"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="px-6 pt-4 pb-4">
+                <div className="text-[16px] font-semibold text-slate-900">Scope Library</div>
+
+                <div className="mt-3 grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]">
+                  <label className="relative block">
+                    <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+                    <input
+                      value={inviteTradeQuery}
+                      onChange={(event) => setInviteTradeQuery(event.target.value)}
+                      placeholder="Search cost codes or trades..."
+                      className="h-10 w-full rounded-[12px] border border-slate-200 bg-white pl-[46px] pr-4 text-[17px] text-slate-700 shadow-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                    />
+                  </label>
+
+                  <Select value={inviteTradeDivisionFilter} onValueChange={setInviteTradeDivisionFilter}>
+                    <SelectTrigger
+                      size="field"
+                      className="h-10 w-full rounded-[12px] border border-slate-200 bg-white px-5 text-[17px] font-semibold text-slate-900 shadow-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                    >
+                      <span className="flex items-center gap-2">
+                        <Filter className="h-5 w-5 text-current" />
+                        <SelectValue placeholder="All divisions" />
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent className="min-w-[260px] rounded-2xl border border-slate-200 bg-white p-1 shadow-soft-md">
+                      <SelectItem
+                        value="__all__"
+                        className="min-h-11 rounded-xl py-2 text-foreground leading-6 data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[state=checked]:bg-transparent data-[state=checked]:text-foreground data-[state=checked]:data-[highlighted]:bg-accent data-[state=checked]:data-[highlighted]:text-accent-foreground"
+                      >
+                        All divisions
+                      </SelectItem>
+                      {divisionFilterOptions.map((option) => (
+                        <SelectItem
+                          key={`invite-trade-drawer-${option.value}`}
+                          value={option.value}
+                          className="min-h-11 rounded-xl py-2 text-foreground leading-6 data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[state=checked]:bg-transparent data-[state=checked]:text-foreground data-[state=checked]:data-[highlighted]:bg-accent data-[state=checked]:data-[highlighted]:text-accent-foreground"
+                        >
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div className="border-t border-slate-200" />
+
+              <div className="min-h-0 flex-1 overflow-auto bg-[#FCFCFB] p-4">
+                {loadingCostCodes ? (
+                  <div className="px-3 py-3 text-sm text-slate-500">Loading cost codes...</div>
+                ) : groupedInviteTradeCostCodes.length ? (
+                  <div className="space-y-3">
+                    {groupedInviteTradeCostCodes.map((group) => (
+                      <div key={`invite-group-${group.label}`} className="space-y-4">
+                        <div className="flex items-center gap-2 px-2">
+                          <div className="shrink-0 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                            {group.divisionCode ? `DIV ${group.divisionCode}` : "OTHER"}
+                          </div>
+                          <div className="text-[14px] font-semibold text-slate-400">{group.divisionTitle}</div>
+                          <div className="h-px flex-1 bg-slate-200" />
+                        </div>
+
+                        <div className="space-y-3">
+                          {group.codes.map((code) => {
+                            const isAdded = selectedTradeIds.has(code.id);
+                            const subCount = subCountByDivisionLabel.get(code.divisionLabel) ?? 0;
+                            const subCountToneClass =
+                              subCount === 0 ? "bg-red-500" : subCount <= 4 ? "bg-yellow-400" : "bg-emerald-500";
+                            const subCountDotClass = isAdded ? `${subCountToneClass} opacity-70` : subCountToneClass;
+                            const subCountLabel = subCount === 1 ? "sub" : "subs";
+
+                            return (
+                              <div
+                                key={`invite-drawer-${code.id}`}
+                                className={`rounded-[28px] border px-5 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] md:px-3 md:py-3 ${
+                                  isAdded ? "border-slate-200 bg-slate-50/80" : "border-slate-200 bg-white"
+                                }`}
+                              >
+                                <div className="flex items-start justify-between gap-3 md:gap-4">
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex items-center gap-3 md:gap-4">
+                                      <span
+                                        className={`inline-flex shrink-0 items-center rounded-full border px-2 py-1 text-sm font-bold tracking-[0.18em] md:px-1 md:py-1 md:text-[10px] ${
+                                          isAdded
+                                            ? "border-slate-200 bg-white text-slate-400"
+                                            : "border-slate-200 bg-[#FCFDFE] text-slate-500"
+                                        }`}
+                                      >
+                                        {code.code}
+                                      </span>
+                                      <div
+                                        className={`min-w-0 text-m font-bold tracking-tight md:text-m ${
+                                          isAdded ? "text-slate-500" : "text-slate-900"
+                                        }`}
+                                      >
+                                        <div className="truncate">{code.description ?? "No description"}</div>
+                                      </div>
+                                    </div>
+                                    <div className="mt-1 flex items-center justify-between gap-4">
+                                      <div
+                                        className={`min-w-0 truncate text-sm leading-6 md:text-sm ${
+                                          isAdded ? "text-slate-400" : "text-slate-500"
+                                        }`}
+                                      >
+                                        {code.description ?? "No description"}
+                                      </div>
+                                      <div
+                                        className={`inline-flex shrink-0 items-center gap-1 text-xs font-semibold ${
+                                          isAdded ? "text-slate-400" : "text-slate-500"
+                                        }`}
+                                      >
+                                        <span className={`h-1.5 w-1.5 rounded-full ${subCountDotClass}`} />
+                                        {subCount} {subCountLabel}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => addTradeFromInviteDrawer(code)}
+                                    disabled={isAdded}
+                                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-2 text-base font-semibold md:gap-2 md:px-4 md:text-[14px] ${
+                                      isAdded
+                                        ? "cursor-default bg-emerald-50/60 text-[rgba(37,177,112,0.7)]"
+                                        : "cursor-pointer text-[#356DFF] hover:bg-blue-50 hover:text-[#2456dc]"
+                                    }`}
+                                  >
+                                    {isAdded ? (
+                                      <>
+                                        <Check className="h-4 w-4 md:h-4 md:w-4" />
+                                        Added
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Plus className="h-4 w-4 md:h-4 md:w-4" />
+                                        Add
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="px-3 py-3 text-sm text-slate-500">No matching cost codes found.</div>
+                )}
+              </div>
+            </div>
+          </aside>
         </div>
       ) : null}
       {newSubDrawerTradeId ? (
