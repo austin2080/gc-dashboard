@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { Activity, BadgeCheck, Building2, Download, Ellipsis, Filter, Plus, Search, Upload, UsersRound } from "lucide-react";
 import { Company, ProjectCompany, ProjectDirectoryEntry } from "@/lib/directory/types";
 import CompanyFormModal from "@/components/directory/company-form-modal";
@@ -249,6 +248,7 @@ export default function DirectoryPageClient() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [importError, setImportError] = useState("");
   const [importing, setImporting] = useState(false);
+  const shouldLoadCostCodes = modalOpen || Boolean(detailCompanyId);
 
   useEffect(() => {
     const refreshStoredProject = () => {
@@ -308,7 +308,7 @@ export default function DirectoryPageClient() {
   useEffect(() => {
     let active = true;
     async function loadCostCodes() {
-      if (!modalOpen) return;
+      if (!shouldLoadCostCodes) return;
       setLoadingCostCodes(true);
       setCostCodeError("");
       try {
@@ -328,7 +328,7 @@ export default function DirectoryPageClient() {
     return () => {
       active = false;
     };
-  }, [modalOpen]);
+  }, [shouldLoadCostCodes]);
 
   useEffect(() => {
     if (!modalOpen || !costCodeOptions.length) return;
@@ -433,12 +433,18 @@ export default function DirectoryPageClient() {
   async function updateCompanyRecord(
     company: Company,
     overrides: Partial<{
+      name: string;
       trade: string;
       contactTitle: string | undefined;
       primaryContact: string | undefined;
       email: string | undefined;
       phone: string | undefined;
       officePhone: string | undefined;
+      address: string | undefined;
+      city: string | undefined;
+      state: string | undefined;
+      zip: string | undefined;
+      website: string | undefined;
       notes: string | undefined;
       vendorType: string | undefined;
       isActive: boolean;
@@ -450,8 +456,8 @@ export default function DirectoryPageClient() {
       companies: [
         {
           id: company.id,
-          name: company.name,
-          company_name: company.name,
+          name: overrides.name ?? company.name,
+          company_name: overrides.name ?? company.name,
           trade: overrides.trade ?? company.trade,
           contactTitle: overrides.contactTitle ?? company.contactTitle,
           contact_title: overrides.contactTitle ?? company.contactTitle,
@@ -463,10 +469,11 @@ export default function DirectoryPageClient() {
           office_phone: overrides.officePhone ?? company.officePhone,
           vendorType: overrides.vendorType ?? company.vendorType,
           vendor_type: overrides.vendorType ?? company.vendorType,
-          address: company.address,
-          city: company.city,
-          state: company.state,
-          zip: company.zip,
+          address: overrides.address ?? company.address,
+          city: overrides.city ?? company.city,
+          state: overrides.state ?? company.state,
+          zip: overrides.zip ?? company.zip,
+          website: overrides.website ?? company.website,
           status: (overrides.isActive ?? company.isActive) ? "Active" : "Inactive",
           notes: overrides.notes ?? company.notes,
           isActive: overrides.isActive ?? company.isActive,
@@ -1071,9 +1078,16 @@ export default function DirectoryPageClient() {
                   return (
                     <tr key={company.id} className="border-b last:border-b-0 transition-colors hover:bg-black/[0.03]">
                       <td className="px-5 py-3 align-top">
-                        <Link href={`/directory/${company.id}`} className="block underline-offset-2 hover:underline">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDetailCompanyId(company.id);
+                            setProjectPickerOpen(false);
+                          }}
+                          className="block text-left underline-offset-2 hover:underline"
+                        >
                           <div className="truncate text-[15px] font-bold tracking-tight text-slate-950">{company.name}</div>
-                        </Link>
+                        </button>
                         <div className="mt-3 flex flex-wrap gap-1">
                           {tradeTitles.slice(0, 2).map((trade) => (
                             <span
@@ -1137,8 +1151,14 @@ export default function DirectoryPageClient() {
                               align="end"
                               className="min-w-[220px] rounded-2xl border border-slate-200 bg-white p-1 shadow-soft-md"
                             >
-                              <DropdownMenuItem asChild className="h-11 cursor-pointer rounded-xl px-4 py-3 text-sm font-medium text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground">
-                                <Link href={`/directory/${company.id}`}>View Profile</Link>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setDetailCompanyId(company.id);
+                                  setProjectPickerOpen(false);
+                                }}
+                                className="h-11 cursor-pointer rounded-xl px-4 py-3 text-sm font-medium text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+                              >
+                                View Profile
                               </DropdownMenuItem>
                               <DropdownMenuItem
                                 onClick={() => openEditModal(company)}
@@ -1261,10 +1281,49 @@ export default function DirectoryPageClient() {
 
       <CompanyDetailPanel
         company={selectedCompany}
+        tradeOptions={costCodeOptions
+          .filter((code) => Boolean(code.title) && !code.code?.trim().startsWith("01"))
+          .map((code) => code.title)
+          .filter(Boolean)}
         assignedProjects={selectedCompanyProjects}
         allProjects={projects}
         projectPickerOpen={projectPickerOpen}
-        onClose={() => setDetailCompanyId(null)}
+        onClose={() => {
+          setDetailCompanyId(null);
+          setProjectPickerOpen(false);
+        }}
+        onSaveCompanyInfo={async (updates) => {
+          if (!selectedCompany) return;
+          const previousCompanies = companies;
+          setCompanies((current) =>
+            current.map((company) =>
+              company.id === selectedCompany.id
+                ? {
+                    ...company,
+                    name: updates.name,
+                    trade: updates.trade ?? company.trade,
+                    address: updates.address,
+                    city: updates.city,
+                    state: updates.state,
+                    zip: updates.zip,
+                    website: updates.website,
+                    phone: updates.phone,
+                    email: updates.email,
+                    isActive: updates.isActive,
+                  }
+                : company
+            )
+          );
+
+          try {
+            await updateCompanyRecord(selectedCompany, updates);
+            await fetchDirectory();
+            showToast("Company updated.", "success");
+          } catch (error) {
+            setCompanies(previousCompanies);
+            throw error;
+          }
+        }}
         onOpenProjectPicker={() => setProjectPickerOpen(true)}
         onAssignProject={async (projectId) => {
           if (!selectedCompany) return;
