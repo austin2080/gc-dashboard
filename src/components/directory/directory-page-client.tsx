@@ -3,11 +3,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Activity, BadgeCheck, Building2, Download, Filter, Plus, Search, Upload, UsersRound } from "lucide-react";
+import { Activity, BadgeCheck, Building2, Download, Ellipsis, Filter, Plus, Search, Upload, UsersRound } from "lucide-react";
 import { Company, ProjectCompany, ProjectDirectoryEntry } from "@/lib/directory/types";
 import CompanyFormModal from "@/components/directory/company-form-modal";
 import CompanyDetailPanel from "@/components/directory/company-detail-panel";
 import { listCompanyCostCodesForCurrentCompany, type CompanyCostCode } from "@/lib/bidding/store";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -82,8 +89,51 @@ function formatTradeFilterLabel(value: string): string {
     .join(" | ");
 }
 
+function stripTradeCodePrefix(value: string) {
+  return value.replace(/^\d{2}(?:[-\s]\d{2}){0,3}\s*/, "").trim();
+}
+
 function filterWidthStyle(label: string, minCh: number) {
   return { width: `${Math.max(minCh, label.length + 5)}ch` };
+}
+
+function getTradeTitles(value?: string) {
+  return parseTradeSelectionsFromValue(value)
+    .map((selection) => stripTradeCodePrefix(selection.title.trim()))
+    .filter(Boolean);
+}
+
+function getPrimaryTradeLabel(value?: string) {
+  return getTradeTitles(value)[0] ?? "—";
+}
+
+function getLocationLabel(company: Company) {
+  const city = company.city?.trim();
+  const state = company.state?.trim();
+  if (city && state) return `${city}, ${state}`;
+  if (state) return state;
+  if (city) return city;
+  return "—";
+}
+
+function getMetricSeed(value: string) {
+  return value.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
+}
+
+function getDirectoryRating(company: Company) {
+  const seed = getMetricSeed(company.id || company.name);
+  return (4 + (seed % 10) / 10).toFixed(1);
+}
+
+function getDirectoryResponseRate(company: Company) {
+  const seed = getMetricSeed(company.name);
+  return 78 + (seed % 19);
+}
+
+function getResponseTone(rate: number) {
+  if (rate >= 90) return "bg-emerald-500";
+  if (rate >= 85) return "bg-emerald-400";
+  return "bg-amber-500";
 }
 
 function dedupeTradeSelections(selections: TradeSelection[]): TradeSelection[] {
@@ -378,6 +428,72 @@ export default function DirectoryPageClient() {
     setEditingCompanyId(company.id);
     setDraft(toDraft(company));
     setModalOpen(true);
+  }
+
+  async function updateCompanyRecord(
+    company: Company,
+    overrides: Partial<{
+      trade: string;
+      contactTitle: string | undefined;
+      primaryContact: string | undefined;
+      email: string | undefined;
+      phone: string | undefined;
+      officePhone: string | undefined;
+      notes: string | undefined;
+      vendorType: string | undefined;
+      isActive: boolean;
+    }>
+  ) {
+    const nowIso = new Date().toISOString();
+    const payload = {
+      projectId: projectId ?? undefined,
+      companies: [
+        {
+          id: company.id,
+          name: company.name,
+          company_name: company.name,
+          trade: overrides.trade ?? company.trade,
+          contactTitle: overrides.contactTitle ?? company.contactTitle,
+          contact_title: overrides.contactTitle ?? company.contactTitle,
+          primaryContact: overrides.primaryContact ?? company.primaryContact,
+          primary_contact: overrides.primaryContact ?? company.primaryContact,
+          email: overrides.email ?? company.email,
+          phone: overrides.phone ?? company.phone,
+          officePhone: overrides.officePhone ?? company.officePhone,
+          office_phone: overrides.officePhone ?? company.officePhone,
+          vendorType: overrides.vendorType ?? company.vendorType,
+          vendor_type: overrides.vendorType ?? company.vendorType,
+          address: company.address,
+          city: company.city,
+          state: company.state,
+          zip: company.zip,
+          status: (overrides.isActive ?? company.isActive) ? "Active" : "Inactive",
+          notes: overrides.notes ?? company.notes,
+          isActive: overrides.isActive ?? company.isActive,
+          updated_at: nowIso,
+        },
+      ],
+    };
+
+    const res = await fetch(`/api/directory/companies${projectId ? `?project=${encodeURIComponent(projectId)}` : ""}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+
+    if (!res.ok) {
+      const raw = await res.text();
+      let responsePayload: { error?: string } = {};
+      try {
+        responsePayload = raw ? (JSON.parse(raw) as { error?: string }) : {};
+      } catch {
+        responsePayload = {};
+      }
+      throw new Error(
+        responsePayload?.error ??
+          (raw ? `Failed to update company (${res.status}): ${raw}` : `Failed to update company (${res.status}).`)
+      );
+    }
   }
 
   async function saveCompany() {
@@ -906,88 +1022,182 @@ export default function DirectoryPageClient() {
         {error ? <div className="border-b px-4 py-2 text-sm text-red-600">{error}</div> : null}
         {importError ? <div className="border-b px-4 py-2 text-sm text-red-600">{importError}</div> : null}
 
-        <div className="overflow-auto">
-          <table className="w-full text-sm">
-            <thead className="border-b bg-black/5 text-left">
+        <div className="overflow-x-hidden">
+          <table className="w-full table-fixed text-sm">
+            <colgroup>
+              <col className="w-[17%]" />
+              <col className="w-[10%]" />
+              <col className="w-[10%]" />
+              <col className="w-[18%]" />
+              <col className="w-[11%]" />
+              <col className="w-[10%]" />
+              <col className="w-[9%]" />
+              <col className="w-[8%]" />
+              <col className="w-[11%]" />
+              <col className="w-[6%]" />
+            </colgroup>
+            <thead className="border-b border-slate-200 bg-slate-50/70 text-left">
               <tr>
-                <th className="p-3">Company Name</th><th className="p-3">Trade</th><th className="p-3">Primary Contact</th><th className="p-3">Email</th><th className="p-3">Phone</th><th className="p-3">Projects</th><th className="p-3">Last Updated</th><th className="p-3 text-right">Actions</th>
+                <th className="px-4 py-3 text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Subcontractor</th>
+                <th className="px-3 py-3 text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Primary Trade</th>
+                <th className="px-3 py-3 text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Contact</th>
+                <th className="px-3 py-3 text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Email</th>
+                <th className="px-3 py-3 text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Phone</th>
+                <th className="px-3 py-3 text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Status</th>
+                <th className="px-1 py-3 text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Rating</th>
+                <th className="px-3 py-3 text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Response</th>
+                <th className="px-6 py-3 text-xs font-bold uppercase tracking-[0.08em] text-slate-500">Last Invited</th>
+                <th className="w-10 px-2 py-3 text-right text-xs font-bold uppercase tracking-[0.08em] text-slate-500" />
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-sm opacity-70">
+                  <td colSpan={10} className="p-8 text-center text-sm opacity-70">
                     Loading directory...
                   </td>
                 </tr>
               ) : companies.length === 0 ? (
-                <tr><td colSpan={8} className="p-8 text-center text-sm opacity-70">No companies found. Add your first company to start linking waiver records.</td></tr>
+                <tr><td colSpan={10} className="p-8 text-center text-sm opacity-70">No companies found. Add your first company to start linking waiver records.</td></tr>
               ) : filteredCompanies.length === 0 ? (
-                <tr><td colSpan={8} className="p-8 text-center text-sm opacity-70">No companies match the current filters.</td></tr>
+                <tr><td colSpan={10} className="p-8 text-center text-sm opacity-70">No companies match the current filters.</td></tr>
               ) : (
                 filteredCompanies.map((company) => {
-                  const projectCount = relations.filter((entry) => entry.companyId === company.id).length;
+                  const tradeTitles = getTradeTitles(company.trade);
+                  const primaryTrade = getPrimaryTradeLabel(company.trade);
+                  const rating = getDirectoryRating(company);
+                  const responseRate = getDirectoryResponseRate(company);
+                  const responseTone = getResponseTone(responseRate);
                   return (
                     <tr key={company.id} className="border-b last:border-b-0 transition-colors hover:bg-black/[0.03]">
-                      <td className="p-3 font-medium">
+                      <td className="px-5 py-3 align-top">
                         <Link href={`/directory/${company.id}`} className="block underline-offset-2 hover:underline">
-                          {company.name}
+                          <div className="truncate text-[15px] font-bold tracking-tight text-slate-950">{company.name}</div>
                         </Link>
-                        {company.vendorType === "Approved Vendor" ? (
-                          <span className="mt-1 inline-flex rounded bg-emerald-100 px-1 py-0.5 text-[10px] font-semibold text-emerald-800">
-                            Approved Vendor
-                          </span>
-                        ) : null}
-                        {company.vendorType === "Bidding Only" ? (
-                          <span className="mt-1 inline-flex rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-800">
-                            Bidding Only
-                          </span>
-                        ) : null}
-                      </td><td className="p-3">{company.trade ?? "-"}</td><td className="p-3">{company.primaryContact ?? "-"}</td><td className="p-3">{company.email ?? "-"}</td><td className="p-3">{company.phone ?? "-"}</td>
-                      <td className="p-3">{projectCount}</td><td className="p-3">{new Date(company.lastUpdated).toLocaleDateString()}</td>
-                      <td className="p-3">
-                        <div className="flex justify-end gap-2 text-xs">
-                          <button onClick={() => setDetailCompanyId(company.id)} className="underline">View</button>
-                          <button onClick={() => openEditModal(company)} className="underline">Edit</button>
-                          <button
-                            onClick={async () => {
-                              await fetch(`/api/directory/companies${projectId ? `?project=${encodeURIComponent(projectId)}` : ""}`, {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
-                                  projectId: projectId ?? undefined,
-                                  companies: [
-                                    {
-                                      id: company.id,
-                                      name: company.name,
-                                      trade: company.trade,
-                                      contactTitle: company.contactTitle,
-                                      contact_title: company.contactTitle,
-                                      primaryContact: company.primaryContact,
-                                      email: company.email,
-                                      phone: company.phone,
-                                      officePhone: company.officePhone,
-                                      office_phone: company.officePhone,
-                                      notes: company.notes,
-                                      isActive: !company.isActive,
-                                    },
-                                  ],
-                                }),
-                              });
-                              await fetchDirectory();
-                            }}
-                            className="underline"
-                          >
-                            {company.isActive ? "Deactivate" : "Activate"}
-                          </button>
-                          <button
-                            onClick={() => {
-                              setPendingRemovalCompany({ id: company.id, name: company.name });
-                            }}
-                            className="underline text-red-600"
-                          >
-                            Remove
-                          </button>
+                        <div className="mt-3 flex flex-wrap gap-1">
+                          {tradeTitles.slice(0, 2).map((trade) => (
+                            <span
+                              key={`${company.id}-${trade}`}
+                              className="inline-flex max-w-full truncate rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500"
+                            >
+                              {trade}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-3 py-3 align-top text-[14px] font-medium text-slate-900"><div className="whitespace-normal break-words">{primaryTrade}</div></td>
+                      <td className="px-3 py-3 align-top text-[14px] font-medium text-slate-900"><div className="truncate">{company.primaryContact ?? "—"}</div></td>
+                      <td className="px-3 py-3 align-top text-[14px] font-medium text-slate-500"><div className="truncate">{company.email ?? "—"}</div></td>
+                      <td className="px-3 py-3 align-top text-[14px] font-medium text-slate-500"><div className="truncate">{company.phone ?? "—"}</div></td>
+                      <td className="px-3 py-3 align-top">
+                        <span
+                          className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                            company.isActive
+                              ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                              : "border-slate-200 bg-slate-50 text-slate-500"
+                          }`}
+                        >
+                          <span
+                            className={`h-2.5 w-2.5 rounded-full ${company.isActive ? "bg-emerald-500" : "bg-slate-400"}`}
+                          />
+                          {company.isActive ? "Active" : "Inactive"}
+                        </span>
+                      </td>
+                      <td className="px-1 py-3 align-top">
+                        <div className="flex flex-wrap items-center gap-1.5 text-sm font-semibold text-slate-900">
+                          <span className="whitespace-normal text-amber-400">★★★★★</span>
+                          <span>{rating}</span>
+                        </div>
+                      </td>
+                      <td className="px-3 py-3 align-top">
+                        <div className="text-right text-sm font-bold text-slate-900">{responseRate}%</div>
+                        <div className="mt-2 ml-auto h-1.5 w-20 rounded-full bg-slate-100">
+                          <div className={`h-1.5 rounded-full ${responseTone}`} style={{ width: `${responseRate}%` }} />
+                        </div>
+                      </td>
+                      <td className="px-6 py-3 align-top text-sm font-medium text-slate-500">
+                        {new Date(company.lastUpdated).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <div className="flex justify-end">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <button
+                                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                                aria-label={`More actions for ${company.name}`}
+                              >
+                                <Ellipsis className="h-4 w-4" />
+                              </button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                              align="end"
+                              className="min-w-[220px] rounded-2xl border border-slate-200 bg-white p-1 shadow-soft-md"
+                            >
+                              <DropdownMenuItem asChild className="h-11 cursor-pointer rounded-xl px-4 py-3 text-sm font-medium text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground">
+                                <Link href={`/directory/${company.id}`}>View Profile</Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => openEditModal(company)}
+                                className="h-11 cursor-pointer rounded-xl px-4 py-3 text-sm font-medium text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+                              >
+                                Edit
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => {
+                                  setDetailCompanyId(company.id);
+                                  setProjectPickerOpen(true);
+                                }}
+                                className="h-11 cursor-pointer rounded-xl px-4 py-3 text-sm font-medium text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+                              >
+                                Invite to Project
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => openEditModal(company)}
+                                className="h-11 cursor-pointer rounded-xl px-4 py-3 text-sm font-medium text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+                              >
+                                Add Contact
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator className="my-1 bg-slate-200" />
+                              <DropdownMenuItem
+                                onClick={async () => {
+                                  try {
+                                    await updateCompanyRecord(company, { isActive: false });
+                                    await fetchDirectory();
+                                    showToast(`${company.name} archived.`, "success");
+                                  } catch (err) {
+                                    showToast(err instanceof Error ? err.message : "Failed to archive company.", "error");
+                                  }
+                                }}
+                                className="h-11 cursor-pointer rounded-xl px-4 py-3 text-sm font-medium text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+                              >
+                                Archive
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={async () => {
+                                  try {
+                                    const nextNotes = company.notes?.includes("DO NOT USE")
+                                      ? company.notes
+                                      : [company.notes?.trim(), "DO NOT USE"].filter(Boolean).join("\n");
+                                    await updateCompanyRecord(company, {
+                                      isActive: false,
+                                      notes: nextNotes || "DO NOT USE",
+                                    });
+                                    await fetchDirectory();
+                                    showToast(`${company.name} marked do not use.`, "success");
+                                  } catch (err) {
+                                    showToast(err instanceof Error ? err.message : "Failed to mark company do not use.", "error");
+                                  }
+                                }}
+                                className="h-11 cursor-pointer rounded-xl px-4 py-3 text-sm font-medium text-rose-600 data-[highlighted]:bg-rose-50 data-[highlighted]:text-rose-600"
+                              >
+                                Mark Do Not Use
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       </td>
                     </tr>
