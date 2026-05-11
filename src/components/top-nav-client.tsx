@@ -122,6 +122,8 @@ export default function TopNavClient({ projects }: { projects: ProjectRow[] }) {
 
   const withMode = useCallback((href: string) => {
     if (href.startsWith("/bidding")) return href;
+    if (href.startsWith("/directory")) return href;
+    if (href.startsWith("/settings")) return href;
     if (mode !== "waiverdesk") return href;
     if (href.startsWith("/waiverdesk")) return href;
     return `/waiverdesk${href}`;
