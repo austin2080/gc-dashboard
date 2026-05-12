@@ -7,8 +7,8 @@ import {
   CheckCircle2,
   ChevronDown,
   Globe,
-  Mail,
   MapPin,
+  Pencil,
   Phone,
   Plus,
   X,
@@ -53,7 +53,6 @@ type Props = {
     email?: string;
     isActive: boolean;
   }) => Promise<void>;
-  onOpenProjectPicker: () => void;
   onAssignProject: (projectId: string) => void;
 };
 
@@ -177,7 +176,6 @@ export default function CompanyDetailPanel({
   projectPickerOpen,
   onClose,
   onSaveCompanyInfo,
-  onOpenProjectPicker,
   onAssignProject,
 }: Props) {
   const [activeTab, setActiveTab] = useState<DrawerTab>("company-info");
@@ -396,15 +394,7 @@ export default function CompanyDetailPanel({
             </div>
             <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>
 
-            <div className="mt-7 flex flex-wrap items-center gap-3 pb-7">
-              <button
-                type="button"
-                onClick={onOpenProjectPicker}
-                disabled={isEditingCompanyInfo}
-                className="inline-flex h-11 items-center gap-2 rounded-[16px] bg-[#356DFF] px-5 text-sm font-bold text-white shadow-sm hover:bg-[#2456dc] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                Invite to Project
-              </button>
+            <div className="mt-1 flex flex-wrap items-center justify-end gap-3 pb-7">
               {isEditingCompanyInfo ? (
                 <>
                   <button
@@ -423,32 +413,7 @@ export default function CompanyDetailPanel({
                     Cancel
                   </button>
                 </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveTab("company-info");
-                    setCompanyInfoError("");
-                    setIsEditingCompanyInfo(true);
-                  }}
-                  className="inline-flex h-11 items-center gap-2 rounded-[16px] border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-900 shadow-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
-                >
-                  Edit
-                </button>
-              )}
-              <a
-                href={!isEditingCompanyInfo && company.email ? `mailto:${company.email}` : undefined}
-                aria-disabled={isEditingCompanyInfo ? "true" : undefined}
-                onClick={isEditingCompanyInfo ? (event) => event.preventDefault() : undefined}
-                className={`inline-flex h-11 items-center gap-2 rounded-[16px] border border-slate-200 bg-white px-5 text-sm font-semibold shadow-sm ${
-                  isEditingCompanyInfo
-                    ? "cursor-not-allowed text-slate-400 opacity-50"
-                    : "text-slate-900 hover:border-accent hover:bg-accent hover:text-accent-foreground"
-                }`}
-              >
-                <Mail className="h-5 w-5" />
-                Email
-              </a>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap items-end gap-8">
@@ -621,9 +586,111 @@ export default function CompanyDetailPanel({
                         className="mt-2 h-10 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-6 text-[15px] font-medium text-slate-900 shadow-soft-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
                       />
                     </div>
+                    <div className="border-t border-slate-200 pt-6">
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Additional Trades Performed</div>
+                          <p className="mt-2 text-sm text-slate-500">
+                            Add additional scopes this subcontractor regularly performs beyond their primary trade.
+                          </p>
+                        </div>
+                        <div className="text-sm font-medium text-slate-500">{orderedDraftTrades.length} selected</div>
+                      </div>
+
+                      <div className="mt-5 flex flex-wrap gap-2.5">
+                        {orderedDraftTrades.map((trade) => {
+                          const isPrimary = trade === companyInfoDraft.primaryTrade;
+                          return (
+                            <span
+                              key={trade}
+                              className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[12px] font-semibold leading-none ${
+                                isPrimary ? "bg-[#356DFF] text-white" : "bg-slate-100 text-[#356DFF]"
+                              }`}
+                            >
+                              <span>{trade}</span>
+                              {isPrimary ? (
+                                <span className="rounded-full bg-white/20 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-white">
+                                  Primary
+                                </span>
+                              ) : null}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setCompanyInfoDraft((current) => {
+                                    const nextTrades = current.trades.filter((entry) => entry !== trade);
+                                    return {
+                                      ...current,
+                                      trades: nextTrades,
+                                      primaryTrade:
+                                        current.primaryTrade === trade ? nextTrades[0] ?? "" : current.primaryTrade,
+                                    };
+                                  })
+                                }
+                                className={`inline-flex h-5 w-5 items-center justify-center rounded-full ${
+                                  isPrimary ? "text-white/90 hover:bg-white/15" : "text-[#356DFF] hover:bg-slate-200"
+                                }`}
+                                aria-label={`Remove ${trade}`}
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
+
+                      <div className="mt-5 grid gap-3 md:grid-cols-[minmax(280px,0.95fr)_minmax(0,1.05fr)_128px]">
+                        <TradeSearchSelect
+                          value={pendingTrade}
+                          placeholder="Add from list..."
+                          options={allTradeTitles.filter((trade) => !companyInfoDraft.trades.includes(trade))}
+                          onSelect={(trade) => {
+                            addTradeToDraft(trade);
+                            setPendingTrade("");
+                          }}
+                        />
+
+                        <input
+                          value={customTradeInput}
+                          onChange={(event) => setCustomTradeInput(event.target.value)}
+                          placeholder="Or type a custom trade..."
+                          className="h-10 mt-2 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-5 text-[15px] font-medium text-slate-900 shadow-soft-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                        />
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (pendingTrade) {
+                              addTradeToDraft(pendingTrade);
+                              setPendingTrade("");
+                              return;
+                            }
+                            if (customTradeInput.trim()) {
+                              addTradeToDraft(customTradeInput);
+                              setCustomTradeInput("");
+                            }
+                          }}
+                          className="inline-flex h-10 mt-2 items-center justify-center gap-2 rounded-[20px] border border-slate-200 bg-white px-5 text-[15px] font-semibold text-slate-900 shadow-soft-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                        >
+                          <Plus className="h-5 w-5" />
+                          Add
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 ) : (
-                  <div className="grid gap-x-10 gap-y-8 md:grid-cols-2">
+                  <div className="relative grid gap-x-10 gap-y-8 md:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab("company-info");
+                        setCompanyInfoError("");
+                        setIsEditingCompanyInfo(true);
+                      }}
+                      className="absolute right-0 top-0 inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-soft-sm transition-colors hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                      aria-label="Edit company info"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
                     <div>
                       <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Company</div>
                       <div className="mt-2 flex items-start gap-3 text-slate-950">
@@ -663,126 +730,37 @@ export default function CompanyDetailPanel({
                     <div>
                       <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Email</div>
                       <div className="mt-2 flex items-start gap-3 text-slate-950">
-                        <Mail className="mt-1 h-4 w-4 text-slate-400" />
                         <span className="text-[16px] font-medium leading-7">{company.email || "—"}</span>
+                      </div>
+                    </div>
+
+                    <div className="md:col-span-2 border-t border-slate-200 pt-6">
+                      <div className="text-[14px] font-medium uppercase tracking-wider text-slate-500">Trades</div>
+                      <div className="mt-3 flex flex-wrap gap-3">
+                        {tradeTitles.length ? (
+                          tradeTitles.map((trade, index) => (
+                            <span
+                              key={`${company.id}-${trade}`}
+                              className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-[14px] font-semibold leading-none ${
+                                index === 0 ? "bg-[#356DFF] text-white" : "bg-[#EEF2FF] text-[#356DFF]"
+                              }`}
+                            >
+                              {trade}
+                              {index === 0 ? (
+                                <span className="rounded-full bg-white/20 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-white">
+                                  Primary
+                                </span>
+                              ) : null}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-[16px] text-slate-500">No trades listed.</span>
+                        )}
                       </div>
                     </div>
                   </div>
                 )}
               </section>
-
-              {isEditingCompanyInfo ? (
-                <section className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-soft-sm">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="text-xs font-bold uppercase tracking-[0.14em] text-slate-500">Additional Trades Performed</div>
-                    <div className="text-sm font-medium text-slate-500">{orderedDraftTrades.length} selected</div>
-                  </div>
-
-                  <div className="mt-5 flex flex-wrap gap-2.5">
-                    {orderedDraftTrades.map((trade) => {
-                      const isPrimary = trade === companyInfoDraft.primaryTrade;
-                      return (
-                        <span
-                          key={trade}
-                          className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[12px] font-semibold leading-none ${
-                            isPrimary ? "bg-[#356DFF] text-white" : "bg-slate-100 text-[#356DFF]"
-                          }`}
-                        >
-                          <span>{trade}</span>
-                          {isPrimary ? (
-                            <span className="rounded-full bg-white/20 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-white">
-                              Primary
-                            </span>
-                          ) : null}
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setCompanyInfoDraft((current) => {
-                                const nextTrades = current.trades.filter((entry) => entry !== trade);
-                                return {
-                                  ...current,
-                                  trades: nextTrades,
-                                  primaryTrade:
-                                    current.primaryTrade === trade ? nextTrades[0] ?? "" : current.primaryTrade,
-                                };
-                              })
-                            }
-                            className={`inline-flex h-5 w-5 items-center justify-center rounded-full ${
-                              isPrimary ? "text-white/90 hover:bg-white/15" : "text-[#356DFF] hover:bg-slate-200"
-                            }`}
-                            aria-label={`Remove ${trade}`}
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        </span>
-                      );
-                    })}
-                  </div>
-
-                  <div className="mt-5 grid gap-3 md:grid-cols-[minmax(280px,0.95fr)_minmax(0,1.05fr)_128px]">
-                    <TradeSearchSelect
-                      value={pendingTrade}
-                      placeholder="Add from list..."
-                      options={allTradeTitles.filter((trade) => !companyInfoDraft.trades.includes(trade))}
-                      onSelect={(trade) => {
-                        addTradeToDraft(trade);
-                        setPendingTrade("");
-                      }}
-                    />
-
-                    <input
-                      value={customTradeInput}
-                      onChange={(event) => setCustomTradeInput(event.target.value)}
-                      placeholder="Or type a custom trade..."
-                      className="h-10 mt-2 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-5 text-[15px] font-medium text-slate-900 shadow-soft-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
-                    />
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (pendingTrade) {
-                          addTradeToDraft(pendingTrade);
-                          setPendingTrade("");
-                          return;
-                        }
-                        if (customTradeInput.trim()) {
-                          addTradeToDraft(customTradeInput);
-                          setCustomTradeInput("");
-                        }
-                      }}
-                      className="inline-flex h-10 mt-2 items-center justify-center gap-2 rounded-[20px] border border-slate-200 bg-white px-5 text-[15px] font-semibold text-slate-900 shadow-soft-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
-                    >
-                      <Plus className="h-5 w-5" />
-                      Add
-                    </button>
-                  </div>
-                </section>
-              ) : (
-                <section>
-                  <div className="tmb-2 text-[14px] font-medium uppercase tracking-wider text-slate-500">Trades</div>
-                  <div className="mt-1 flex flex-wrap gap-3">
-                    {tradeTitles.length ? (
-                      tradeTitles.map((trade, index) => (
-                        <span
-                          key={`${company.id}-${trade}`}
-                          className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-[14px] font-semibold leading-none ${
-                            index === 0 ? "bg-[#356DFF] text-white" : "bg-[#EEF2FF] text-[#356DFF]"
-                          }`}
-                        >
-                          {trade}
-                          {index === 0 ? (
-                            <span className="rounded-full bg-white/20 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-white">
-                              Primary
-                            </span>
-                          ) : null}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="text-[16px] text-slate-500">No trades listed.</span>
-                    )}
-                  </div>
-                </section>
-              )}
 
               {projectPickerOpen ? (
                 <section className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-soft-sm">
