@@ -450,32 +450,34 @@ export default function DirectoryPageClient() {
       isActive: boolean;
     }>
   ) {
+    const has = <K extends keyof typeof overrides>(key: K) =>
+      Object.prototype.hasOwnProperty.call(overrides, key);
     const nowIso = new Date().toISOString();
     const payload = {
       projectId: projectId ?? undefined,
       companies: [
         {
           id: company.id,
-          name: overrides.name ?? company.name,
-          company_name: overrides.name ?? company.name,
-          trade: overrides.trade ?? company.trade,
-          contactTitle: overrides.contactTitle ?? company.contactTitle,
-          contact_title: overrides.contactTitle ?? company.contactTitle,
-          primaryContact: overrides.primaryContact ?? company.primaryContact,
-          primary_contact: overrides.primaryContact ?? company.primaryContact,
-          email: overrides.email ?? company.email,
-          phone: overrides.phone ?? company.phone,
-          officePhone: overrides.officePhone ?? company.officePhone,
-          office_phone: overrides.officePhone ?? company.officePhone,
-          vendorType: overrides.vendorType ?? company.vendorType,
-          vendor_type: overrides.vendorType ?? company.vendorType,
-          address: overrides.address ?? company.address,
-          city: overrides.city ?? company.city,
-          state: overrides.state ?? company.state,
-          zip: overrides.zip ?? company.zip,
-          website: overrides.website ?? company.website,
+          name: has("name") ? overrides.name : company.name,
+          company_name: has("name") ? overrides.name : company.name,
+          trade: has("trade") ? overrides.trade : company.trade,
+          contactTitle: has("contactTitle") ? overrides.contactTitle : company.contactTitle,
+          contact_title: has("contactTitle") ? overrides.contactTitle : company.contactTitle,
+          primaryContact: has("primaryContact") ? overrides.primaryContact : company.primaryContact,
+          primary_contact: has("primaryContact") ? overrides.primaryContact : company.primaryContact,
+          email: has("email") ? overrides.email : company.email,
+          phone: has("phone") ? overrides.phone : company.phone,
+          officePhone: has("officePhone") ? overrides.officePhone : company.officePhone,
+          office_phone: has("officePhone") ? overrides.officePhone : company.officePhone,
+          vendorType: has("vendorType") ? overrides.vendorType : company.vendorType,
+          vendor_type: has("vendorType") ? overrides.vendorType : company.vendorType,
+          address: has("address") ? overrides.address : company.address,
+          city: has("city") ? overrides.city : company.city,
+          state: has("state") ? overrides.state : company.state,
+          zip: has("zip") ? overrides.zip : company.zip,
+          website: has("website") ? overrides.website : company.website,
           status: (overrides.isActive ?? company.isActive) ? "Active" : "Inactive",
-          notes: overrides.notes ?? company.notes,
+          notes: has("notes") ? overrides.notes : company.notes,
           isActive: overrides.isActive ?? company.isActive,
           updated_at: nowIso,
         },
@@ -1330,6 +1332,38 @@ export default function DirectoryPageClient() {
               await updateCompanyRecord(selectedCompany, updates);
               await fetchDirectory();
               showToast("Company updated.", "success");
+            } catch (error) {
+              setCompanies(previousCompanies);
+              throw error;
+            }
+          }}
+          onSaveCompanyContacts={async (updates) => {
+            const previousCompanies = companies;
+            setCompanies((current) =>
+              current.map((company) =>
+                company.id === selectedCompany.id
+                  ? {
+                      ...company,
+                      primaryContact: updates.primaryContact,
+                      contactTitle: updates.contactTitle,
+                      email: updates.email,
+                      phone: updates.phone,
+                      notes: updates.notes,
+                    }
+                  : company
+              )
+            );
+
+            try {
+              await updateCompanyRecord(selectedCompany, {
+                primaryContact: updates.primaryContact,
+                contactTitle: updates.contactTitle,
+                email: updates.email,
+                phone: updates.phone,
+                notes: updates.notes,
+              });
+              await fetchDirectory();
+              showToast("Contact added.", "success");
             } catch (error) {
               setCompanies(previousCompanies);
               throw error;

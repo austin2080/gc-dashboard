@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Building2,
   Check,
   CheckCircle2,
   ChevronDown,
   Globe,
+  Mail,
   MapPin,
   Pencil,
   Phone,
@@ -53,6 +54,14 @@ type Props = {
     email?: string;
     isActive: boolean;
   }) => Promise<void>;
+  onSaveCompanyContacts: (updates: {
+    contacts: CompanyContactRecord[];
+    notes: string | undefined;
+    primaryContact?: string;
+    contactTitle?: string;
+    email?: string;
+    phone?: string;
+  }) => Promise<void>;
   onAssignProject: (projectId: string) => void;
 };
 
@@ -71,6 +80,26 @@ type CompanyInfoDraft = {
   email: string;
   isActive: boolean;
 };
+
+type CompanyContactRecord = {
+  id: string;
+  name: string;
+  role: string;
+  email: string;
+  phone: string;
+  isPrimary: boolean;
+};
+
+type NewContactDraft = {
+  name: string;
+  role: string;
+  phone: string;
+  email: string;
+  setAsPrimary: boolean;
+};
+
+const CONTACTS_MARKER_START = "[[DIRECTORY_CONTACTS]]";
+const CONTACTS_MARKER_END = "[[/DIRECTORY_CONTACTS]]";
 
 const TABS: Array<{ id: DrawerTab; label: string }> = [
   { id: "company-info", label: "Company Info" },
@@ -93,6 +122,10 @@ function getTradeTitles(value?: string) {
     .filter(Boolean);
 }
 
+function getContactIdentityKey(contact: Pick<CompanyContactRecord, "name" | "email" | "phone">) {
+  return `${contact.name.trim()}|${contact.email.trim().toLowerCase()}|${contact.phone.trim()}`.toLowerCase();
+}
+
 function toDraft(company: Company): CompanyInfoDraft {
   const trades = getTradeTitles(company.trade);
   return {
@@ -108,6 +141,123 @@ function toDraft(company: Company): CompanyInfoDraft {
     email: company.email ?? "",
     isActive: company.isActive,
   };
+}
+
+function normalizeContacts(contacts: CompanyContactRecord[]) {
+  const seenIds = new Set<string>();
+  const seenIdentity = new Set<string>();
+  const unique = contacts.filter((contact) => {
+    const normalizedName = contact.name.trim();
+    const identityKey = getContactIdentityKey(contact);
+
+    if (!normalizedName) return false;
+    if (seenIds.has(contact.id) || seenIdentity.has(identityKey)) return false;
+
+    seenIds.add(contact.id);
+    seenIdentity.add(identityKey);
+    return true;
+  });
+  const firstPrimaryIndex = unique.findIndex((contact) => contact.isPrimary);
+  const hasSingleContact = unique.length === 1;
+  return unique.map((contact, index) => ({
+    ...contact,
+    isPrimary: hasSingleContact || (firstPrimaryIndex === -1 ? index === 0 : index === firstPrimaryIndex),
+  }));
+}
+
+function parseCompanyContacts(company: Company) {
+  const notes = company.notes ?? "";
+  const fallbackPrimaryId = `${company.id}-primary-contact`;
+  const fallbackIdentityKey = company.primaryContact?.trim()
+    ? getContactIdentityKey({
+        name: company.primaryContact.trim(),
+        email: company.email?.trim() || "",
+        phone: company.phone?.trim() || company.officePhone?.trim() || "",
+      })
+    : null;
+  const startIndex = notes.indexOf(CONTACTS_MARKER_START);
+  const endIndex = notes.indexOf(CONTACTS_MARKER_END);
+  let storedContacts: CompanyContactRecord[] = [];
+  let notesWithoutContacts = notes;
+
+  if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
+    const jsonPayload = notes
+      .slice(startIndex + CONTACTS_MARKER_START.length, endIndex)
+      .trim();
+    try {
+      const parsed = JSON.parse(jsonPayload) as { contacts?: CompanyContactRecord[] };
+      storedContacts = Array.isArray(parsed.contacts)
+        ? parsed.contacts
+            .map((contact) => {
+              const mappedContact = {
+                id: contact.id || crypto.randomUUID(),
+                name: contact.name ?? "",
+                role: contact.role ?? "",
+                email: contact.email ?? "",
+                phone: contact.phone ?? "",
+                isPrimary: Boolean(contact.isPrimary),
+              };
+              if (
+                mappedContact.id === fallbackPrimaryId &&
+                fallbackIdentityKey &&
+                getContactIdentityKey(mappedContact) !== fallbackIdentityKey
+              ) {
+                return {
+                  ...mappedContact,
+                  id: crypto.randomUUID(),
+                };
+              }
+              return mappedContact;
+            })
+            .filter((contact) => contact.name.trim())
+        : [];
+    } catch {
+      storedContacts = [];
+    }
+
+    notesWithoutContacts = `${notes.slice(0, startIndex)}${notes.slice(
+      endIndex + CONTACTS_MARKER_END.length
+    )}`.trim();
+  }
+
+  const fallbackPrimary =
+    company.primaryContact?.trim()
+      ? {
+          id: fallbackPrimaryId,
+          name: company.primaryContact.trim(),
+          role: company.contactTitle?.trim() || "Primary contact",
+          email: company.email?.trim() || "",
+          phone: company.phone?.trim() || company.officePhone?.trim() || "",
+          isPrimary: true,
+        }
+      : null;
+
+  return {
+    contacts: normalizeContacts([...(fallbackPrimary ? [fallbackPrimary] : []), ...storedContacts]),
+    notesWithoutContacts,
+  };
+}
+
+function buildCompanyNotes(baseNotes: string, contacts: CompanyContactRecord[]) {
+  const normalizedBase = baseNotes.trim();
+  const normalizedContacts = normalizeContacts(
+    contacts.map((contact) => ({
+      ...contact,
+      name: contact.name.trim(),
+      role: contact.role.trim(),
+      email: contact.email.trim(),
+      phone: contact.phone.trim(),
+    }))
+  );
+
+  if (!normalizedContacts.length) {
+    return normalizedBase || undefined;
+  }
+
+  const payload = JSON.stringify({ contacts: normalizedContacts });
+  return [normalizedBase, `${CONTACTS_MARKER_START}${payload}${CONTACTS_MARKER_END}`]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function TradeSearchSelect({
@@ -176,16 +326,35 @@ export default function CompanyDetailPanel({
   projectPickerOpen,
   onClose,
   onSaveCompanyInfo,
+  onSaveCompanyContacts,
   onAssignProject,
 }: Props) {
   const [activeTab, setActiveTab] = useState<DrawerTab>("company-info");
   const [isEditingCompanyInfo, setIsEditingCompanyInfo] = useState(false);
   const [isSavingCompanyInfo, setIsSavingCompanyInfo] = useState(false);
   const [companyInfoError, setCompanyInfoError] = useState("");
+  const [contactError, setContactError] = useState("");
   const [pendingClose, setPendingClose] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [pendingTrade, setPendingTrade] = useState("");
   const [customTradeInput, setCustomTradeInput] = useState("");
+  const [isAddingContact, setIsAddingContact] = useState(false);
+  const [editingContactId, setEditingContactId] = useState<string | null>(null);
+  const [isSavingContact, setIsSavingContact] = useState(false);
+  const [newContactDraft, setNewContactDraft] = useState<NewContactDraft>({
+    name: "",
+    role: "",
+    phone: "",
+    email: "",
+    setAsPrimary: false,
+  });
+  const [editingContactDraft, setEditingContactDraft] = useState<NewContactDraft>({
+    name: "",
+    role: "",
+    phone: "",
+    email: "",
+    setAsPrimary: false,
+  });
   const [companyInfoDraft, setCompanyInfoDraft] = useState<CompanyInfoDraft>({
     name: "",
     trades: [],
@@ -199,16 +368,39 @@ export default function CompanyDetailPanel({
     email: "",
     isActive: true,
   });
+  const previousCompanyIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!company) return;
-    setActiveTab("company-info");
+    const isNewCompany = previousCompanyIdRef.current !== company.id;
+    previousCompanyIdRef.current = company.id;
+    if (isNewCompany) {
+      setActiveTab("company-info");
+    }
     setIsEditingCompanyInfo(false);
     setCompanyInfoError("");
+    setContactError("");
     setPendingClose(false);
     setIsClosing(false);
     setPendingTrade("");
     setCustomTradeInput("");
+    setIsAddingContact(false);
+    setEditingContactId(null);
+    setIsSavingContact(false);
+    setNewContactDraft({
+      name: "",
+      role: "",
+      phone: "",
+      email: "",
+      setAsPrimary: false,
+    });
+    setEditingContactDraft({
+      name: "",
+      role: "",
+      phone: "",
+      email: "",
+      setAsPrimary: false,
+    });
     setCompanyInfoDraft(toDraft(company));
   }, [company]);
 
@@ -253,6 +445,18 @@ export default function CompanyDetailPanel({
         Boolean(customTradeInput.trim())
       )
     );
+  const hasStartedNewContact =
+    Boolean(newContactDraft.name.trim()) ||
+    Boolean(newContactDraft.role.trim()) ||
+    Boolean(newContactDraft.phone.trim()) ||
+    Boolean(newContactDraft.email.trim()) ||
+    newContactDraft.setAsPrimary;
+  const hasStartedEditingContact =
+    Boolean(editingContactDraft.name.trim()) ||
+    Boolean(editingContactDraft.role.trim()) ||
+    Boolean(editingContactDraft.phone.trim()) ||
+    Boolean(editingContactDraft.email.trim()) ||
+    editingContactDraft.setAsPrimary;
 
   function requestClose() {
     if (isClosing) return;
@@ -279,11 +483,18 @@ export default function CompanyDetailPanel({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") requestClose();
     };
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousBodyPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
     window.addEventListener("keydown", handleKeyDown);
     document.body.style.overflow = "hidden";
+    if (scrollbarWidth > 0) {
+      document.body.style.paddingRight = `${scrollbarWidth}px`;
+    }
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = "";
+      document.body.style.overflow = previousBodyOverflow;
+      document.body.style.paddingRight = previousBodyPaddingRight;
     };
   }, [company, hasUnsavedCompanyInfoChanges]);
 
@@ -302,6 +513,10 @@ export default function CompanyDetailPanel({
   const addressParts = [company.address, company.city, company.state, company.zip].filter(Boolean);
   const addressLabel = addressParts.length ? addressParts.join(", ") : "—";
   const displayIsActive = isEditingCompanyInfo ? companyInfoDraft.isActive : company.isActive;
+  const { contacts: contactCards, notesWithoutContacts } = useMemo(
+    () => parseCompanyContacts(company),
+    [company]
+  );
 
   function addTradeToDraft(nextTrade: string) {
     const cleanedTrade = stripTradeCodePrefix(nextTrade).trim();
@@ -356,6 +571,159 @@ export default function CompanyDetailPanel({
       setCompanyInfoError(error instanceof Error ? error.message : "Failed to update company.");
     } finally {
       setIsSavingCompanyInfo(false);
+    }
+  }
+
+  async function handleSaveContact() {
+    if (!newContactDraft.name.trim()) {
+      setContactError("Contact name is required.");
+      return;
+    }
+    if (!newContactDraft.email.trim()) {
+      setContactError("Email is required.");
+      return;
+    }
+
+    setContactError("");
+    setIsSavingContact(true);
+
+    const nextContact: CompanyContactRecord = {
+      id: crypto.randomUUID(),
+      name: newContactDraft.name.trim(),
+      role: newContactDraft.role.trim() || "Contact",
+      email: newContactDraft.email.trim(),
+      phone: newContactDraft.phone.trim(),
+      isPrimary: newContactDraft.setAsPrimary || contactCards.length === 0,
+    };
+
+    const nextContacts = normalizeContacts(
+      newContactDraft.setAsPrimary
+        ? [...contactCards.map((contact) => ({ ...contact, isPrimary: false })), nextContact]
+        : [...contactCards, nextContact]
+    );
+    const primaryContact = nextContacts.find((contact) => contact.isPrimary) ?? nextContacts[0];
+
+    try {
+      await onSaveCompanyContacts({
+        contacts: nextContacts,
+        notes: buildCompanyNotes(notesWithoutContacts, nextContacts),
+        primaryContact: primaryContact?.name || undefined,
+        contactTitle: primaryContact?.role || undefined,
+        email: primaryContact?.email || undefined,
+        phone: primaryContact?.phone || undefined,
+      });
+      setNewContactDraft({
+        name: "",
+        role: "",
+        phone: "",
+        email: "",
+        setAsPrimary: false,
+      });
+      setIsAddingContact(false);
+    } catch (error) {
+      setContactError(error instanceof Error ? error.message : "Failed to save contact.");
+    } finally {
+      setIsSavingContact(false);
+    }
+  }
+
+  function startEditingContact(contact: CompanyContactRecord) {
+    setContactError("");
+    setIsAddingContact(false);
+    setEditingContactId(contact.id);
+    setEditingContactDraft({
+      name: contact.name,
+      role: contact.role,
+      phone: contact.phone,
+      email: contact.email,
+      setAsPrimary: contact.isPrimary,
+    });
+  }
+
+  async function handleUpdateContact(contactId: string) {
+    if (!editingContactDraft.name.trim()) {
+      setContactError("Contact name is required.");
+      return;
+    }
+    if (!editingContactDraft.email.trim()) {
+      setContactError("Email is required.");
+      return;
+    }
+
+    setContactError("");
+    setIsSavingContact(true);
+
+    const nextContacts = normalizeContacts(
+      contactCards.map((contact) =>
+        contact.id === contactId
+          ? {
+              ...contact,
+              name: editingContactDraft.name.trim(),
+              role: editingContactDraft.role.trim() || "Contact",
+              email: editingContactDraft.email.trim(),
+              phone: editingContactDraft.phone.trim(),
+              isPrimary: editingContactDraft.setAsPrimary,
+            }
+          : {
+              ...contact,
+              isPrimary: editingContactDraft.setAsPrimary ? false : contact.isPrimary,
+            }
+      )
+    );
+    const primaryContact = nextContacts.find((contact) => contact.isPrimary) ?? nextContacts[0];
+
+    try {
+      await onSaveCompanyContacts({
+        contacts: nextContacts,
+        notes: buildCompanyNotes(notesWithoutContacts, nextContacts),
+        primaryContact: primaryContact?.name || undefined,
+        contactTitle: primaryContact?.role || undefined,
+        email: primaryContact?.email || undefined,
+        phone: primaryContact?.phone || undefined,
+      });
+      setEditingContactId(null);
+      setEditingContactDraft({
+        name: "",
+        role: "",
+        phone: "",
+        email: "",
+        setAsPrimary: false,
+      });
+    } catch (error) {
+      setContactError(error instanceof Error ? error.message : "Failed to update contact.");
+    } finally {
+      setIsSavingContact(false);
+    }
+  }
+
+  async function handleDeleteContact(contactId: string) {
+    setContactError("");
+    setIsSavingContact(true);
+
+    const remainingContacts = normalizeContacts(contactCards.filter((contact) => contact.id !== contactId));
+    const primaryContact = remainingContacts.find((contact) => contact.isPrimary) ?? remainingContacts[0];
+
+    try {
+      await onSaveCompanyContacts({
+        contacts: remainingContacts,
+        notes: buildCompanyNotes(notesWithoutContacts, remainingContacts),
+        primaryContact: primaryContact?.name ?? "",
+        contactTitle: primaryContact?.role ?? "",
+        email: primaryContact?.email ?? "",
+        phone: primaryContact?.phone ?? "",
+      });
+      setEditingContactId(null);
+      setEditingContactDraft({
+        name: "",
+        role: "",
+        phone: "",
+        email: "",
+        setAsPrimary: false,
+      });
+    } catch (error) {
+      setContactError(error instanceof Error ? error.message : "Failed to delete contact.");
+    } finally {
+      setIsSavingContact(false);
     }
   }
 
@@ -783,6 +1151,288 @@ export default function CompanyDetailPanel({
                   </div>
                 </section>
               ) : null}
+            </div>
+          ) : activeTab === "contacts" ? (
+            <div className="space-y-6">
+              {contactError ? (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-600">
+                  {contactError}
+                </div>
+              ) : null}
+              {contactCards.length ? (
+                contactCards.map((contact) => (
+                  <section
+                    key={contact.id}
+                    className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-soft-sm"
+                  >
+                    {editingContactId === contact.id ? (
+                      <div className="space-y-6">
+                        <div className="grid gap-6 md:grid-cols-2">
+                          <div className="space-y-3 md:col-span-2">
+                            <label className="text-[12px] font-semibold text-slate-950">
+                              Name <span className="text-rose-500">*</span>
+                            </label>
+                            <input
+                              value={editingContactDraft.name}
+                              onChange={(event) =>
+                                setEditingContactDraft((current) => ({ ...current, name: event.target.value }))
+                              }
+                              className="h-9 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-6 text-sm font-medium text-slate-900 shadow-soft-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                            />
+                          </div>
+
+                          <div className="space-y-3">
+                            <label className="text-[12px] font-semibold text-slate-950">Role</label>
+                            <input
+                              value={editingContactDraft.role}
+                              onChange={(event) =>
+                                setEditingContactDraft((current) => ({ ...current, role: event.target.value }))
+                              }
+                              className="h-9 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-6 text-[15px] font-medium text-slate-900 shadow-soft-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                            />
+                          </div>
+
+                          <div className="space-y-3">
+                            <label className="text-[12px] font-semibold text-slate-950">Phone</label>
+                            <input
+                              value={editingContactDraft.phone}
+                              onChange={(event) =>
+                                setEditingContactDraft((current) => ({ ...current, phone: event.target.value }))
+                              }
+                              className="h-9 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-6 text-[15px] font-medium text-slate-900 shadow-soft-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                            />
+                          </div>
+
+                          <div className="space-y-3 md:col-span-2">
+                            <label className="text-[12px] font-semibold text-slate-950">
+                              Email <span className="text-rose-500">*</span>
+                            </label>
+                            <input
+                              value={editingContactDraft.email}
+                              onChange={(event) =>
+                                setEditingContactDraft((current) => ({ ...current, email: event.target.value }))
+                              }
+                              className="h-9 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-6 text-[15px] font-medium text-slate-900 shadow-soft-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                            />
+                          </div>
+                        </div>
+
+                        <label className="flex items-center gap-2 text-[14px] font-medium text-slate-500">
+                          <input
+                            type="checkbox"
+                            checked={editingContactDraft.setAsPrimary}
+                            onChange={(event) =>
+                              setEditingContactDraft((current) => ({
+                                ...current,
+                                setAsPrimary: event.target.checked,
+                              }))
+                            }
+                            className="h-4 w-4 rounded border border-slate-400 text-[#356DFF] focus:ring-2 focus:ring-blue-100"
+                          />
+                          <span>Set as primary contact</span>
+                        </label>
+
+                        <div className="flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateContact(contact.id)}
+                            disabled={isSavingContact || !hasStartedEditingContact}
+                            className="inline-flex h-10 items-center gap-3 rounded-[14px] bg-[#356DFF] px-3 text-sm font-semibold text-white shadow-sm hover:bg-[#2456dc] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Check className="h-4 w-4" />
+                            {isSavingContact ? "Saving..." : "Save Changes"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setContactError("");
+                              setEditingContactId(null);
+                              setEditingContactDraft({
+                                name: "",
+                                role: "",
+                                phone: "",
+                                email: "",
+                                setAsPrimary: false,
+                              });
+                            }}
+                            className="inline-flex h-10 items-center rounded-[14px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 shadow-soft-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteContact(contact.id)}
+                            disabled={isSavingContact}
+                            className="inline-flex h-10 items-center rounded-[14px] border border-rose-200 bg-white px-3 text-sm font-semibold text-rose-600 shadow-soft-sm hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Delete User
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-start gap-2">
+                              <h3 className="text-[20px] font-bold tracking-tight text-slate-950">{contact.name}</h3>
+                              {contact.isPrimary ? (
+                                <span className="inline-flex rounded-full bg-[#EEF2FF] mt-2 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[#356DFF]">
+                                  Primary
+                                </span>
+                              ) : null}
+                            </div>
+                            <p className="mt-0.5 text-[12px] font-medium text-slate-500">{contact.role}</p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => startEditingContact(contact)}
+                            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-soft-sm transition-colors hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                            aria-label={`Edit ${contact.name}`}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                        </div>
+
+                        <div className="mt-3 grid gap-x-3 gap-y-5 md:grid-cols-2">
+                          <div className="flex items-center gap-3 text-slate-500">
+                            <Mail className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+                            <span className="text-[14px] font-medium leading-7">{contact.email}</span>
+                          </div>
+                          <div className="flex items-center gap-3 text-slate-500">
+                            <Phone className="h-3.5 w-3.5 shrink-0 text-slate-500" />
+                            <span className="text-[14px] font-medium leading-7">{contact.phone}</span>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </section>
+                ))
+              ) : (
+                <section className="rounded-[24px] border border-slate-200 bg-white p-8 text-center shadow-soft-sm">
+                  <div className="text-lg font-semibold text-slate-900">No contacts added</div>
+                  <p className="mt-2 text-sm text-slate-500">
+                    Add a company contact to track who should receive bid invites and updates.
+                  </p>
+                </section>
+              )}
+
+              {isAddingContact ? (
+                <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-soft-sm">
+                  <div className="text-sm font-semibold tracking-tight text-slate-950">New Contact</div>
+
+                  <div className="mt-8 space-y-6">
+                    <div className="space-y-3">
+                      <label className="text-[12px] font-semibold text-slate-950">
+                        Name <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        value={newContactDraft.name}
+                        onChange={(event) =>
+                          setNewContactDraft((current) => ({ ...current, name: event.target.value }))
+                        }
+                        placeholder="e.g. Dana Lee"
+                        className="h-9 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-6 text-sm font-medium text-slate-900 shadow-soft-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                      />
+                    </div>
+
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <div className="space-y-3">
+                        <label className="text-[12px] font-semibold text-slate-950">Role</label>
+                        <input
+                          value={newContactDraft.role}
+                          onChange={(event) =>
+                            setNewContactDraft((current) => ({ ...current, role: event.target.value }))
+                          }
+                          placeholder="e.g. PM"
+                          className="h-9 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-6 text-[15px] font-medium text-slate-900 shadow-soft-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                        />
+                      </div>
+
+                      <div className="space-y-3">
+                        <label className="text-[12px] font-semibold text-slate-950">Phone</label>
+                        <input
+                          value={newContactDraft.phone}
+                          onChange={(event) =>
+                            setNewContactDraft((current) => ({ ...current, phone: event.target.value }))
+                          }
+                          placeholder="(602) 555-0000"
+                          className="h-9 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-6 text-[15px] font-medium text-slate-900 shadow-soft-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <label className="text-[12px] font-semibold text-slate-950">
+                        Email <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        value={newContactDraft.email}
+                        onChange={(event) =>
+                          setNewContactDraft((current) => ({ ...current, email: event.target.value }))
+                        }
+                        placeholder="dana@company.com"
+                        className="h-9 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-6 text-[15px] font-medium text-slate-900 shadow-soft-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                      />
+                    </div>
+
+                    <label className="flex items-center gap-2 text-[14px] font-medium text-slate-500">
+                      <input
+                        type="checkbox"
+                        checked={newContactDraft.setAsPrimary}
+                        onChange={(event) =>
+                          setNewContactDraft((current) => ({
+                            ...current,
+                            setAsPrimary: event.target.checked,
+                          }))
+                        }
+                        className="h-4 w-4 rounded border border-slate-400 text-[#356DFF] focus:ring-2 focus:ring-blue-100"
+                      />
+                      <span>Set as primary contact</span>
+                    </label>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={handleSaveContact}
+                        disabled={isSavingContact || !hasStartedNewContact}
+                        className="inline-flex h-10 items-center gap-3 rounded-[14px] bg-[#356DFF] px-3 text-sm font-semibold text-white shadow-sm hover:bg-[#2456dc] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Check className="h-4 w-4" />
+                        {isSavingContact ? "Saving..." : "Save Contact"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setContactError("");
+                          setIsAddingContact(false);
+                          setNewContactDraft({
+                            name: "",
+                            role: "",
+                            phone: "",
+                            email: "",
+                            setAsPrimary: false,
+                          });
+                        }}
+                        className="inline-flex h-10 items-center rounded-[14px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 shadow-soft-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setContactError("");
+                    setIsAddingContact(true);
+                  }}
+                  className="inline-flex h-9 w-full items-center justify-center gap-3 rounded-[20px] border border-slate-200 bg-white px-3 text-[16px] font-medium text-slate-900 shadow-soft-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Contact
+                </button>
+              )}
             </div>
           ) : (
             <section className="rounded-[24px] border border-slate-200 bg-white p-8 text-center shadow-soft-sm">
