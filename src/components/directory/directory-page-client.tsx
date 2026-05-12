@@ -1096,10 +1096,12 @@ export default function DirectoryPageClient() {
                       <td className="px-5 py-3 align-top">
                         <div className="truncate text-[15px] font-bold tracking-tight text-slate-950">{company.name}</div>
                         <div className="mt-3 flex flex-wrap gap-1">
-                          {tradeTitles.slice(0, 2).map((trade) => (
+                          {tradeTitles.slice(0, 2).map((trade, index) => (
                             <span
                               key={`${company.id}-${trade}`}
-                              className="inline-flex max-w-full truncate rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-500"
+                              className={`inline-flex max-w-full truncate rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                index === 0 ? "bg-[#356DFF] text-white" : "bg-[#EEF2FF] text-[#356DFF]"
+                              }`}
                             >
                               {trade}
                             </span>

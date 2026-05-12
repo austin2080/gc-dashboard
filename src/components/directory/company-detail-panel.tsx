@@ -400,7 +400,8 @@ export default function CompanyDetailPanel({
               <button
                 type="button"
                 onClick={onOpenProjectPicker}
-                className="inline-flex h-11 items-center gap-2 rounded-[16px] bg-[#356DFF] px-5 text-sm font-bold text-white shadow-sm hover:bg-[#2456dc]"
+                disabled={isEditingCompanyInfo}
+                className="inline-flex h-11 items-center gap-2 rounded-[16px] bg-[#356DFF] px-5 text-sm font-bold text-white shadow-sm hover:bg-[#2456dc] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Invite to Project
               </button>
@@ -408,18 +409,18 @@ export default function CompanyDetailPanel({
                 <>
                   <button
                     type="button"
-                    onClick={resetCompanyInfoDraft}
-                    className="inline-flex h-11 items-center gap-2 rounded-[16px] border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-900 shadow-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
                     onClick={handleSaveCompanyInfo}
                     disabled={isSavingCompanyInfo}
                     className="inline-flex h-11 items-center gap-2 rounded-[16px] bg-[#356DFF] px-5 text-sm font-semibold text-white shadow-sm hover:bg-[#2456dc] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {isSavingCompanyInfo ? "Saving..." : "Save Changes"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetCompanyInfoDraft}
+                    className="inline-flex h-11 items-center gap-2 rounded-[16px] border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-900 shadow-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                  >
+                    Cancel
                   </button>
                 </>
               ) : (
@@ -436,8 +437,14 @@ export default function CompanyDetailPanel({
                 </button>
               )}
               <a
-                href={company.email ? `mailto:${company.email}` : undefined}
-                className="inline-flex h-11 items-center gap-2 rounded-[16px] border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-900 shadow-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                href={!isEditingCompanyInfo && company.email ? `mailto:${company.email}` : undefined}
+                aria-disabled={isEditingCompanyInfo ? "true" : undefined}
+                onClick={isEditingCompanyInfo ? (event) => event.preventDefault() : undefined}
+                className={`inline-flex h-11 items-center gap-2 rounded-[16px] border border-slate-200 bg-white px-5 text-sm font-semibold shadow-sm ${
+                  isEditingCompanyInfo
+                    ? "cursor-not-allowed text-slate-400 opacity-50"
+                    : "text-slate-900 hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                }`}
               >
                 <Mail className="h-5 w-5" />
                 Email
@@ -755,12 +762,19 @@ export default function CompanyDetailPanel({
                   <div className="tmb-2 text-[14px] font-medium uppercase tracking-wider text-slate-500">Trades</div>
                   <div className="mt-1 flex flex-wrap gap-3">
                     {tradeTitles.length ? (
-                      tradeTitles.map((trade) => (
+                      tradeTitles.map((trade, index) => (
                         <span
                           key={`${company.id}-${trade}`}
-                          className="inline-flex rounded-full bg-[#EEF2FF] px-3 py-2 text-[14px] font-semibold leading-none text-[#356DFF]"
+                          className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-[14px] font-semibold leading-none ${
+                            index === 0 ? "bg-[#356DFF] text-white" : "bg-[#EEF2FF] text-[#356DFF]"
+                          }`}
                         >
                           {trade}
+                          {index === 0 ? (
+                            <span className="rounded-full bg-white/20 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-white">
+                              Primary
+                            </span>
+                          ) : null}
                         </span>
                       ))
                     ) : (
