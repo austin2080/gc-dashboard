@@ -1075,19 +1075,26 @@ export default function DirectoryPageClient() {
                   const rating = getDirectoryRating(company);
                   const responseRate = getDirectoryResponseRate(company);
                   const responseTone = getResponseTone(responseRate);
+                  const openCompanyDrawer = () => {
+                    setDetailCompanyId(company.id);
+                    setProjectPickerOpen(false);
+                  };
                   return (
-                    <tr key={company.id} className="border-b last:border-b-0 transition-colors hover:bg-black/[0.03]">
+                    <tr
+                      key={company.id}
+                      role="button"
+                      tabIndex={0}
+                      onClick={openCompanyDrawer}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          openCompanyDrawer();
+                        }
+                      }}
+                      className="cursor-pointer border-b last:border-b-0 transition-colors hover:bg-black/[0.03]"
+                    >
                       <td className="px-5 py-3 align-top">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDetailCompanyId(company.id);
-                            setProjectPickerOpen(false);
-                          }}
-                          className="block text-left underline-offset-2 hover:underline"
-                        >
-                          <div className="truncate text-[15px] font-bold tracking-tight text-slate-950">{company.name}</div>
-                        </button>
+                        <div className="truncate text-[15px] font-bold tracking-tight text-slate-950">{company.name}</div>
                         <div className="mt-3 flex flex-wrap gap-1">
                           {tradeTitles.slice(0, 2).map((trade) => (
                             <span
@@ -1136,11 +1143,16 @@ export default function DirectoryPageClient() {
                           year: "numeric",
                         })}
                       </td>
-                      <td className="px-4 py-3 align-top">
+                      <td
+                        className="px-4 py-3 align-top"
+                        onClick={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => event.stopPropagation()}
+                      >
                         <div className="flex justify-end">
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <button
+                                type="button"
                                 className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-900"
                                 aria-label={`More actions for ${company.name}`}
                               >
@@ -1153,8 +1165,7 @@ export default function DirectoryPageClient() {
                             >
                               <DropdownMenuItem
                                 onClick={() => {
-                                  setDetailCompanyId(company.id);
-                                  setProjectPickerOpen(false);
+                                  openCompanyDrawer();
                                 }}
                                 className="h-11 cursor-pointer rounded-xl px-4 py-3 text-sm font-medium text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
                               >
@@ -1279,63 +1290,63 @@ export default function DirectoryPageClient() {
         </div>
       ) : null}
 
-      <CompanyDetailPanel
-        company={selectedCompany}
-        tradeOptions={costCodeOptions
-          .filter((code) => Boolean(code.title) && !code.code?.trim().startsWith("01"))
-          .map((code) => code.title)
-          .filter(Boolean)}
-        assignedProjects={selectedCompanyProjects}
-        allProjects={projects}
-        projectPickerOpen={projectPickerOpen}
-        onClose={() => {
-          setDetailCompanyId(null);
-          setProjectPickerOpen(false);
-        }}
-        onSaveCompanyInfo={async (updates) => {
-          if (!selectedCompany) return;
-          const previousCompanies = companies;
-          setCompanies((current) =>
-            current.map((company) =>
-              company.id === selectedCompany.id
-                ? {
-                    ...company,
-                    name: updates.name,
-                    trade: updates.trade ?? company.trade,
-                    address: updates.address,
-                    city: updates.city,
-                    state: updates.state,
-                    zip: updates.zip,
-                    website: updates.website,
-                    phone: updates.phone,
-                    email: updates.email,
-                    isActive: updates.isActive,
-                  }
-                : company
-            )
-          );
+      {selectedCompany ? (
+        <CompanyDetailPanel
+          company={selectedCompany}
+          tradeOptions={costCodeOptions
+            .filter((code) => Boolean(code.title) && !code.code?.trim().startsWith("01"))
+            .map((code) => code.title)
+            .filter(Boolean)}
+          assignedProjects={selectedCompanyProjects}
+          allProjects={projects}
+          projectPickerOpen={projectPickerOpen}
+          onClose={() => {
+            setDetailCompanyId(null);
+            setProjectPickerOpen(false);
+          }}
+          onSaveCompanyInfo={async (updates) => {
+            const previousCompanies = companies;
+            setCompanies((current) =>
+              current.map((company) =>
+                company.id === selectedCompany.id
+                  ? {
+                      ...company,
+                      name: updates.name,
+                      trade: updates.trade ?? company.trade,
+                      address: updates.address,
+                      city: updates.city,
+                      state: updates.state,
+                      zip: updates.zip,
+                      website: updates.website,
+                      phone: updates.phone,
+                      email: updates.email,
+                      isActive: updates.isActive,
+                    }
+                  : company
+              )
+            );
 
-          try {
-            await updateCompanyRecord(selectedCompany, updates);
+            try {
+              await updateCompanyRecord(selectedCompany, updates);
+              await fetchDirectory();
+              showToast("Company updated.", "success");
+            } catch (error) {
+              setCompanies(previousCompanies);
+              throw error;
+            }
+          }}
+          onOpenProjectPicker={() => setProjectPickerOpen(true)}
+          onAssignProject={async (projectId) => {
+            await fetch("/api/directory/assignments", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ projectId, companyId: selectedCompany.id }),
+            });
             await fetchDirectory();
-            showToast("Company updated.", "success");
-          } catch (error) {
-            setCompanies(previousCompanies);
-            throw error;
-          }
-        }}
-        onOpenProjectPicker={() => setProjectPickerOpen(true)}
-        onAssignProject={async (projectId) => {
-          if (!selectedCompany) return;
-          await fetch("/api/directory/assignments", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ projectId, companyId: selectedCompany.id }),
-          });
-          await fetchDirectory();
-          setProjectPickerOpen(false);
-        }}
-      />
+            setProjectPickerOpen(false);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

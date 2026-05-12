@@ -185,6 +185,7 @@ export default function CompanyDetailPanel({
   const [isSavingCompanyInfo, setIsSavingCompanyInfo] = useState(false);
   const [companyInfoError, setCompanyInfoError] = useState("");
   const [pendingClose, setPendingClose] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
   const [pendingTrade, setPendingTrade] = useState("");
   const [customTradeInput, setCustomTradeInput] = useState("");
   const [companyInfoDraft, setCompanyInfoDraft] = useState<CompanyInfoDraft>({
@@ -207,6 +208,7 @@ export default function CompanyDetailPanel({
     setIsEditingCompanyInfo(false);
     setCompanyInfoError("");
     setPendingClose(false);
+    setIsClosing(false);
     setPendingTrade("");
     setCustomTradeInput("");
     setCompanyInfoDraft(toDraft(company));
@@ -255,11 +257,12 @@ export default function CompanyDetailPanel({
     );
 
   function requestClose() {
+    if (isClosing) return;
     if (hasUnsavedCompanyInfoChanges) {
       setPendingClose(true);
       return;
     }
-    onClose();
+    setIsClosing(true);
   }
 
   function resetCompanyInfoDraft() {
@@ -267,6 +270,7 @@ export default function CompanyDetailPanel({
     setCompanyInfoError("");
     setIsEditingCompanyInfo(false);
     setPendingClose(false);
+    setIsClosing(false);
     setPendingTrade("");
     setCustomTradeInput("");
     setCompanyInfoDraft(toDraft(company));
@@ -284,6 +288,14 @@ export default function CompanyDetailPanel({
       document.body.style.overflow = "";
     };
   }, [company, hasUnsavedCompanyInfoChanges]);
+
+  useEffect(() => {
+    if (!company || !isClosing) return;
+    const timeout = window.setTimeout(() => {
+      onClose();
+    }, 260);
+    return () => window.clearTimeout(timeout);
+  }, [company, isClosing, onClose]);
 
   if (!company) return null;
 
@@ -354,11 +366,17 @@ export default function CompanyDetailPanel({
       <button
         type="button"
         aria-label="Close subcontractor profile"
-        className="absolute inset-0 bg-black/80"
+        className={`absolute inset-0 bg-black/80 duration-300 ${
+          isClosing ? "animate-out fade-out-0" : "animate-in fade-in-0"
+        }`}
         onClick={requestClose}
       />
 
-      <aside className="absolute inset-y-0 right-0 flex w-full max-w-2xl flex-col overflow-hidden border-l border-slate-200 bg-[#F8F8F7] shadow-2xl sm:max-w-3xl">
+      <aside
+        className={`absolute inset-y-0 right-0 flex w-full max-w-2xl flex-col overflow-hidden border-l border-slate-200 bg-[#F8F8F7] shadow-2xl duration-300 ease-out sm:max-w-3xl ${
+          isClosing ? "animate-out slide-out-to-right-full" : "animate-in slide-in-from-right-full"
+        }`}
+      >
         <div className="flex items-start justify-between gap-6 border-b border-slate-200 bg-white px-9 pb-0 pt-7">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-3">
@@ -804,7 +822,7 @@ export default function CompanyDetailPanel({
                 onClick={() => {
                   setPendingClose(false);
                   resetCompanyInfoDraft();
-                  onClose();
+                  setIsClosing(true);
                 }}
               >
                 Leave without saving
