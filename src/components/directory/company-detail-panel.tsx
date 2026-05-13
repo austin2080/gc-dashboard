@@ -806,8 +806,8 @@ export default function CompanyDetailPanel({
 
   if (!company) return null;
 
-  const subtitleParts = [tradeTitles[0], company.city, company.state].filter(Boolean);
-  const subtitle = subtitleParts.length ? subtitleParts.join(" · ") : "Subcontractor profile";
+  const subtitleParts = [tradeTitles[0] || "No trade selected", company.city, company.state].filter(Boolean);
+  const subtitle = subtitleParts.join(" · ");
   const addressParts = [company.address, company.city, company.state, company.zip].filter(Boolean);
   const addressLabel = addressParts.length ? addressParts.join(", ") : "—";
   const displayIsActive = isEditingCompanyInfo ? companyInfoDraft.isActive : company.isActive;
@@ -1417,16 +1417,11 @@ export default function CompanyDetailPanel({
                           return (
                             <span
                               key={trade}
-                              className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[12px] font-semibold leading-none ${
-                                isPrimary ? "bg-[#356DFF] text-white" : "bg-slate-100 text-[#356DFF]"
+                              className={`inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[12px] font-semibold leading-none ${
+                                isPrimary ? "text-[#356DFF]" : "text-slate-500"
                               }`}
                             >
                               <span>{trade}</span>
-                              {isPrimary ? (
-                                <span className="rounded-full bg-white/20 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-white">
-                                  Primary
-                                </span>
-                              ) : null}
                               <button
                                 type="button"
                                 onClick={() =>
@@ -1440,9 +1435,7 @@ export default function CompanyDetailPanel({
                                     };
                                   })
                                 }
-                                className={`inline-flex h-5 w-5 items-center justify-center rounded-full ${
-                                  isPrimary ? "text-white/90 hover:bg-white/15" : "text-[#356DFF] hover:bg-slate-200"
-                                }`}
+                                className="inline-flex h-5 w-5 items-center justify-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-500"
                                 aria-label={`Remove ${trade}`}
                               >
                                 <X className="h-3.5 w-3.5" />
@@ -1555,16 +1548,11 @@ export default function CompanyDetailPanel({
                           tradeTitles.map((trade, index) => (
                             <span
                               key={`${company.id}-${trade}`}
-                              className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-[14px] font-semibold leading-none ${
-                                index === 0 ? "bg-[#356DFF] text-white" : "bg-[#EEF2FF] text-[#356DFF]"
+                              className={`inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-2 text-[14px] font-semibold leading-none ${
+                                index === 0 ? "text-[#356DFF]" : "text-slate-500"
                               }`}
                             >
                               {trade}
-                              {index === 0 ? (
-                                <span className="rounded-full bg-white/20 px-2 py-1 text-[10px] font-bold uppercase tracking-[0.08em] text-white">
-                                  Primary
-                                </span>
-                              ) : null}
                             </span>
                           ))
                         ) : (
