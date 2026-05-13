@@ -1393,6 +1393,30 @@ export default function DirectoryPageClient() {
               throw error;
             }
           }}
+          onSaveCompanyDocuments={async (updates) => {
+            const previousCompanies = companies;
+            setCompanies((current) =>
+              current.map((company) =>
+                company.id === selectedCompany.id
+                  ? {
+                      ...company,
+                      notes: updates.notes,
+                    }
+                  : company
+              )
+            );
+
+            try {
+              await updateCompanyRecord(selectedCompany, {
+                notes: updates.notes,
+              });
+              await fetchDirectory();
+              showToast("Document uploaded.", "success");
+            } catch (error) {
+              setCompanies(previousCompanies);
+              throw error;
+            }
+          }}
           onAssignProject={async (projectId) => {
             await fetch("/api/directory/assignments", {
               method: "POST",

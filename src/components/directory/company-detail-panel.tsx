@@ -2,11 +2,13 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowUpRight,
   AlertTriangle,
   Building2,
   Check,
   CheckCircle2,
   ChevronDown,
+  FileText,
   Globe,
   Mail,
   MapPin,
@@ -66,6 +68,7 @@ type Props = {
     phone?: string;
   }) => Promise<void>;
   onSaveCompanyNotes: (updates: { notes: string | undefined }) => Promise<void>;
+  onSaveCompanyDocuments: (updates: { notes: string | undefined }) => Promise<void>;
   onAssignProject: (projectId: string) => void;
 };
 
@@ -108,6 +111,15 @@ type CompanyNoteRecord = {
   createdAt: string | null;
 };
 
+type CompanyDocumentRecord = {
+  id: string;
+  name: string;
+  kind: string;
+  uploadedAt: string;
+  expiresAt?: string;
+  dataUrl: string;
+};
+
 type BidHistoryRow = {
   id: string;
   projectName: string;
@@ -120,6 +132,8 @@ type BidHistoryRow = {
 
 const CONTACTS_MARKER_START = "[[DIRECTORY_CONTACTS]]";
 const CONTACTS_MARKER_END = "[[/DIRECTORY_CONTACTS]]";
+const DOCUMENTS_MARKER_START = "[[DIRECTORY_DOCUMENTS]]";
+const DOCUMENTS_MARKER_END = "[[/DIRECTORY_DOCUMENTS]]";
 const NOTE_TIMESTAMP_PREFIX = "[[DIRECTORY_NOTE_TS:";
 const NOTE_TIMESTAMP_SUFFIX = "]]";
 
@@ -205,8 +219,45 @@ function normalizeContacts(contacts: CompanyContactRecord[]) {
   }));
 }
 
+function parseCompanyDocuments(notes: string) {
+  const startIndex = notes.indexOf(DOCUMENTS_MARKER_START);
+  const endIndex = notes.indexOf(DOCUMENTS_MARKER_END);
+  let documents: CompanyDocumentRecord[] = [];
+  let notesWithoutDocuments = notes;
+
+  if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
+    const jsonPayload = notes
+      .slice(startIndex + DOCUMENTS_MARKER_START.length, endIndex)
+      .trim();
+    try {
+      const parsed = JSON.parse(jsonPayload) as { documents?: CompanyDocumentRecord[] };
+      documents = Array.isArray(parsed.documents)
+        ? parsed.documents
+            .map((document) => ({
+              id: document.id || crypto.randomUUID(),
+              name: document.name ?? "Uploaded document",
+              kind: document.kind ?? "Document",
+              uploadedAt: document.uploadedAt ?? new Date().toISOString(),
+              expiresAt: document.expiresAt || undefined,
+              dataUrl: document.dataUrl ?? "",
+            }))
+            .filter((document) => document.dataUrl)
+        : [];
+    } catch {
+      documents = [];
+    }
+
+    notesWithoutDocuments = `${notes.slice(0, startIndex)}${notes.slice(
+      endIndex + DOCUMENTS_MARKER_END.length
+    )}`.trim();
+  }
+
+  return { documents, notesWithoutDocuments };
+}
+
 function parseCompanyContacts(company: Company) {
   const notes = company.notes ?? "";
+  const { documents, notesWithoutDocuments } = parseCompanyDocuments(notes);
   const fallbackPrimaryId = `${company.id}-primary-contact`;
   const fallbackIdentityKey = company.primaryContact?.trim()
     ? getContactIdentityKey({
@@ -215,13 +266,13 @@ function parseCompanyContacts(company: Company) {
         phone: company.phone?.trim() || company.officePhone?.trim() || "",
       })
     : null;
-  const startIndex = notes.indexOf(CONTACTS_MARKER_START);
-  const endIndex = notes.indexOf(CONTACTS_MARKER_END);
+  const startIndex = notesWithoutDocuments.indexOf(CONTACTS_MARKER_START);
+  const endIndex = notesWithoutDocuments.indexOf(CONTACTS_MARKER_END);
   let storedContacts: CompanyContactRecord[] = [];
-  let notesWithoutContacts = notes;
+  let notesWithoutContacts = notesWithoutDocuments;
 
   if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
-    const jsonPayload = notes
+    const jsonPayload = notesWithoutDocuments
       .slice(startIndex + CONTACTS_MARKER_START.length, endIndex)
       .trim();
     try {
@@ -255,7 +306,7 @@ function parseCompanyContacts(company: Company) {
       storedContacts = [];
     }
 
-    notesWithoutContacts = `${notes.slice(0, startIndex)}${notes.slice(
+    notesWithoutContacts = `${notesWithoutDocuments.slice(0, startIndex)}${notesWithoutDocuments.slice(
       endIndex + CONTACTS_MARKER_END.length
     )}`.trim();
   }
@@ -275,10 +326,15 @@ function parseCompanyContacts(company: Company) {
   return {
     contacts: normalizeContacts([...(fallbackPrimary ? [fallbackPrimary] : []), ...storedContacts]),
     notesWithoutContacts,
+    documents,
   };
 }
 
-function buildCompanyNotes(baseNotes: string, contacts: CompanyContactRecord[]) {
+function buildCompanyNotes(
+  baseNotes: string,
+  contacts: CompanyContactRecord[],
+  documents: CompanyDocumentRecord[] = []
+) {
   const normalizedBase = baseNotes.trim();
   const normalizedContacts = normalizeContacts(
     contacts.map((contact) => ({
@@ -291,13 +347,75 @@ function buildCompanyNotes(baseNotes: string, contacts: CompanyContactRecord[]) 
   );
 
   if (!normalizedContacts.length) {
-    return normalizedBase || undefined;
+    if (!documents.length) {
+      return normalizedBase || undefined;
+    }
+    const documentPayload = JSON.stringify({ documents });
+    return [normalizedBase, `${DOCUMENTS_MARKER_START}${documentPayload}${DOCUMENTS_MARKER_END}`]
+      .filter(Boolean)
+      .join("\n\n");
   }
 
   const payload = JSON.stringify({ contacts: normalizedContacts });
-  return [normalizedBase, `${CONTACTS_MARKER_START}${payload}${CONTACTS_MARKER_END}`]
+  const documentPayload = documents.length
+    ? `${DOCUMENTS_MARKER_START}${JSON.stringify({ documents })}${DOCUMENTS_MARKER_END}`
+    : "";
+  return [normalizedBase, `${CONTACTS_MARKER_START}${payload}${CONTACTS_MARKER_END}`, documentPayload]
     .filter(Boolean)
     .join("\n\n");
+}
+
+function inferDocumentKind(name: string) {
+  const lowerName = name.toLowerCase();
+  if (lowerName.includes("w9") || lowerName.includes("w-9")) return "W9";
+  if (lowerName.includes("insurance") || lowerName.includes("coi")) return "Insurance";
+  if (lowerName.includes("license")) return "License";
+  return "Document";
+}
+
+function dataUrlToBlob(dataUrl: string): Blob | null {
+  const match = dataUrl.match(/^data:([^;,]+)?(;base64)?,(.*)$/);
+  if (!match) return null;
+
+  const mimeType = match[1] || "application/octet-stream";
+  const isBase64 = Boolean(match[2]);
+  const dataPart = match[3] || "";
+
+  try {
+    if (isBase64) {
+      const binary = atob(dataPart);
+      const bytes = new Uint8Array(binary.length);
+      for (let index = 0; index < binary.length; index += 1) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      return new Blob([bytes], { type: mimeType });
+    }
+
+    return new Blob([decodeURIComponent(dataPart)], { type: mimeType });
+  } catch {
+    return null;
+  }
+}
+
+async function fileToDataUrl(file: File) {
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () => reject(new Error("Failed to read file."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function openDocumentPreview(dataUrl: string) {
+  const blob = dataUrlToBlob(dataUrl);
+  if (blob) {
+    const blobUrl = URL.createObjectURL(blob);
+    window.open(blobUrl, "_blank", "noopener,noreferrer");
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    return;
+  }
+
+  window.open(dataUrl, "_blank", "noopener,noreferrer");
 }
 
 function parseCompanyNotes(notes: string) {
@@ -406,6 +524,7 @@ export default function CompanyDetailPanel({
   onSaveCompanyInfo,
   onSaveCompanyContacts,
   onSaveCompanyNotes,
+  onSaveCompanyDocuments,
   onAssignProject,
 }: Props) {
   const [activeTab, setActiveTab] = useState<DrawerTab>("company-info");
@@ -423,6 +542,9 @@ export default function CompanyDetailPanel({
   const [isAddingContact, setIsAddingContact] = useState(false);
   const [editingContactId, setEditingContactId] = useState<string | null>(null);
   const [isSavingContact, setIsSavingContact] = useState(false);
+  const [isSavingDocument, setIsSavingDocument] = useState(false);
+  const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
+  const [editingDocumentName, setEditingDocumentName] = useState("");
   const [isAddingNote, setIsAddingNote] = useState(false);
   const [isSavingNote, setIsSavingNote] = useState(false);
   const [noteDraft, setNoteDraft] = useState("");
@@ -457,6 +579,7 @@ export default function CompanyDetailPanel({
     isActive: true,
   });
   const previousCompanyIdRef = useRef<string | null>(null);
+  const documentInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!company) return;
@@ -478,8 +601,11 @@ export default function CompanyDetailPanel({
     setIsAddingContact(false);
     setIsAddingNote(false);
     setEditingContactId(null);
+    setEditingDocumentId(null);
+    setEditingDocumentName("");
     setEditingNoteId(null);
     setIsSavingContact(false);
+    setIsSavingDocument(false);
     setIsSavingNote(false);
     setNoteDraft("");
     setEditingNoteDraft("");
@@ -685,7 +811,7 @@ export default function CompanyDetailPanel({
   const addressParts = [company.address, company.city, company.state, company.zip].filter(Boolean);
   const addressLabel = addressParts.length ? addressParts.join(", ") : "—";
   const displayIsActive = isEditingCompanyInfo ? companyInfoDraft.isActive : company.isActive;
-  const { contacts: contactCards, notesWithoutContacts } = useMemo(
+  const { contacts: contactCards, notesWithoutContacts, documents: documentCards } = useMemo(
     () => parseCompanyContacts(company),
     [company]
   );
@@ -779,7 +905,7 @@ export default function CompanyDetailPanel({
     try {
       await onSaveCompanyContacts({
         contacts: nextContacts,
-        notes: buildCompanyNotes(notesWithoutContacts, nextContacts),
+        notes: buildCompanyNotes(notesWithoutContacts, nextContacts, documentCards),
         primaryContact: primaryContact?.name || undefined,
         contactTitle: primaryContact?.role || undefined,
         email: primaryContact?.email || undefined,
@@ -848,7 +974,7 @@ export default function CompanyDetailPanel({
     try {
       await onSaveCompanyContacts({
         contacts: nextContacts,
-        notes: buildCompanyNotes(notesWithoutContacts, nextContacts),
+        notes: buildCompanyNotes(notesWithoutContacts, nextContacts, documentCards),
         primaryContact: primaryContact?.name || undefined,
         contactTitle: primaryContact?.role || undefined,
         email: primaryContact?.email || undefined,
@@ -879,7 +1005,7 @@ export default function CompanyDetailPanel({
     try {
       await onSaveCompanyContacts({
         contacts: remainingContacts,
-        notes: buildCompanyNotes(notesWithoutContacts, remainingContacts),
+        notes: buildCompanyNotes(notesWithoutContacts, remainingContacts, documentCards),
         primaryContact: primaryContact?.name ?? "",
         contactTitle: primaryContact?.role ?? "",
         email: primaryContact?.email ?? "",
@@ -921,7 +1047,7 @@ export default function CompanyDetailPanel({
 
     try {
       await onSaveCompanyNotes({
-        notes: buildCompanyNotes(serializeCompanyNotes(nextNotes), contactCards),
+        notes: buildCompanyNotes(serializeCompanyNotes(nextNotes), contactCards, documentCards),
       });
       setIsAddingNote(false);
       setNoteDraft("");
@@ -953,7 +1079,7 @@ export default function CompanyDetailPanel({
 
     try {
       await onSaveCompanyNotes({
-        notes: buildCompanyNotes(serializeCompanyNotes(nextNotes), contactCards),
+        notes: buildCompanyNotes(serializeCompanyNotes(nextNotes), contactCards, documentCards),
       });
       setEditingNoteId(null);
       setEditingNoteDraft("");
@@ -972,7 +1098,7 @@ export default function CompanyDetailPanel({
 
     try {
       await onSaveCompanyNotes({
-        notes: buildCompanyNotes(serializeCompanyNotes(nextNotes), contactCards),
+        notes: buildCompanyNotes(serializeCompanyNotes(nextNotes), contactCards, documentCards),
       });
       setEditingNoteId(null);
       setEditingNoteDraft("");
@@ -980,6 +1106,70 @@ export default function CompanyDetailPanel({
       setNoteError(error instanceof Error ? error.message : "Failed to delete note.");
     } finally {
       setIsSavingNote(false);
+    }
+  }
+
+  async function handleUploadDocument(file: File) {
+    setIsSavingDocument(true);
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      const nextDocuments: CompanyDocumentRecord[] = [
+        {
+          id: crypto.randomUUID(),
+          name: file.name,
+          kind: inferDocumentKind(file.name),
+          uploadedAt: new Date().toISOString(),
+          dataUrl,
+        },
+        ...documentCards,
+      ];
+      await onSaveCompanyDocuments({
+        notes: buildCompanyNotes(notesWithoutContacts, contactCards, nextDocuments),
+      });
+    } finally {
+      setIsSavingDocument(false);
+      if (documentInputRef.current) {
+        documentInputRef.current.value = "";
+      }
+    }
+  }
+
+  async function handleUpdateDocument(documentId: string) {
+    const trimmedName = editingDocumentName.trim();
+    if (!trimmedName) return;
+
+    setIsSavingDocument(true);
+    try {
+      const nextDocuments = documentCards.map((document) =>
+        document.id === documentId
+          ? {
+              ...document,
+              name: trimmedName,
+              kind: inferDocumentKind(trimmedName),
+            }
+          : document
+      );
+      await onSaveCompanyDocuments({
+        notes: buildCompanyNotes(notesWithoutContacts, contactCards, nextDocuments),
+      });
+      setEditingDocumentId(null);
+      setEditingDocumentName("");
+    } finally {
+      setIsSavingDocument(false);
+    }
+  }
+
+  async function handleDeleteDocument(documentId: string) {
+    setIsSavingDocument(true);
+    try {
+      const nextDocuments = documentCards.filter((document) => document.id !== documentId);
+      await onSaveCompanyDocuments({
+        notes: buildCompanyNotes(notesWithoutContacts, contactCards, nextDocuments),
+      });
+      setEditingDocumentId(null);
+      setEditingDocumentName("");
+    } finally {
+      setIsSavingDocument(false);
     }
   }
 
@@ -1928,6 +2118,153 @@ export default function CompanyDetailPanel({
                   Add Note
                 </button>
               )}
+            </div>
+          ) : activeTab === "documents" ? (
+            <div className="space-y-4">
+              {documentCards.length ? (
+                documentCards.map((document) => (
+                  <section
+                    key={`${company.id}-${document.id}`}
+                    className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-soft-sm"
+                  >
+                    {editingDocumentId === document.id ? (
+                      <div className="space-y-4">
+                        <div className="flex items-start gap-4">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[20px] bg-[#EEF2FF] text-[#356DFF]">
+                            <FileText className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <input
+                              value={editingDocumentName}
+                              onChange={(event) => setEditingDocumentName(event.target.value)}
+                              className="h-10 w-full rounded-[20px] border border-blue-500 bg-white px-5 text-sm font-semibold text-slate-950 shadow-soft-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                            />
+                            <div className="mt-2 text-[11px] font-medium text-slate-500">
+                              {document.kind} · Uploaded{" "}
+                              {new Date(document.uploadedAt).toLocaleDateString(undefined, {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              })}
+                              {document.expiresAt
+                                ? ` · Expires ${new Date(document.expiresAt).toLocaleDateString(undefined, {
+                                    month: "short",
+                                    day: "numeric",
+                                    year: "numeric",
+                                  })}`
+                                : ""}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateDocument(document.id)}
+                            disabled={isSavingDocument || !editingDocumentName.trim()}
+                            className="inline-flex h-10 items-center gap-3 rounded-[14px] bg-[#356DFF] px-3 text-sm font-semibold text-white shadow-sm hover:bg-[#2456dc] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Check className="h-4 w-4" />
+                            {isSavingDocument ? "Saving..." : "Save Changes"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingDocumentId(null);
+                              setEditingDocumentName("");
+                            }}
+                            className="inline-flex h-10 items-center rounded-[14px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 shadow-soft-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteDocument(document.id)}
+                            disabled={isSavingDocument}
+                            className="inline-flex h-10 items-center rounded-[14px] border border-rose-200 bg-white px-3 text-sm font-semibold text-rose-600 shadow-soft-sm hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            Delete File
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex min-w-0 items-center gap-4">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[20px] bg-[#EEF2FF] text-[#356DFF]">
+                            <FileText className="h-4 w-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-slate-950">{document.name}</div>
+                            <div className="text-[11px] font-medium text-slate-500">
+                              {document.kind} · Uploaded{" "}
+                              {new Date(document.uploadedAt).toLocaleDateString(undefined, {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                              })}
+                              {document.expiresAt
+                                ? ` · Expires ${new Date(document.expiresAt).toLocaleDateString(undefined, {
+                                    month: "short",
+                                    day: "numeric",
+                                    year: "numeric",
+                                  })}`
+                                : ""}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingDocumentId(document.id);
+                              setEditingDocumentName(document.name);
+                            }}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-accent hover:text-accent-foreground"
+                            aria-label={`Edit ${document.name}`}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openDocumentPreview(document.dataUrl)}
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-500 transition-colors hover:bg-accent hover:text-accent-foreground"
+                            aria-label={`Open ${document.name}`}
+                          >
+                            <ArrowUpRight className="h-5 w-5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </section>
+                ))
+              ) : (
+                <section className="rounded-[24px] border border-slate-200 bg-white p-5 text-center shadow-soft-sm">
+                  <div className="text-medium font-semibold text-slate-900">No documents uploaded</div>
+                  <p className="mt-2 text-sm text-slate-500">
+                    Upload licenses, tax forms, insurance, and other subcontractor documents.
+                  </p>
+                </section>
+              )}
+
+              <input
+                ref={documentInputRef}
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,.xls,.xlsx"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (!file) return;
+                  void handleUploadDocument(file);
+                }}
+              />
+              <button
+                type="button"
+                disabled={isSavingDocument}
+                onClick={() => documentInputRef.current?.click()}
+                className="inline-flex h-9 w-full items-center justify-center gap-3 rounded-[20px] border border-slate-200 bg-white px-3 text-[16px] font-medium text-slate-900 shadow-soft-sm hover:border-accent hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4" />
+                {isSavingDocument ? "Uploading..." : "Upload Document"}
+              </button>
             </div>
           ) : (
             <section className="rounded-[24px] border border-slate-200 bg-white p-8 text-center shadow-soft-sm">
