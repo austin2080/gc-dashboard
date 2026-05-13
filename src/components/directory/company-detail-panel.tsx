@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertTriangle,
   Building2,
   Check,
   CheckCircle2,
@@ -12,6 +13,7 @@ import {
   Pencil,
   Phone,
   Plus,
+  Trash2,
   X,
 } from "lucide-react";
 import { Company, ProjectDirectoryEntry } from "@/lib/directory/types";
@@ -63,6 +65,7 @@ type Props = {
     email?: string;
     phone?: string;
   }) => Promise<void>;
+  onSaveCompanyNotes: (updates: { notes: string | undefined }) => Promise<void>;
   onAssignProject: (projectId: string) => void;
 };
 
@@ -99,6 +102,12 @@ type NewContactDraft = {
   setAsPrimary: boolean;
 };
 
+type CompanyNoteRecord = {
+  id: string;
+  body: string;
+  createdAt: string | null;
+};
+
 type BidHistoryRow = {
   id: string;
   projectName: string;
@@ -111,6 +120,8 @@ type BidHistoryRow = {
 
 const CONTACTS_MARKER_START = "[[DIRECTORY_CONTACTS]]";
 const CONTACTS_MARKER_END = "[[/DIRECTORY_CONTACTS]]";
+const NOTE_TIMESTAMP_PREFIX = "[[DIRECTORY_NOTE_TS:";
+const NOTE_TIMESTAMP_SUFFIX = "]]";
 
 const TABS: Array<{ id: DrawerTab; label: string }> = [
   { id: "company-info", label: "Company Info" },
@@ -163,17 +174,29 @@ function toDraft(company: Company): CompanyInfoDraft {
 function normalizeContacts(contacts: CompanyContactRecord[]) {
   const seenIds = new Set<string>();
   const seenIdentity = new Set<string>();
-  const unique = contacts.filter((contact) => {
-    const normalizedName = contact.name.trim();
-    const identityKey = getContactIdentityKey(contact);
+  const unique = contacts
+    .map((contact) => ({
+      ...contact,
+      name: contact.name.trim(),
+      role: contact.role.trim(),
+      email: contact.email.trim(),
+      phone: contact.phone.trim(),
+    }))
+    .flatMap((contact) => {
+      const identityKey = getContactIdentityKey(contact);
 
-    if (!normalizedName) return false;
-    if (seenIds.has(contact.id) || seenIdentity.has(identityKey)) return false;
+      if (!contact.name) return [];
+      if (seenIdentity.has(identityKey)) return [];
 
-    seenIds.add(contact.id);
-    seenIdentity.add(identityKey);
-    return true;
-  });
+      seenIdentity.add(identityKey);
+
+      if (seenIds.has(contact.id)) {
+        return [{ ...contact, id: crypto.randomUUID() }];
+      }
+
+      seenIds.add(contact.id);
+      return [contact];
+    });
   const firstPrimaryIndex = unique.findIndex((contact) => contact.isPrimary);
   const hasSingleContact = unique.length === 1;
   return unique.map((contact, index) => ({
@@ -277,6 +300,44 @@ function buildCompanyNotes(baseNotes: string, contacts: CompanyContactRecord[]) 
     .join("\n\n");
 }
 
+function parseCompanyNotes(notes: string) {
+  return notes
+    .split(/\n{2,}/)
+    .map((block, index) => {
+      const trimmedBlock = block.trim();
+      if (!trimmedBlock) return null;
+
+      const lines = trimmedBlock.split("\n");
+      const firstLine = lines[0]?.trim() || "";
+      const hasTimestampMarker =
+        firstLine.startsWith(NOTE_TIMESTAMP_PREFIX) && firstLine.endsWith(NOTE_TIMESTAMP_SUFFIX);
+      const createdAt = hasTimestampMarker
+        ? firstLine.slice(NOTE_TIMESTAMP_PREFIX.length, firstLine.length - NOTE_TIMESTAMP_SUFFIX.length)
+        : null;
+      const body = (hasTimestampMarker ? lines.slice(1).join("\n") : trimmedBlock).trim();
+
+      if (!body) return null;
+
+      return {
+        id: createdAt ? `${createdAt}-${index}` : `legacy-note-${index}`,
+        body,
+        createdAt,
+      } satisfies CompanyNoteRecord;
+    })
+    .filter((note): note is CompanyNoteRecord => Boolean(note));
+}
+
+function serializeCompanyNotes(notes: CompanyNoteRecord[]) {
+  return notes
+    .map((note) =>
+      note.createdAt
+        ? `${NOTE_TIMESTAMP_PREFIX}${note.createdAt}${NOTE_TIMESTAMP_SUFFIX}\n${note.body.trim()}`
+        : note.body.trim()
+    )
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 function TradeSearchSelect({
   value,
   placeholder,
@@ -344,6 +405,7 @@ export default function CompanyDetailPanel({
   onClose,
   onSaveCompanyInfo,
   onSaveCompanyContacts,
+  onSaveCompanyNotes,
   onAssignProject,
 }: Props) {
   const [activeTab, setActiveTab] = useState<DrawerTab>("company-info");
@@ -361,6 +423,12 @@ export default function CompanyDetailPanel({
   const [isAddingContact, setIsAddingContact] = useState(false);
   const [editingContactId, setEditingContactId] = useState<string | null>(null);
   const [isSavingContact, setIsSavingContact] = useState(false);
+  const [isAddingNote, setIsAddingNote] = useState(false);
+  const [isSavingNote, setIsSavingNote] = useState(false);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingNoteDraft, setEditingNoteDraft] = useState("");
+  const [noteError, setNoteError] = useState("");
   const [newContactDraft, setNewContactDraft] = useState<NewContactDraft>({
     name: "",
     role: "",
@@ -408,8 +476,14 @@ export default function CompanyDetailPanel({
     setPendingTrade("");
     setCustomTradeInput("");
     setIsAddingContact(false);
+    setIsAddingNote(false);
     setEditingContactId(null);
+    setEditingNoteId(null);
     setIsSavingContact(false);
+    setIsSavingNote(false);
+    setNoteDraft("");
+    setEditingNoteDraft("");
+    setNoteError("");
     setNewContactDraft({
       name: "",
       role: "",
@@ -615,6 +689,7 @@ export default function CompanyDetailPanel({
     () => parseCompanyContacts(company),
     [company]
   );
+  const noteCards = useMemo(() => parseCompanyNotes(notesWithoutContacts), [notesWithoutContacts]);
 
   function addTradeToDraft(nextTrade: string) {
     const cleanedTrade = stripTradeCodePrefix(nextTrade).trim();
@@ -822,6 +897,89 @@ export default function CompanyDetailPanel({
       setContactError(error instanceof Error ? error.message : "Failed to delete contact.");
     } finally {
       setIsSavingContact(false);
+    }
+  }
+
+  async function handleSaveNote() {
+    const trimmedNote = noteDraft.trim();
+    if (!trimmedNote) {
+      setNoteError("Note text is required.");
+      return;
+    }
+
+    setNoteError("");
+    setIsSavingNote(true);
+
+    const nextNotes: CompanyNoteRecord[] = [
+      {
+        id: crypto.randomUUID(),
+        body: trimmedNote,
+        createdAt: new Date().toISOString(),
+      },
+      ...noteCards,
+    ];
+
+    try {
+      await onSaveCompanyNotes({
+        notes: buildCompanyNotes(serializeCompanyNotes(nextNotes), contactCards),
+      });
+      setIsAddingNote(false);
+      setNoteDraft("");
+    } catch (error) {
+      setNoteError(error instanceof Error ? error.message : "Failed to save note.");
+    } finally {
+      setIsSavingNote(false);
+    }
+  }
+
+  async function handleUpdateNote(noteId: string) {
+    const trimmedNote = editingNoteDraft.trim();
+    if (!trimmedNote) {
+      setNoteError("Note text is required.");
+      return;
+    }
+
+    setNoteError("");
+    setIsSavingNote(true);
+
+    const nextNotes = noteCards.map((note) =>
+      note.id === noteId
+        ? {
+            ...note,
+            body: trimmedNote,
+          }
+        : note
+    );
+
+    try {
+      await onSaveCompanyNotes({
+        notes: buildCompanyNotes(serializeCompanyNotes(nextNotes), contactCards),
+      });
+      setEditingNoteId(null);
+      setEditingNoteDraft("");
+    } catch (error) {
+      setNoteError(error instanceof Error ? error.message : "Failed to update note.");
+    } finally {
+      setIsSavingNote(false);
+    }
+  }
+
+  async function handleDeleteNote(noteId: string) {
+    setNoteError("");
+    setIsSavingNote(true);
+
+    const nextNotes = noteCards.filter((note) => note.id !== noteId);
+
+    try {
+      await onSaveCompanyNotes({
+        notes: buildCompanyNotes(serializeCompanyNotes(nextNotes), contactCards),
+      });
+      setEditingNoteId(null);
+      setEditingNoteDraft("");
+    } catch (error) {
+      setNoteError(error instanceof Error ? error.message : "Failed to delete note.");
+    } finally {
+      setIsSavingNote(false);
     }
   }
 
@@ -1614,6 +1772,162 @@ export default function CompanyDetailPanel({
                   </table>
                 </div>
               </section>
+            </div>
+          ) : activeTab === "notes" ? (
+            <div className="space-y-4">
+              {noteError ? (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-600">
+                  {noteError}
+                </div>
+              ) : null}
+              <section className="rounded-[24px] border border-amber-200 bg-amber-50/60 px-3 py-2 shadow-soft-sm">
+                <div className="flex items-center gap-3 text-xs font-medium text-amber-900">
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-amber-700" />
+                  <span>Internal notes only — never visible to subcontractors.</span>
+                </div>
+              </section>
+
+              {noteCards.length ? (
+                noteCards.map((note) => (
+                  <section
+                    key={`${company.id}-${note.id}`}
+                    className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-soft-sm"
+                  >
+                    {editingNoteId === note.id ? (
+                      <div className="space-y-4">
+                        <textarea
+                          value={editingNoteDraft}
+                          onChange={(event) => setEditingNoteDraft(event.target.value)}
+                          rows={3}
+                          className="min-h-[120px] w-full resize-none rounded-[20px] border border-blue-500 bg-white px-5 py-4 text-sm font-medium leading-7 text-slate-900 shadow-soft-sm outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                        />
+                        <div className="flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateNote(note.id)}
+                            disabled={isSavingNote || !editingNoteDraft.trim()}
+                            className="inline-flex h-10 items-center gap-3 rounded-[14px] bg-[#356DFF] px-3 text-sm font-semibold text-white shadow-sm hover:bg-[#2456dc] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Check className="h-4 w-4" />
+                            {isSavingNote ? "Saving..." : "Save"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNoteError("");
+                              setEditingNoteId(null);
+                              setEditingNoteDraft("");
+                            }}
+                            className="inline-flex h-10 items-center rounded-[14px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 shadow-soft-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-sm font-medium leading-7 text-slate-900">{note.body}</p>
+                        <div className="mt-2 flex items-center justify-between gap-4">
+                          {note.createdAt ? (
+                            <div className="text-[11px] font-medium text-slate-500">
+                              {new Date(note.createdAt).toLocaleString(undefined, {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                                hour: "numeric",
+                                minute: "2-digit",
+                              })}
+                            </div>
+                          ) : (
+                            <div />
+                          )}
+                          <div className="flex items-center gap-1 text-slate-500">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setNoteError("");
+                                setIsAddingNote(false);
+                                setEditingNoteId(note.id);
+                                setEditingNoteDraft(note.body);
+                              }}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-accent hover:text-accent-foreground"
+                              aria-label="Edit note"
+                            >
+                              <Pencil className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteNote(note.id)}
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-accent hover:text-accent-foreground"
+                              aria-label="Delete note"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </section>
+                ))
+              ) : (
+                <section className="rounded-[24px] border border-slate-200 bg-white p-5 text-center shadow-soft-sm">
+                  <div className="text-medium font-semibold text-slate-900">No internal notes yet</div>
+                  <p className="mt-2 text-sm text-slate-500">
+                    Add private notes for your team about this subcontractor.
+                  </p>
+                </section>
+              )}
+
+              {isAddingNote ? (
+                <section className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-soft-sm">
+                  <div className="text-sm font-semibold tracking-tight text-slate-950">New Note</div>
+                  <div className="mt-5 space-y-4">
+                    <textarea
+                      value={noteDraft}
+                      onChange={(event) => setNoteDraft(event.target.value)}
+                      placeholder="Type an internal note..."
+                      rows={5}
+                      className="w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-5 py-4 text-sm font-medium text-slate-900 shadow-soft-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                    />
+                    <div className="flex flex-wrap items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={handleSaveNote}
+                        disabled={isSavingNote || !noteDraft.trim()}
+                        className="inline-flex h-10 items-center gap-3 rounded-[14px] bg-[#356DFF] px-3 text-sm font-semibold text-white shadow-sm hover:bg-[#2456dc] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <Check className="h-4 w-4" />
+                        {isSavingNote ? "Saving..." : "Save Note"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNoteError("");
+                          setIsAddingNote(false);
+                          setNoteDraft("");
+                        }}
+                        className="inline-flex h-10 items-center rounded-[14px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-900 shadow-soft-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </section>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNoteError("");
+                    setEditingNoteId(null);
+                    setEditingNoteDraft("");
+                    setIsAddingNote(true);
+                  }}
+                  className="inline-flex h-9 w-full items-center justify-center gap-3 rounded-[20px] border border-slate-200 bg-white px-3 text-[16px] font-medium text-slate-900 shadow-soft-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Note
+                </button>
+              )}
             </div>
           ) : (
             <section className="rounded-[24px] border border-slate-200 bg-white p-8 text-center shadow-soft-sm">
