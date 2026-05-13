@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { Company, ProjectDirectoryEntry } from "@/lib/directory/types";
+import { getBidProjectDetail, listBidProjects } from "@/lib/bidding/store";
 import {
   Command,
   CommandEmpty,
@@ -98,6 +99,16 @@ type NewContactDraft = {
   setAsPrimary: boolean;
 };
 
+type BidHistoryRow = {
+  id: string;
+  projectName: string;
+  tradeName: string;
+  invitedAt: string | null;
+  status: "submitted";
+  amount: number | null;
+  outcome: "—";
+};
+
 const CONTACTS_MARKER_START = "[[DIRECTORY_CONTACTS]]";
 const CONTACTS_MARKER_END = "[[/DIRECTORY_CONTACTS]]";
 
@@ -111,7 +122,9 @@ const TABS: Array<{ id: DrawerTab; label: string }> = [
 ];
 
 function stripTradeCodePrefix(value: string) {
-  return value.replace(/^\d{2}(?:[-\s]\d{2}){0,3}\s*/, "").trim();
+  return value
+    .replace(/^\s*\d{2}(?:[.\-\s/]*\d{2}){0,4}\s*[:-]?\s*/u, "")
+    .trim();
 }
 
 function getTradeTitles(value?: string) {
@@ -124,6 +137,10 @@ function getTradeTitles(value?: string) {
 
 function getContactIdentityKey(contact: Pick<CompanyContactRecord, "name" | "email" | "phone">) {
   return `${contact.name.trim()}|${contact.email.trim().toLowerCase()}|${contact.phone.trim()}`.toLowerCase();
+}
+
+function normalizeCompareValue(value?: string | null) {
+  return value?.trim().toLowerCase() || "";
 }
 
 function toDraft(company: Company): CompanyInfoDraft {
@@ -338,6 +355,9 @@ export default function CompanyDetailPanel({
   const [isClosing, setIsClosing] = useState(false);
   const [pendingTrade, setPendingTrade] = useState("");
   const [customTradeInput, setCustomTradeInput] = useState("");
+  const [bidHistoryRows, setBidHistoryRows] = useState<BidHistoryRow[]>([]);
+  const [bidHistoryError, setBidHistoryError] = useState("");
+  const [isLoadingBidHistory, setIsLoadingBidHistory] = useState(false);
   const [isAddingContact, setIsAddingContact] = useState(false);
   const [editingContactId, setEditingContactId] = useState<string | null>(null);
   const [isSavingContact, setIsSavingContact] = useState(false);
@@ -380,8 +400,11 @@ export default function CompanyDetailPanel({
     setIsEditingCompanyInfo(false);
     setCompanyInfoError("");
     setContactError("");
+    setBidHistoryError("");
     setPendingClose(false);
     setIsClosing(false);
+    setBidHistoryRows([]);
+    setIsLoadingBidHistory(false);
     setPendingTrade("");
     setCustomTradeInput("");
     setIsAddingContact(false);
@@ -505,6 +528,81 @@ export default function CompanyDetailPanel({
     }, 260);
     return () => window.clearTimeout(timeout);
   }, [company, isClosing, onClose]);
+
+  useEffect(() => {
+    if (!company || activeTab !== "bid-history") return;
+
+    let active = true;
+    setBidHistoryError("");
+    setIsLoadingBidHistory(true);
+
+    async function loadBidHistory() {
+      try {
+        const projects = await listBidProjects();
+        const details = await Promise.all(projects.map((project) => getBidProjectDetail(project.id)));
+
+        if (!active) return;
+
+        const companyName = normalizeCompareValue(company.name);
+        const companyEmail = normalizeCompareValue(company.email);
+
+        const rows = details
+          .filter((detail): detail is NonNullable<typeof detail> => Boolean(detail))
+          .flatMap((detail) => {
+            const tradeById = new Map(detail.trades.map((trade) => [trade.id, trade.trade_name]));
+            const matchingProjectSubs = detail.projectSubs.filter((projectSub) => {
+              const sub = projectSub.subcontractor;
+              if (!sub) return false;
+              const subName = normalizeCompareValue(sub.company_name);
+              const subEmail = normalizeCompareValue(sub.email);
+              return (
+                (companyName && subName === companyName) ||
+                (companyEmail && subEmail === companyEmail)
+              );
+            });
+
+            const matchingProjectSubIds = new Set(matchingProjectSubs.map((projectSub) => projectSub.id));
+            const invitedAtByProjectSubId = new Map(
+              matchingProjectSubs.map((projectSub) => [projectSub.id, projectSub.invited_at])
+            );
+
+            return detail.tradeBids
+              .filter(
+                (bid) => bid.status === "submitted" && matchingProjectSubIds.has(bid.project_sub_id)
+              )
+              .map((bid) => ({
+                id: bid.id,
+                projectName: detail.project.project_name,
+                tradeName: stripTradeCodePrefix(tradeById.get(bid.trade_id) || "—"),
+                invitedAt: invitedAtByProjectSubId.get(bid.project_sub_id) ?? null,
+                status: "submitted" as const,
+                amount: bid.bid_amount,
+                outcome: "—" as const,
+              }));
+          })
+          .sort((a, b) => {
+            const aTime = a.invitedAt ? new Date(a.invitedAt).getTime() : 0;
+            const bTime = b.invitedAt ? new Date(b.invitedAt).getTime() : 0;
+            return bTime - aTime;
+          });
+
+        setBidHistoryRows(rows);
+      } catch (error) {
+        if (!active) return;
+        setBidHistoryError(error instanceof Error ? error.message : "Failed to load bid history.");
+      } finally {
+        if (active) {
+          setIsLoadingBidHistory(false);
+        }
+      }
+    }
+
+    void loadBidHistory();
+
+    return () => {
+      active = false;
+    };
+  }, [activeTab, company]);
 
   if (!company) return null;
 
@@ -1433,6 +1531,89 @@ export default function CompanyDetailPanel({
                   Add Contact
                 </button>
               )}
+            </div>
+          ) : activeTab === "bid-history" ? (
+            <div className="space-y-6">
+              {bidHistoryError ? (
+                <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-600">
+                  {bidHistoryError}
+                </div>
+              ) : null}
+
+              <section className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-soft-sm">
+                <div className="overflow-x-auto">
+                  <table className="min-w-[820px] table-fixed">
+                    <colgroup>
+                      <col className="w-[24%]" />
+                      <col className="w-[20%]" />
+                      <col className="w-[18%]" />
+                      <col className="w-[14%]" />
+                      <col className="w-[16%]" />
+                      <col className="w-[8%]" />
+                    </colgroup>
+                    <thead className="border-b border-slate-200 bg-slate-50/70 text-left">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Project</th>
+                        <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Trade</th>
+                        <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Invited</th>
+                        <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Status</th>
+                        <th className="px-3 py-2 text-right text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Amount</th>
+                        <th className="px-3 py-2 text-left text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">Outcome</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {isLoadingBidHistory ? (
+                        <tr>
+                          <td colSpan={6} className="px-6 py-10 text-center text-sm text-slate-500">
+                            Loading bid history...
+                          </td>
+                        </tr>
+                      ) : bidHistoryRows.length ? (
+                        bidHistoryRows.map((row) => (
+                          <tr key={row.id} className="border-b border-slate-200 last:border-b-0">
+                            <td className="px-3 py-2 text-medium font-semibold tracking-tight text-slate-950">
+                              {row.projectName}
+                            </td>
+                            <td className="px-3 py-2 text-medium font-medium text-slate-500 whitespace-normal break-words leading-5">
+                              {row.tradeName}
+                            </td>
+                            <td className="px-3 py-2 text-medium font-[11px] text-slate-500">
+                              {row.invitedAt
+                                ? new Date(row.invitedAt).toLocaleDateString(undefined, {
+                                    month: "short",
+                                    day: "numeric",
+                                    year: "numeric",
+                                  })
+                                : "—"}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                                Submitted
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono tabular-nums text-[14px] font-semibold text-slate-950">
+                              {row.amount !== null
+                                ? new Intl.NumberFormat("en-US", {
+                                    style: "currency",
+                                    currency: "USD",
+                                    maximumFractionDigits: 0,
+                                  }).format(row.amount)
+                                : "—"}
+                            </td>
+                            <td className="px-3 py-2 text-[14px] font-semibold text-slate-400">{row.outcome}</td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={6} className="px-6 py-10 text-center text-sm text-slate-500">
+                            No submitted bid history found for this subcontractor.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
             </div>
           ) : (
             <section className="rounded-[24px] border border-slate-200 bg-white p-8 text-center shadow-soft-sm">
