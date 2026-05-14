@@ -993,6 +993,35 @@ function buildTradeLabel(trade: { code: string; description: string | null }): s
   return `${trade.code}${trade.description ? ` ${trade.description}` : ""}`.trim();
 }
 
+function parseTradeLabel(value: string) {
+  const trimmedValue = value.trim();
+  const codeMatch = trimmedValue.match(/^\d{2}(?:[-.\s/]*\d{2}){0,4}/);
+  if (!codeMatch) {
+    return {
+      code: trimmedValue,
+      description: null as string | null,
+    };
+  }
+
+  const code = codeMatch[0].trim();
+  const description = trimmedValue.slice(codeMatch[0].length).trim() || null;
+
+  return {
+    code,
+    description,
+  };
+}
+
+function normalizeSelectedTradeShape(trade: { id: string; code: string; description: string | null }) {
+  if (trade.description?.trim()) return trade;
+  const parsed = parseTradeLabel(trade.code);
+  return {
+    ...trade,
+    code: parsed.code,
+    description: parsed.description,
+  };
+}
+
 function normalizeCostCodeKey(code: string) {
   return code.replace(/[^0-9A-Za-z]/g, "");
 }
@@ -2162,10 +2191,9 @@ export default function NewBidPackagePage() {
       setSelectedTrades(
         autosaveSelectedTrades ??
           detail.trades.map((trade) => ({
-          id: trade.id,
-          code: trade.trade_name ?? "",
-          description: null,
-        }))
+            id: trade.id,
+            ...parseTradeLabel(trade.trade_name ?? ""),
+          }))
       );
       const projectSubById = new Map(
         detail.projectSubs.map((projectSub) => [projectSub.id, projectSub])
@@ -2687,12 +2715,13 @@ export default function NewBidPackagePage() {
   const selectedTradeCards = useMemo(
     () =>
       selectedTrades.map((trade) => {
+        const normalizedTrade = normalizeSelectedTradeShape(trade);
         const matchingCostCode = costCodes.find((code) => code.id === trade.id);
         const matchingSubs = matchingCostCode
           ? subCountByDivisionLabel.get(matchingCostCode.divisionLabel) ?? 0
           : 0;
         return {
-          ...trade,
+          ...normalizedTrade,
           matchingSubs,
         };
       }),
@@ -2738,6 +2767,7 @@ export default function NewBidPackagePage() {
     const query = inviteSubsSearchQuery.trim().toLowerCase();
 
     return selectedTrades.filter((trade) => {
+      const normalizedTrade = normalizeSelectedTradeShape(trade);
       if (inviteSubsTradeFilter !== "__all__" && trade.id !== inviteSubsTradeFilter) return false;
 
       const assigned = inviteSubsByTradeId.get(trade.id) ?? [];
@@ -2760,7 +2790,7 @@ export default function NewBidPackagePage() {
       if (!matchesStatus) return false;
       if (!query) return true;
 
-      const tradeText = `${trade.code} ${trade.description ?? ""}`.toLowerCase();
+      const tradeText = `${normalizedTrade.code} ${normalizedTrade.description ?? ""}`.toLowerCase();
       if (tradeText.includes(query)) return true;
 
       return assigned.some((sub) =>
@@ -5641,6 +5671,7 @@ export default function NewBidPackagePage() {
 
                   {filteredInviteTrades.length ? (
                     filteredInviteTrades.map((trade) => {
+                        const normalizedTrade = normalizeSelectedTradeShape(trade);
                         const assigned = inviteSubsByTradeId.get(trade.id) ?? [];
                         const expanded = expandedInviteTradeIds.includes(trade.id);
                         const invitedCount = assigned.filter((sub) =>
@@ -5663,17 +5694,17 @@ export default function NewBidPackagePage() {
                                     )
                                   }
                                   className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-50 text-slate-500"
-                                  aria-label={expanded ? `Collapse ${trade.description ?? trade.code}` : `Expand ${trade.description ?? trade.code}`}
+                                  aria-label={expanded ? `Collapse ${normalizedTrade.description ?? normalizedTrade.code}` : `Expand ${normalizedTrade.description ?? normalizedTrade.code}`}
                                 >
                                   {expanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-5 w-5" />}
                                 </button>
                                 <div className="min-w-0">
                                   <div className="flex flex-wrap items-center gap-2">
                                     <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm font-bold tracking-[0.18em] text-slate-500 md:text-[10px]">
-                                      {trade.code}
+                                      {normalizedTrade.code}
                                     </span>
                                     <h4 className="truncate text-lg font-bold tracking-tight text-slate-900 md:text-lg">
-                                      {trade.description ?? trade.code}
+                                      {normalizedTrade.description ?? normalizedTrade.code}
                                     </h4>
                                   </div>
                                   <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-semibold text-slate-500">
