@@ -1070,6 +1070,41 @@ function normalizeTradeMatchValue(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
+function getTradeTitleLabel(trade: { code: string; description: string | null }) {
+  const description = trade.description?.trim();
+  if (!description) return trade.code;
+
+  const parsedDescription = parseTradeLabel(description);
+  const normalizedTradeCode = normalizeCostCodeKey(trade.code);
+  const normalizedDescriptionCode = normalizeCostCodeKey(parsedDescription.code);
+
+  if (
+    parsedDescription.description &&
+    (normalizedDescriptionCode === normalizedTradeCode || isDivisionTitleCostCode(parsedDescription.code))
+  ) {
+    return parsedDescription.description;
+  }
+
+  return description;
+}
+
+function subMatchesDivisionLabel(subTrade: string | null | undefined, divisionLabel: string) {
+  const trade = (subTrade ?? "").trim();
+  if (!trade) return false;
+  const normalizedTrade = normalizeTradeMatchValue(trade);
+  if (!normalizedTrade) return false;
+  const divisionTitle = divisionLabel.replace(/^\d{2}\s*/, "").trim();
+  const normalizedDivisionTitle = normalizeTradeMatchValue(divisionTitle);
+  const normalizedDivisionLabel = normalizeTradeMatchValue(divisionLabel);
+
+  return (
+    normalizedTrade.includes(normalizedDivisionTitle) ||
+    normalizedDivisionTitle.includes(normalizedTrade) ||
+    normalizedTrade.includes(normalizedDivisionLabel) ||
+    normalizedDivisionLabel.includes(normalizedTrade)
+  );
+}
+
 function buildAssignedSubWithStatus(
   sub: SubOption | AssignedSub,
   responseStatus: AssignedSub["responseStatus"]
@@ -1956,11 +1991,20 @@ export default function NewBidPackagePage() {
   const [inviteSelectionBarVisible, setInviteSelectionBarVisible] = useState(false);
   const [inviteSelectionBarMounted, setInviteSelectionBarMounted] = useState(false);
   const [newSubDrawerTradeId, setNewSubDrawerTradeId] = useState<string | null>(null);
+  const [newSubDrawerClosing, setNewSubDrawerClosing] = useState(false);
   const [newSubDraft, setNewSubDraft] = useState({
     company_name: "",
+    primary_trade_id: "",
+    status: "New" as "New" | "Active" | "Do Not Use",
+    website: "",
+    address: "",
+    city: "",
+    state: "",
     primary_contact: "",
+    contact_role: "",
     email: "",
     phone: "",
+    notes: "",
   });
   const [newSubTrades, setNewSubTrades] = useState<NewSubTradeSelection[]>([]);
   const [newSubTradeQuery, setNewSubTradeQuery] = useState("");
@@ -2999,21 +3043,8 @@ export default function NewBidPackagePage() {
       const divisionLabel = code.divisionLabel || "Other";
       if (matches.has(divisionLabel)) continue;
 
-      const divisionTitle = code.divisionLabel.replace(/^\d{2}\s*/, "").trim();
-      const normalizedDivisionTitle = normalizeTradeMatchValue(divisionTitle);
-      const normalizedDivisionLabel = normalizeTradeMatchValue(divisionLabel);
       const matched = subOptions.filter((sub) => {
-        const trade = (sub.trade ?? "").trim();
-        if (!trade) return false;
-        const normalizedTrade = normalizeTradeMatchValue(trade);
-        if (!normalizedTrade) return false;
-
-        return (
-          normalizedTrade.includes(normalizedDivisionTitle) ||
-          normalizedDivisionTitle.includes(normalizedTrade) ||
-          normalizedTrade.includes(normalizedDivisionLabel) ||
-          normalizedDivisionLabel.includes(normalizedTrade)
-        );
+        return subMatchesDivisionLabel(sub.trade, divisionLabel);
       });
 
       matches.set(divisionLabel, matched);
@@ -3159,14 +3190,51 @@ export default function NewBidPackagePage() {
       return current.map((sub) => (sub.id === updatedCompany.id ? mapped : sub));
     });
 
-    setAssignedSubsByTradeId((current) =>
-      Object.fromEntries(
+    setAssignedSubsByTradeId((current) => {
+      const existingAssignedSubs = Object.values(current)
+        .flat()
+        .filter((sub) => sub.id === updatedCompany.id);
+
+      const preservedSub =
+        existingAssignedSubs[0]
+          ? syncAssignedSubWithDirectoryCompany(existingAssignedSubs[0], updatedCompany)
+          : buildAssignedSubWithStatus(mapped, "invited");
+
+      const next = Object.fromEntries(
         Object.entries(current).map(([tradeId, subs]) => [
           tradeId,
-          subs.map((sub) =>
-            sub.id === updatedCompany.id ? syncAssignedSubWithDirectoryCompany(sub, updatedCompany) : sub
-          ),
+          subs.filter((sub) => sub.id !== updatedCompany.id),
         ])
+      ) as Record<string, AssignedSub[]>;
+
+      const matchingTradeIds = selectedTrades
+        .filter((trade) => {
+          const matchingCostCode = costCodes.find((code) => code.id === trade.id);
+          const divisionLabel = matchingCostCode?.divisionLabel ?? "";
+          return divisionLabel ? subMatchesDivisionLabel(mapped.trade, divisionLabel) : false;
+        })
+        .map((trade) => trade.id);
+
+      matchingTradeIds.forEach((tradeId) => {
+        const currentSubs = next[tradeId] ?? [];
+        if (currentSubs.some((sub) => sub.id === updatedCompany.id)) return;
+        next[tradeId] = [...currentSubs, preservedSub];
+      });
+
+      return next;
+    });
+
+    setExcludedInviteSubIdsByTradeId((current) =>
+      Object.fromEntries(
+        Object.entries(current).map(([tradeId, subIds]) => {
+          const matchingCostCode = costCodes.find((code) => code.id === tradeId);
+          const divisionLabel = matchingCostCode?.divisionLabel ?? "";
+          const shouldMatchTrade = divisionLabel ? subMatchesDivisionLabel(mapped.trade, divisionLabel) : false;
+          return [
+            tradeId,
+            shouldMatchTrade ? subIds.filter((subId) => subId !== updatedCompany.id) : subIds,
+          ];
+        })
       )
     );
   };
@@ -3473,14 +3541,32 @@ export default function NewBidPackagePage() {
 
   const openNewSubDrawer = (tradeId: string | null) => {
     if (!tradeId) return;
+    setNewSubDrawerClosing(false);
     setNewSubDrawerTradeId(tradeId);
     setNewSubDraft({
       company_name: "",
+      primary_trade_id: tradeId,
+      status: "New",
+      website: "",
+      address: "",
+      city: "",
+      state: "",
       primary_contact: "",
+      contact_role: "",
       email: "",
       phone: "",
+      notes: "",
     });
     setNewSubError(null);
+  };
+
+  const requestCloseNewSubDrawer = () => {
+    setNewSubDrawerClosing(true);
+    window.setTimeout(() => {
+      setNewSubDrawerTradeId(null);
+      setNewSubDrawerClosing(false);
+      setNewSubError(null);
+    }, 300);
   };
 
   const changeInviteSubStatus = (
@@ -4196,15 +4282,64 @@ export default function NewBidPackagePage() {
   const activeDrawerTrade = newSubDrawerTradeId
     ? selectedTrades.find((trade) => trade.id === newSubDrawerTradeId) ?? null
     : null;
+  const selectedPrimaryTrade = selectedTrades.find((trade) => trade.id === newSubDraft.primary_trade_id) ?? null;
+  const findTradeByTypedValue = useCallback(
+    (value: string) => {
+      const normalizedValue = normalizeTradeMatchValue(value);
+      if (!normalizedValue) return null;
+      return (
+        selectedTrades.find((trade) => normalizeTradeMatchValue(getTradeTitleLabel(trade)) === normalizedValue) ??
+        selectedTrades.find((trade) => normalizeTradeMatchValue(formatTradeLabel(trade)) === normalizedValue) ??
+        null
+      );
+    },
+    [selectedTrades]
+  );
+  const additionalTradesInputValue = useMemo(() => {
+    const selectedLabels = newSubTrades.map((trade) => getTradeTitleLabel(trade));
+    return newSubTradeQuery ? [...selectedLabels, newSubTradeQuery].join(", ") : selectedLabels.join(", ");
+  }, [newSubTradeQuery, newSubTrades]);
   const filteredNewSubTradeOptions = useMemo(() => {
-    const selectedIds = new Set(newSubTrades.map((trade) => trade.id));
+    const selectedIds = new Set([
+      newSubDraft.primary_trade_id,
+      ...newSubTrades.map((trade) => trade.id),
+    ].filter(Boolean));
     const query = newSubTradeQuery.trim().toLowerCase();
     return selectedTrades.filter((trade) => {
       if (selectedIds.has(trade.id)) return false;
       if (!query) return true;
-      return `${trade.code} ${trade.description ?? ""}`.toLowerCase().includes(query);
+      return `${getTradeTitleLabel(trade)} ${formatTradeLabel(trade)}`.toLowerCase().includes(query);
     });
-  }, [newSubTradeQuery, newSubTrades, selectedTrades]);
+  }, [newSubDraft.primary_trade_id, newSubTradeQuery, newSubTrades, selectedTrades]);
+  const addNewSubTradeSelection = useCallback((trade: SelectedTrade) => {
+    if (trade.id === newSubDraft.primary_trade_id) {
+      setNewSubTradeQuery("");
+      return;
+    }
+    setNewSubTrades((prev) => {
+      if (prev.some((item) => item.id === trade.id)) return prev;
+      return [...prev, { id: trade.id, code: trade.code, description: trade.description }];
+    });
+    setNewSubTradeQuery("");
+  }, [newSubDraft.primary_trade_id]);
+  const handleNewSubTradeInputChange = useCallback((value: string) => {
+    const endsWithComma = /,\s*$/.test(value);
+    const segments = value.split(",").map((segment) => segment.trim());
+    const completedSegments = endsWithComma ? segments.filter(Boolean) : segments.slice(0, -1).filter(Boolean);
+    const pendingSegment = endsWithComma ? "" : (segments.at(-1) ?? "").trim();
+    const matchedTrades: NewSubTradeSelection[] = [];
+    const seenTradeIds = new Set<string>();
+
+    completedSegments.forEach((segment) => {
+      const match = findTradeByTypedValue(segment);
+      if (!match || match.id === newSubDraft.primary_trade_id || seenTradeIds.has(match.id)) return;
+      seenTradeIds.add(match.id);
+      matchedTrades.push({ id: match.id, code: match.code, description: match.description });
+    });
+
+    setNewSubTrades(matchedTrades);
+    setNewSubTradeQuery(pendingSegment);
+  }, [findTradeByTypedValue, newSubDraft.primary_trade_id]);
 
   useEffect(() => {
     if (!newSubDrawerTradeId) {
@@ -4212,11 +4347,11 @@ export default function NewBidPackagePage() {
       return;
     }
     setNewSubTradeQuery("");
-    setNewSubTrades(
-      activeDrawerTrade
-        ? [{ id: activeDrawerTrade.id, code: activeDrawerTrade.code, description: activeDrawerTrade.description }]
-        : []
-    );
+    setNewSubTrades([]);
+    setNewSubDraft((prev) => ({
+      ...prev,
+      primary_trade_id: activeDrawerTrade?.id ?? prev.primary_trade_id,
+    }));
   }, [activeDrawerTrade, newSubDrawerTradeId]);
   const persistAssignedSubsForTrades = async (projectId: string): Promise<boolean> => {
     const allAssignedSubs = Object.values(assignedSubsByTradeId).flat();
@@ -7665,29 +7800,60 @@ export default function NewBidPackagePage() {
         <div className="fixed inset-0 z-50">
           <button
             type="button"
-            className="absolute inset-0 bg-slate-950/40"
+            className={`absolute inset-0 bg-black/80 duration-300 ${
+              newSubDrawerClosing ? "animate-out fade-out-0" : "animate-in fade-in-0"
+            }`}
             aria-label="Close new contractor drawer"
-            onClick={() => {
-              setNewSubDrawerTradeId(null);
-              setNewSubError(null);
-            }}
+            onClick={requestCloseNewSubDrawer}
           />
-          <aside className="absolute right-0 top-0 h-full w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white shadow-2xl">
-            <div className="border-b border-slate-200 px-6 py-4">
-              <h2 className="text-2xl font-semibold text-slate-900">New Contractor</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                {activeDrawerTrade ? `Add to ${activeDrawerTrade.code}` : "Add subcontractor to this trade"}
-              </p>
+          <aside
+            className={`absolute inset-y-0 right-0 flex w-full max-w-2xl flex-col overflow-hidden border-l border-slate-200 bg-[#F8F8F7] shadow-2xl duration-300 ease-out sm:max-w-3xl ${
+              newSubDrawerClosing ? "animate-out slide-out-to-right-full" : "animate-in slide-in-from-right-full"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-6 border-b border-slate-200 bg-white px-9 pb-8 pt-7">
+              <div className="flex items-start justify-between gap-6">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-3 text-[15px] font-bold uppercase tracking-[0.08em] text-[#356DFF]">
+                    <Plus className="h-5 w-5" />
+                    <span>New Subcontractor</span>
+                  </div>
+                  <h2 className="mt-5 text-[22px] font-semibold leading-none tracking-tight text-slate-950">
+                    Add to Subs Directory
+                  </h2>
+                  <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-500">
+                    Capture company details, primary contact, and trade coverage. You can edit performance data later.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={requestCloseNewSubDrawer}
+                  className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+                  aria-label="Close new subcontractor drawer"
+                >
+                  <X className="h-7 w-7" />
+                </button>
+              </div>
             </div>
             <form
-              className="space-y-4 px-6 py-5"
+              className="flex min-h-0 flex-1 flex-col"
               onSubmit={async (event) => {
                 event.preventDefault();
-                const tradeId = newSubDrawerTradeId;
-                if (!tradeId) return;
                 const companyName = newSubDraft.company_name.trim();
+                const primaryTrade =
+                  selectedTrades.find((trade) => trade.id === newSubDraft.primary_trade_id) ??
+                  activeDrawerTrade;
+                const additionalTrades = newSubTrades;
+                const tradeValue = [primaryTrade, ...additionalTrades]
+                  .filter((trade, index, list): trade is SelectedTrade => Boolean(trade) && list.findIndex((item) => item?.id === trade?.id) === index)
+                  .map((trade) => formatTradeLabel(trade))
+                  .join(" | ");
                 if (!companyName) {
                   setNewSubError("Company name is required.");
+                  return;
+                }
+                if (!primaryTrade) {
+                  setNewSubError("Select a primary trade.");
                   return;
                 }
                 setNewSubSaving(true);
@@ -7700,15 +7866,18 @@ export default function NewBidPackagePage() {
                     companies: [
                       {
                         company_name: companyName,
-                        trade: newSubTrades.length
-                          ? newSubTrades.map((trade) => formatTradeLabel(trade)).join(" | ")
-                          : activeDrawerTrade
-                            ? formatTradeLabel(activeDrawerTrade)
-                            : null,
+                        trade: tradeValue || null,
                         primary_contact: newSubDraft.primary_contact.trim() || null,
+                        contact_title: newSubDraft.contact_role.trim() || null,
                         email: newSubDraft.email.trim() || null,
                         phone: newSubDraft.phone.trim() || null,
-                        status: "Active",
+                        website: newSubDraft.website.trim() || null,
+                        address: newSubDraft.address.trim() || null,
+                        city: newSubDraft.city.trim() || null,
+                        state: newSubDraft.state.trim() || null,
+                        notes: newSubDraft.notes.trim() || null,
+                        status: newSubDraft.status === "Do Not Use" ? "Inactive" : "Active",
+                        isActive: newSubDraft.status !== "Do Not Use",
                       },
                     ],
                   }),
@@ -7741,172 +7910,265 @@ export default function NewBidPackagePage() {
                   return;
                 }
 
-                const newOption = {
+                const createdCompany: Company = {
                   id: directoryCompany.id,
-                  company: directoryCompany.name,
-                  email: directoryCompany.email ?? (newSubDraft.email.trim() || null),
-                  phone: newSubDraft.phone.trim() || null,
-                  primaryContact: newSubDraft.primary_contact.trim() || directoryCompany.name,
-                  contacts:
-                    (directoryCompany.email ?? newSubDraft.email.trim())
-                      ? [
-                          {
-                            id: `${directoryCompany.id}-primary-contact`,
-                            name: newSubDraft.primary_contact.trim() || directoryCompany.name,
-                            email: directoryCompany.email ?? newSubDraft.email.trim(),
-                            phone: newSubDraft.phone.trim() || null,
-                            title: null,
-                            isPrimary: true,
-                          },
-                        ]
-                      : [],
+                  name: directoryCompany.name,
+                  trade: tradeValue || undefined,
+                  contactTitle: newSubDraft.contact_role.trim() || undefined,
+                  primaryContact: newSubDraft.primary_contact.trim() || undefined,
+                  email: directoryCompany.email ?? (newSubDraft.email.trim() || undefined),
+                  phone: newSubDraft.phone.trim() || undefined,
+                  address: newSubDraft.address.trim() || undefined,
+                  city: newSubDraft.city.trim() || undefined,
+                  state: newSubDraft.state.trim() || undefined,
+                  website: newSubDraft.website.trim() || undefined,
+                  notes: newSubDraft.notes.trim() || undefined,
+                  isActive: newSubDraft.status !== "Do Not Use",
+                  lastUpdated: new Date().toISOString(),
                 };
-                setSubOptions((prev) => {
-                  if (prev.some((item) => item.id === newOption.id)) return prev;
-                  return [...prev, newOption].sort((a, b) => a.company.localeCompare(b.company));
-                });
-                const packageTradeIds = new Set(selectedTrades.map((trade) => trade.id));
-                const tradeIdsToAssign = new Set<string>([tradeId]);
-                newSubTrades.forEach((trade) => {
-                  if (packageTradeIds.has(trade.id)) tradeIdsToAssign.add(trade.id);
-                });
-                tradeIdsToAssign.forEach((id) => addSubToTrade(id, newOption));
+
+                syncCompanyIntoInviteState(createdCompany);
+                emitDirectorySyncSignal();
                 setNewSubDrawerTradeId(null);
                 setNewSubSaving(false);
               }}
             >
-              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                Company Name <span className="sr-only">required</span>
-                <input
-                  value={newSubDraft.company_name}
-                  onChange={(event) => setNewSubDraft((prev) => ({ ...prev, company_name: event.target.value }))}
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
-                  placeholder="Company name"
-                />
-              </label>
-              <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                Primary Contact
-                <input
-                  value={newSubDraft.primary_contact}
-                  onChange={(event) => setNewSubDraft((prev) => ({ ...prev, primary_contact: event.target.value }))}
-                  className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
-                  placeholder="Primary contact"
-                />
-              </label>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                  Email
-                  <input
-                    value={newSubDraft.email}
-                    onChange={(event) => setNewSubDraft((prev) => ({ ...prev, email: event.target.value }))}
-                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
-                    placeholder="name@company.com"
-                    type="email"
-                  />
-                </label>
-                <label className="flex flex-col gap-2 text-sm font-medium text-slate-700">
-                  Phone
-                  <input
-                    value={newSubDraft.phone}
-                    onChange={(event) => setNewSubDraft((prev) => ({ ...prev, phone: event.target.value }))}
-                    className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
-                    placeholder="(555) 555-5555"
-                  />
-                </label>
-              </div>
-              <div className="space-y-3">
-                <div>
-                  <div className="text-sm font-medium text-slate-700">Trades / Cost Codes</div>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Add the trades this subcontractor performs. Matching trades in this bid package will be invited automatically.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {newSubTrades.map((trade) => {
-                    const locked = trade.id === activeDrawerTrade?.id;
-                    return (
-                      <span
-                        key={`new-sub-trade-${trade.id}`}
-                        className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm font-semibold text-slate-700"
-                      >
-                        {formatTradeLabel(trade)}
-                        {locked ? (
-                          <span className="text-[11px] font-medium text-slate-500">Current trade</span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setNewSubTrades((prev) => prev.filter((item) => item.id !== trade.id))
-                            }
-                            className="text-slate-400 hover:text-slate-700"
-                            aria-label={`Remove ${formatTradeLabel(trade)}`}
-                          >
-                            ×
-                          </button>
-                        )}
-                      </span>
-                    );
-                  })}
-                </div>
-                <div className="rounded-lg border border-slate-300 p-3">
-                  <input
-                    value={newSubTradeQuery}
-                    onChange={(event) => setNewSubTradeQuery(event.target.value)}
-                    className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
-                    placeholder="Search cost codes to add"
-                  />
-                  <div className="mt-3 max-h-56 overflow-auto rounded-md border border-slate-200">
-                    {loadingCostCodes ? (
-                      <div className="px-3 py-3 text-sm text-slate-500">Loading trades...</div>
-                    ) : filteredNewSubTradeOptions.length ? (
-                      filteredNewSubTradeOptions.slice(0, 10).map((trade) => (
-                        <button
-                          key={`new-sub-trade-option-${trade.id}`}
-                          type="button"
-                          onClick={() => {
-                            setNewSubTrades((prev) => [
+              <div className="min-h-0 flex-1 overflow-y-auto">
+                <div className="space-y-10 px-8 py-8">
+                  <section className="space-y-6">
+                    <div className="text-[14px] font-extrabold uppercase tracking-[0.08em] text-slate-500">Company</div>
+
+                    <div className="space-y-3">
+                      <label className="text-[12px] font-semibold text-slate-950">
+                        Company name <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        autoFocus
+                        value={newSubDraft.company_name}
+                        onChange={(event) => setNewSubDraft((prev) => ({ ...prev, company_name: event.target.value }))}
+                        className="h-10 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-6 text-[15px] font-medium text-slate-900 shadow-soft-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                        placeholder="e.g. Apex Steel Erectors"
+                      />
+                    </div>
+
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <div className="min-w-0 space-y-3">
+                        <label className="text-[12px] font-semibold text-slate-950">
+                          Primary trade <span className="text-rose-500">*</span>
+                        </label>
+                        <Select
+                          value={newSubDraft.primary_trade_id || "__none"}
+                          onValueChange={(value) =>
+                            setNewSubDraft((prev) => ({
                               ...prev,
-                              { id: trade.id, code: trade.code, description: trade.description },
-                            ]);
-                            setNewSubTradeQuery("");
-                          }}
-                          className="flex w-full items-start justify-between gap-3 border-b border-slate-100 px-3 py-2 text-left last:border-b-0 hover:bg-slate-50"
+                              primary_trade_id: value === "__none" ? "" : value,
+                            }))
+                          }
                         >
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold text-slate-800">{trade.code}</div>
-                            <div className="text-sm text-slate-500">{trade.description ?? "No description"}</div>
-                          </div>
-                          <span className="text-sm font-semibold text-blue-600">Add</span>
-                        </button>
-                      ))
-                    ) : (
-                      <div className="px-3 py-3 text-sm text-slate-500">
-                        No matching trades found.
+                          <SelectTrigger size="field" className="h-10 w-full rounded-[20px] border border-slate-200 bg-white px-6 text-[15px] font-medium text-slate-900 shadow-soft-sm">
+                            <SelectValue placeholder="Select trade..." className="sr-only" />
+                            <span className="min-w-0 flex-1 truncate text-left">
+                              {selectedPrimaryTrade ? getTradeTitleLabel(selectedPrimaryTrade) : "Select trade..."}
+                            </span>
+                          </SelectTrigger>
+                          <SelectContent className="rounded-2xl border border-slate-200 bg-white p-1 shadow-soft-md">
+                            <SelectItem value="__none" className="rounded-xl">Select trade...</SelectItem>
+                            {selectedTrades.map((trade) => (
+                              <SelectItem key={`new-sub-primary-trade-${trade.id}`} value={trade.id} className="rounded-xl">
+                                {getTradeTitleLabel(trade)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
-                    )}
-                  </div>
+
+                      <div className="min-w-0 space-y-3">
+                        <label className="text-[12px] font-semibold text-slate-950">Status</label>
+                        <Select
+                          value={newSubDraft.status}
+                          onValueChange={(value) =>
+                            setNewSubDraft((prev) => ({
+                              ...prev,
+                              status: value as "New" | "Active" | "Do Not Use",
+                            }))
+                          }
+                        >
+                          <SelectTrigger size="field" className="h-10 w-full rounded-[20px] border border-slate-200 bg-white px-6 text-[15px] font-medium text-slate-900 shadow-soft-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="rounded-2xl border border-slate-200 bg-white p-1 shadow-soft-md">
+                            <SelectItem value="New" className="rounded-xl">New</SelectItem>
+                            <SelectItem value="Active" className="rounded-xl">Active</SelectItem>
+                            <SelectItem value="Do Not Use" className="rounded-xl">Do Not Use</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <label className="text-[12px] font-semibold text-slate-950">Additional trades</label>
+                      <input
+                        value={additionalTradesInputValue}
+                        onChange={(event) => handleNewSubTradeInputChange(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter" || !filteredNewSubTradeOptions.length || !newSubTradeQuery.trim()) return;
+                          event.preventDefault();
+                          addNewSubTradeSelection(filteredNewSubTradeOptions[0]);
+                        }}
+                        className="h-10 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-6 text-[15px] font-medium text-slate-900 shadow-soft-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                        placeholder="Comma-separated, e.g. Misc Metals, Decking"
+                      />
+                      {newSubTradeQuery.trim() ? (
+                        <div className="max-h-48 overflow-auto rounded-[20px] border border-slate-200 bg-white shadow-soft-sm">
+                          {loadingCostCodes ? (
+                            <div className="px-6 py-4 text-sm text-slate-500">Loading trades...</div>
+                          ) : filteredNewSubTradeOptions.length ? (
+                            filteredNewSubTradeOptions.slice(0, 8).map((trade) => (
+                              <button
+                                key={`new-sub-trade-option-${trade.id}`}
+                                type="button"
+                                onClick={() => addNewSubTradeSelection(trade)}
+                                className="flex w-full items-start justify-between gap-3 border-b border-slate-100 px-6 py-3 text-left transition-colors last:border-b-0 hover:bg-slate-50"
+                              >
+                                <div className="min-w-0">
+                                  <div className="text-sm font-semibold text-slate-800">{getTradeTitleLabel(trade)}</div>
+                                  {trade.code ? <div className="text-sm text-slate-500">{trade.code}</div> : null}
+                                </div>
+                                <span className="text-sm font-semibold text-[#356DFF]">Add</span>
+                              </button>
+                            ))
+                          ) : (
+                            <div className="px-6 py-4 text-sm text-slate-500">No matching trades found.</div>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <div className="space-y-3">
+                        <label className="text-[12px] font-semibold text-slate-950">Website</label>
+                        <input
+                          value={newSubDraft.website}
+                          onChange={(event) => setNewSubDraft((prev) => ({ ...prev, website: event.target.value }))}
+                          className="h-10 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-6 text-[15px] font-medium text-slate-900 shadow-soft-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                          placeholder="apexsteel.com"
+                        />
+                      </div>
+                      <div className="space-y-3">
+                        <label className="text-[12px] font-semibold text-slate-950">Address</label>
+                        <input
+                          value={newSubDraft.address}
+                          onChange={(event) => setNewSubDraft((prev) => ({ ...prev, address: event.target.value }))}
+                          className="h-10 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-6 text-[15px] font-medium text-slate-900 shadow-soft-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                          placeholder="Street address"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <div className="space-y-3">
+                        <label className="text-[12px] font-semibold text-slate-950">City</label>
+                        <input
+                          value={newSubDraft.city}
+                          onChange={(event) => setNewSubDraft((prev) => ({ ...prev, city: event.target.value }))}
+                          className="h-10 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-6 text-[15px] font-medium text-slate-900 shadow-soft-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                          placeholder="Phoenix"
+                        />
+                      </div>
+                      <div className="space-y-3">
+                        <label className="text-[12px] font-semibold text-slate-950">State</label>
+                        <input
+                          value={newSubDraft.state}
+                          onChange={(event) => setNewSubDraft((prev) => ({ ...prev, state: event.target.value }))}
+                          className="h-10 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-6 text-[15px] font-medium text-slate-900 shadow-soft-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                          placeholder="AZ"
+                        />
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="space-y-6">
+                    <div className="text-[14px] font-extrabold uppercase tracking-[0.08em] text-slate-500">Primary Contact</div>
+
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <div className="space-y-3">
+                        <label className="text-[12px] font-semibold text-slate-950">
+                          Full name <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          value={newSubDraft.primary_contact}
+                          onChange={(event) => setNewSubDraft((prev) => ({ ...prev, primary_contact: event.target.value }))}
+                          className="h-10 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-6 text-[15px] font-medium text-slate-900 shadow-soft-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                          placeholder="Marcus Whitfield"
+                        />
+                      </div>
+                      <div className="space-y-3">
+                        <label className="text-[12px] font-semibold text-slate-950">Role</label>
+                        <input
+                          value={newSubDraft.contact_role}
+                          onChange={(event) => setNewSubDraft((prev) => ({ ...prev, contact_role: event.target.value }))}
+                          className="h-10 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-6 text-[15px] font-medium text-slate-900 shadow-soft-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                          placeholder="Estimator"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-6 md:grid-cols-2">
+                      <div className="space-y-3">
+                        <label className="text-[12px] font-semibold text-slate-950">
+                          Email <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          value={newSubDraft.email}
+                          onChange={(event) => setNewSubDraft((prev) => ({ ...prev, email: event.target.value }))}
+                          className="h-10 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-6 text-[15px] font-medium text-slate-900 shadow-soft-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                          placeholder="name@company.com"
+                          type="email"
+                        />
+                      </div>
+                      <div className="space-y-3">
+                        <label className="text-[12px] font-semibold text-slate-950">Phone</label>
+                        <input
+                          value={newSubDraft.phone}
+                          onChange={(event) => setNewSubDraft((prev) => ({ ...prev, phone: event.target.value }))}
+                          className="h-10 w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-6 text-[15px] font-medium text-slate-900 shadow-soft-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                          placeholder="(602) 555-0142"
+                        />
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="space-y-4">
+                    <div className="text-[14px] font-extrabold uppercase tracking-[0.08em] text-slate-500">Internal Notes</div>
+                    <textarea
+                      rows={5}
+                      value={newSubDraft.notes}
+                      onChange={(event) => setNewSubDraft((prev) => ({ ...prev, notes: event.target.value }))}
+                      className="w-full rounded-[20px] border border-slate-200 bg-slate-100/40 px-5 py-4 text-sm font-medium text-slate-900 shadow-soft-sm outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-100"
+                      placeholder="Strengths, project fit, preferred packages, cautions..."
+                    />
+                  </section>
+
+                  {newSubError ? (
+                    <p className="rounded-[18px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{newSubError}</p>
+                  ) : null}
                 </div>
               </div>
-              {newSubError ? (
-                <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{newSubError}</p>
-              ) : null}
-              <div className="sticky bottom-0 flex items-center justify-end gap-3 border-t border-slate-200 bg-white pt-4">
+              <div className="flex items-center justify-end gap-4 border-t border-slate-200 bg-white px-8 py-6">
                 <button
                   type="button"
-                  onClick={() => {
-                    setNewSubDrawerTradeId(null);
-                    setNewSubError(null);
-                  }}
-                  className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                  onClick={requestCloseNewSubDrawer}
+                  className="inline-flex h-11 items-center gap-2 rounded-[16px] border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-900 shadow-sm hover:border-accent hover:bg-accent hover:text-accent-foreground"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={newSubSaving}
-                  className="rounded-md bg-accent px-8 py-2 text-base font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex h-11 items-center gap-2 rounded-[16px] bg-[#356DFF] px-5 text-sm font-semibold text-white shadow-sm hover:bg-[#2456dc] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {newSubSaving ? "Saving..." : "Save Contractor"}
+                  <Plus className="h-4 w-4" />
+                  {newSubSaving ? "Saving..." : "Add Subcontractor"}
                 </button>
               </div>
             </form>
