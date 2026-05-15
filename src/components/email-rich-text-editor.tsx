@@ -15,6 +15,16 @@ import { TextStyle } from "@tiptap/extension-text-style";
 import Underline from "@tiptap/extension-underline";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
+import {
+  Bold,
+  Highlighter,
+  Italic,
+  List,
+  ListOrdered,
+  Paperclip,
+  Type,
+  Underline as UnderlineIcon,
+} from "lucide-react";
 import { sanitizeEmailHtml } from "@/lib/email/html";
 
 export type EmailRichTextEditorHandle = {
@@ -25,9 +35,9 @@ export type EmailRichTextEditorHandle = {
 type EmailRichTextEditorProps = {
   value: string;
   onChange: (html: string) => void;
-  tokens: readonly string[];
   placeholder?: string;
   onFocus?: () => void;
+  attachmentLabel?: string;
 };
 
 declare module "@tiptap/core" {
@@ -113,10 +123,10 @@ const FONT_SIZES = [
 
 function toolbarButtonClass(active = false) {
   return [
-    "inline-flex h-8 min-w-8 items-center justify-center rounded-md border px-2 text-xs font-semibold transition",
+    "inline-flex h-10 min-w-10 items-center justify-center rounded-xl px-2 text-slate-500 transition",
     active
-      ? "border-slate-900 bg-slate-900 text-white"
-      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50",
+      ? "bg-slate-100 text-slate-900"
+      : "hover:bg-slate-50 hover:text-slate-900",
   ].join(" ");
 }
 
@@ -124,7 +134,7 @@ export const EmailRichTextEditor = forwardRef<
   EmailRichTextEditorHandle,
   EmailRichTextEditorProps
 >(function EmailRichTextEditor(
-  { value, onChange, tokens, placeholder = "Write your email message...", onFocus },
+  { value, onChange, placeholder = "Write your email message...", onFocus, attachmentLabel },
   ref
 ) {
   const extensions = useMemo(
@@ -156,7 +166,7 @@ export const EmailRichTextEditor = forwardRef<
     editorProps: {
       attributes: {
         class:
-          "min-h-56 w-full px-4 py-3 text-sm leading-6 text-slate-900 outline-none",
+          "min-h-[420px] w-full px-10 py-8 text-[18px] leading-10 text-slate-900 outline-none",
       },
       transformPastedHTML: (html) => sanitizeEmailHtml(html),
     },
@@ -204,35 +214,8 @@ export const EmailRichTextEditor = forwardRef<
     }
   };
 
-  const insertToken = (token: string) => {
-    if (!token) return;
-    editor.chain().focus().insertContent(token).run();
-  };
-
-  const increaseIndent = () => {
-    if (editor.isActive("listItem")) {
-      editor.chain().focus().sinkListItem("listItem").run();
-      return;
-    }
-    const currentIndent = Number(editor.getAttributes("paragraph").indent || 0);
-    editor.commands.updateAttributes("paragraph", {
-      indent: Math.min(currentIndent + 1, 6),
-    });
-  };
-
-  const decreaseIndent = () => {
-    if (editor.isActive("listItem")) {
-      editor.chain().focus().liftListItem("listItem").run();
-      return;
-    }
-    const currentIndent = Number(editor.getAttributes("paragraph").indent || 0);
-    editor.commands.updateAttributes("paragraph", {
-      indent: Math.max(currentIndent - 1, 0),
-    });
-  };
-
   return (
-    <div className="rounded-md border border-slate-300 bg-white focus-within:border-blue-500">
+    <div className="overflow-hidden rounded-[20px] border border-slate-200 bg-white focus-within:border-blue-500">
       <style jsx global>{`
         .email-rich-text-editor .ProseMirror p.is-editor-empty:first-child::before {
           color: rgb(100 116 139);
@@ -242,7 +225,7 @@ export const EmailRichTextEditor = forwardRef<
           pointer-events: none;
         }
         .email-rich-text-editor .ProseMirror p {
-          margin: 0 0 0.75rem;
+          margin: 0 0 1.5rem;
         }
         .email-rich-text-editor .ProseMirror p:last-child {
           margin-bottom: 0;
@@ -259,42 +242,27 @@ export const EmailRichTextEditor = forwardRef<
           list-style: decimal;
         }
       `}</style>
-      <div className="flex flex-wrap items-center gap-1 border-b border-slate-200 bg-slate-50 px-2 py-2">
-        <button type="button" className={toolbarButtonClass(editor.isActive("bold"))} onClick={() => editor.chain().focus().toggleBold().run()}>
-          B
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-6 py-4">
+        <div className="flex flex-wrap items-center gap-1">
+        <button type="button" className={toolbarButtonClass(editor.isActive("bold"))} onClick={() => editor.chain().focus().toggleBold().run()} aria-label="Bold">
+          <Bold className="h-5 w-5" />
         </button>
-        <button type="button" className={toolbarButtonClass(editor.isActive("italic"))} onClick={() => editor.chain().focus().toggleItalic().run()}>
-          I
+        <button type="button" className={toolbarButtonClass(editor.isActive("italic"))} onClick={() => editor.chain().focus().toggleItalic().run()} aria-label="Italic">
+          <Italic className="h-5 w-5" />
         </button>
-        <button type="button" className={toolbarButtonClass(editor.isActive("underline"))} onClick={() => editor.chain().focus().toggleUnderline().run()}>
-          U
+        <button type="button" className={toolbarButtonClass(editor.isActive("underline"))} onClick={() => editor.chain().focus().toggleUnderline().run()} aria-label="Underline">
+          <UnderlineIcon className="h-5 w-5" />
         </button>
-        <button type="button" className={toolbarButtonClass(editor.isActive("strike"))} onClick={() => editor.chain().focus().toggleStrike().run()}>
-          S
+        <span className="mx-2 hidden h-10 w-px bg-slate-200 md:block" />
+        <button type="button" className={toolbarButtonClass(editor.isActive("bulletList"))} onClick={() => editor.chain().focus().toggleBulletList().run()} aria-label="Bullet list">
+          <List className="h-5 w-5" />
         </button>
-        <select
-          aria-label="Font size"
-          className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700"
-          defaultValue=""
-          onChange={(event) => applyFontSize(event.target.value)}
-        >
-          {FONT_SIZES.map((size) => (
-            <option key={size.label} value={size.value}>
-              {size.label}
-            </option>
-          ))}
-        </select>
-        <label className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700">
-          Text
-          <input
-            aria-label="Text color"
-            type="color"
-            className="size-5 cursor-pointer border-0 bg-transparent p-0"
-            onChange={(event) => editor.chain().focus().setColor(event.target.value).run()}
-          />
-        </label>
-        <label className="inline-flex h-8 items-center gap-1 rounded-md border border-slate-300 bg-white px-2 text-xs font-semibold text-slate-700">
-          Highlight
+        <button type="button" className={toolbarButtonClass(editor.isActive("orderedList"))} onClick={() => editor.chain().focus().toggleOrderedList().run()} aria-label="Numbered list">
+          <ListOrdered className="h-5 w-5" />
+        </button>
+        <span className="mx-2 hidden h-10 w-px bg-slate-200 md:block" />
+        <label className="inline-flex h-10 items-center gap-2 rounded-xl px-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900">
+          <Highlighter className="h-5 w-5" />
           <input
             aria-label="Highlight color"
             type="color"
@@ -302,58 +270,16 @@ export const EmailRichTextEditor = forwardRef<
             onChange={(event) => editor.chain().focus().toggleHighlight({ color: event.target.value }).run()}
           />
         </label>
-        <span className="mx-1 h-6 w-px bg-slate-200" />
-        <button type="button" className={toolbarButtonClass(editor.isActive("bulletList"))} onClick={() => editor.chain().focus().toggleBulletList().run()}>
-          Bullets
+        <button type="button" className={toolbarButtonClass()} onClick={() => applyFontSize("18px")} aria-label="Large text">
+          <Type className="h-5 w-5" />
         </button>
-        <button type="button" className={toolbarButtonClass(editor.isActive("orderedList"))} onClick={() => editor.chain().focus().toggleOrderedList().run()}>
-          1. 2.
-        </button>
-        <button type="button" className={toolbarButtonClass()} onClick={increaseIndent}>
-          Indent
-        </button>
-        <button type="button" className={toolbarButtonClass()} onClick={decreaseIndent}>
-          Outdent
-        </button>
-        <span className="mx-1 h-6 w-px bg-slate-200" />
-        <button type="button" className={toolbarButtonClass(editor.isActive({ textAlign: "left" }))} onClick={() => editor.chain().focus().setTextAlign("left").run()}>
-          Left
-        </button>
-        <button type="button" className={toolbarButtonClass(editor.isActive({ textAlign: "center" }))} onClick={() => editor.chain().focus().setTextAlign("center").run()}>
-          Center
-        </button>
-        <button type="button" className={toolbarButtonClass(editor.isActive({ textAlign: "right" }))} onClick={() => editor.chain().focus().setTextAlign("right").run()}>
-          Right
-        </button>
-        <span className="mx-1 h-6 w-px bg-slate-200" />
-        <button type="button" className={toolbarButtonClass()} onClick={() => editor.chain().focus().undo().run()}>
-          Undo
-        </button>
-        <button type="button" className={toolbarButtonClass()} onClick={() => editor.chain().focus().redo().run()}>
-          Redo
-        </button>
-        <button type="button" className={toolbarButtonClass()} onClick={() => editor.chain().focus().unsetAllMarks().clearNodes().run()}>
-          Clear
-        </button>
-      </div>
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 px-3 py-2">
-        <span className="text-xs font-semibold text-slate-600">Insert token</span>
-        <select
-          aria-label="Insert token"
-          className="h-8 max-w-full rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"
-          defaultValue=""
-          onChange={(event) => {
-            insertToken(event.target.value);
-            event.target.value = "";
-          }}
-        >
-          <option value="">Choose a token...</option>
-          {tokens.map((token) => (
-            <option key={token} value={token}>
-              {token}
-            </option>
-          ))}
-        </select>
+        </div>
+        {attachmentLabel ? (
+          <div className="inline-flex items-center gap-3 text-[15px] font-medium text-slate-500">
+            <Paperclip className="h-5 w-5" />
+            <span>{attachmentLabel}</span>
+          </div>
+        ) : null}
       </div>
       <div className="email-rich-text-editor">
         <EditorContent editor={editor} />

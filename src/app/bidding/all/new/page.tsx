@@ -89,6 +89,7 @@ import {
   FolderPlus,
   FolderOpen,
   Info,
+  MailCheck,
   MoreHorizontal,
   Pencil,
   Plus,
@@ -2024,6 +2025,8 @@ export default function NewBidPackagePage() {
   const [testDialogOpen, setTestDialogOpen] = useState(false);
   const [testSendEmail, setTestSendEmail] = useState("");
   const [testSendLoading, setTestSendLoading] = useState(false);
+  const [bidEmailSendTime, setBidEmailSendTime] = useState("send_immediately");
+  const [includeBidInstructionsInEmail, setIncludeBidInstructionsInEmail] = useState(true);
   const [newFolderDialog, setNewFolderDialog] = useState<NewFolderDialogState | null>(null);
   const [renameFileDialog, setRenameFileDialog] = useState<RenameFileDialogState | null>(null);
   const [renameFileSaving, setRenameFileSaving] = useState(false);
@@ -2180,6 +2183,17 @@ export default function NewBidPackagePage() {
     [companyUserOptions, draft.bidding_cc_group]
   );
   const activeSenderEmail = mailboxConnection?.email || primaryBiddingContactEmail;
+  const bidEmailSenderName = mailboxConnection?.displayName || primaryBiddingContactDisplay || "No sender configured";
+  const bidEmailSenderInitials = useMemo(() => {
+    const source = bidEmailSenderName.trim();
+    if (!source) return "BR";
+    return source
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join("");
+  }, [bidEmailSenderName]);
 
   useEffect(() => {
     setProjectTaxCityOptions(getWorkspaceTaxRates());
@@ -4051,6 +4065,17 @@ export default function NewBidPackagePage() {
     secondaryBiddingContact?.email,
     secondaryBiddingContact?.name,
   ]);
+  const quickInsertEmailTokens = useMemo(
+    () => [
+      { label: "Project Name", value: "{project_name}" },
+      { label: "Bid Due Date", value: "{bid_due_date}" },
+      { label: "Contact Name", value: "{contact_name}" },
+      { label: "Bid Portal Link", value: "{portal_link}" },
+      { label: "Project Address", value: "{project_address}" },
+    ],
+    []
+  );
+  const emailAttachmentLabel = `${uploadedFiles.length} attachment${uploadedFiles.length === 1 ? "" : "s"}`;
 
   const handleDueDateChange = (next: string) => {
     setDraft((prev) => ({
@@ -6813,90 +6838,252 @@ export default function NewBidPackagePage() {
           </>
         ) : (
           <>
-            <section className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
-              <div className="space-y-4">
-                <article className="rounded-xl border border-slate-200 bg-white p-5">
-                  <h3 className="text-[18px] font-semibold text-slate-900">Invitation Email</h3>
-                  <p className="mt-1 text-sm text-slate-600">Compose the email sent to selected subcontractors.</p>
+            <div className="space-y-6">
+              <section>
+                <h3 className="text-2xl font-extrabold leading-none text-slate-950 [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+                  Bid Email
+                </h3>
+                <p className="mt-1 max-w-3xl text-[16px] leading-7 text-slate-500">
+                  Compose the invitation email subcontractors will receive with this bid package.
+                </p>
+              </section>
 
-                  <div className="mt-4 space-y-4">
-                    <label className="block">
-                      <span className="text-sm font-semibold text-slate-700">Subject</span>
-                      <input
-                        value={invitationEmailDraft.subject}
-                        onChange={(event) => setInvitationEmailDraft((prev) => ({ ...prev, subject: event.target.value }))}
-                        className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-blue-500 focus:outline-none"
-                        placeholder="Invitation subject"
-                      />
-                      <p className="mt-1 text-sm text-slate-500">Use tokens to auto-fill project details.</p>
-                    </label>
-
-                    <div className="block">
-                      <span className="text-sm font-semibold text-slate-700">Message</span>
-                      <div className="mt-2">
-                        <EmailRichTextEditor
-                          ref={messageEditorRef}
-                          tokens={TOKEN_LIST}
-                          value={invitationEmailDraft.message}
-                          onChange={(html) => setInvitationEmailDraft((prev) => ({ ...prev, message: html }))}
-                          placeholder="Write your invitation email..."
-                        />
-                      </div>
-                      <p className="mt-1 text-sm text-slate-500">Use tokens to auto-fill project details.</p>
-                    </div>
-                  </div>
-                </article>
-
-                <article className="rounded-xl border border-slate-200 bg-white p-5">
-                  <div className="text-sm font-semibold text-slate-700">Included Attachments</div>
-                  <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                      Plans: <span className="font-semibold">{includedAttachments.plans || "None"}</span>
-                    </div>
-                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                      Specs: <span className="font-semibold">{includedAttachments.specs || "None"}</span>
-                    </div>
-                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                      Addenda: <span className="font-semibold">{includedAttachments.addenda || "None"}</span>
-                    </div>
-                  </div>
-                </article>
-              </div>
-
-              <aside className="space-y-4 lg:sticky lg:top-24">
-                <article className="rounded-xl border border-slate-200 bg-white p-5">
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <div>
-                      <h4 className="text-sm font-semibold text-slate-800">Sender Mailbox</h4>
-                      <p className="mt-1 text-sm text-slate-500">Send invites from the active email sender.</p>
-                    </div>
-                    <span className={`rounded-full px-3 py-1 text-sm font-semibold ${mailboxBadge.className}`}>
-                      {mailboxBadge.label}
+              <section
+                className="rounded-[28px] border border-[#D9E6FF] px-6 py-5 shadow-soft-sm"
+                style={{
+                  background: "linear-gradient(90deg, #f1f5fc 0%, #fcfcfd 50%, #f8f5f3 100%)",
+                }}
+              >
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="flex min-w-0 items-start gap-4">
+                    <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-[#356DFF] text-white shadow-[0_10px_24px_rgba(53,109,255,0.22)]">
+                      <MailCheck className="h-4 w-4" strokeWidth={2.2} />
                     </span>
+                    <div className="min-w-0">
+                      <h4 className="text-sm font-semibold tracking-tight text-slate-950">
+                        Sending from your connected {mailboxConnection?.provider === "microsoft_365" ? "Outlook" : "email"} account
+                      </h4>
+                      <p className="mt-0.5 max-w-4xl text-xs leading-7 text-slate-500">
+                        Bid invitations will be sent from your connected Outlook or Gmail account so subcontractors see the email coming directly from you.
+                      </p>
+                      {mailboxBadge.label !== "Connected" ? (
+                        <div className="mt-3 inline-flex rounded-[16px] border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+                          Configure an active email sender before sending invites.
+                        </div>
+                      ) : null}
+                    </div>
                   </div>
-                    <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                      <div className="font-semibold text-slate-900">
-                      {mailboxConnection?.displayName || "No sender configured"}
-                      </div>
-                      <div className="mt-1">
-                      {mailboxConnection?.email || "Configure Send from App or connect Outlook"}
-                      </div>
-                    </div>
-                  {mailboxBadge.label !== "Connected" ? (
-                    <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                      Configure an active email sender before sending invites.
-                    </div>
-                  ) : null}
-                  <div className="mt-3">
+
+                  <div className="shrink-0">
                     <a
                       href="/settings?section=email-sending"
-                      className="inline-flex rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                      className="inline-flex h-9 items-center justify-center rounded-[14px] border border-slate-200 bg-white px-3 text-base font-semibold text-slate-900 shadow-sm hover:bg-slate-50"
                     >
                       Manage Connection
                     </a>
                   </div>
-                </article>
+                </div>
+              </section>
 
+              <section className="space-y-4">
+                  <FormCard
+                    title="Email Setup"
+                    description="Review recipients, subject line, and bid instructions before sending."
+                    icon={
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        className="h-5 w-5 text-primary"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        aria-hidden
+                      >
+                        <rect x="3" y="5" width="18" height="14" rx="2" />
+                        <path d="m3 7 9 6 9-6" />
+                      </svg>
+                    }
+                  >
+                    <div className="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
+                      <Field label="From Email / Connected Account" required>
+                        <div className="flex min-h-[48px] items-center justify-between gap-3 rounded-lg border border-slate-300 bg-white px-4 py-3 shadow-none">
+                          <div className="flex min-w-0 items-center gap-4">
+                            <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(135deg,#5767d8_0%,#df7b47_100%)] text-[18px] font-bold text-white">
+                              {bidEmailSenderInitials}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="truncate text-[15px] font-semibold leading-tight text-slate-900">
+                                {bidEmailSenderName}
+                              </div>
+                              <div className="truncate text-[15px] leading-7 text-slate-500">
+                                {activeSenderEmail} • {mailboxConnection?.provider === "microsoft_365" ? "Outlook" : "Connected email"}
+                              </div>
+                            </div>
+                          </div>
+                          <span className="inline-flex shrink-0 items-center gap-2 rounded-full bg-emerald-50 px-4 py-2 text-[15px] font-semibold text-emerald-600">
+                            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                            {mailboxBadge.label === "Connected" ? "Connected" : mailboxBadge.label}
+                          </span>
+                        </div>
+                      </Field>
+
+                      <Field label="Reply-To Contact" required>
+                        <Select
+                          value={draft.primary_bidding_contact}
+                          onValueChange={(value) => setDraft((prev) => ({ ...prev, primary_bidding_contact: value }))}
+                        >
+                          <SelectTrigger size="field" className={selectFieldClass} style={{ borderWidth: 1 }}>
+                            <SelectValue>{`${primaryBiddingContactDisplay} <${primaryBiddingContactEmail}>`}</SelectValue>
+                          </SelectTrigger>
+                          <SelectContent>
+                            {companyUserOptions.length ? (
+                              companyUserOptions.map((user) => (
+                                <SelectItem key={user.id} value={user.name}>
+                                  {user.name} &lt;{user.email}&gt;
+                                </SelectItem>
+                              ))
+                            ) : (
+                              <>
+                                <SelectItem value="Project Manager">Project Manager</SelectItem>
+                                <SelectItem value="Estimator">Estimator</SelectItem>
+                                <SelectItem value="Precon Manager">Precon Manager</SelectItem>
+                              </>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </Field>
+
+                      <Field label="Email Subject" required className="md:col-span-2">
+                        <input
+                          value={invitationEmailDraft.subject}
+                          onChange={(event) => setInvitationEmailDraft((prev) => ({ ...prev, subject: event.target.value }))}
+                          className={`w-full ${inputClass}`}
+                          placeholder="Invitation subject"
+                        />
+                      </Field>
+
+                      <Field label="Bid Due Date" required>
+                        <div className={`flex min-h-[48px] w-full items-center gap-3 px-4 ${inputClass}`}>
+                          <CalendarIcon className="h-5 w-5 text-slate-500" />
+                          <span>{tokenValues["{bid_due_date}"] || "TBD"}</span>
+                        </div>
+                      </Field>
+
+                      <Field label="Send Time">
+                        <Select value={bidEmailSendTime} onValueChange={setBidEmailSendTime}>
+                          <SelectTrigger size="field" className={selectFieldClass} style={{ borderWidth: 1 }}>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="send_immediately">Send immediately</SelectItem>
+                            <SelectItem value="schedule_later">Schedule later</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </Field>
+
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={draft.include_bid_documents}
+                        onClick={() => setDraft((prev) => ({ ...prev, include_bid_documents: !prev.include_bid_documents }))}
+                        className="flex min-h-[92px] w-full items-center justify-between rounded-[20px] border border-slate-300 bg-white px-5 py-4 text-left transition-colors hover:bg-slate-50"
+                      >
+                        <span className="pr-4">
+                          <span className="block text-[15px] font-semibold text-slate-900">Include Attachments</span>
+                          <span className="mt-1 block text-[15px] leading-6 text-slate-500">
+                            Plans, specs, and addenda from the Files step.
+                          </span>
+                        </span>
+                        <span
+                          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                            draft.include_bid_documents ? "bg-blue-600" : "bg-slate-200"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block size-5 rounded-full bg-white shadow-sm transition ${
+                              draft.include_bid_documents ? "translate-x-5" : "translate-x-0.5"
+                            }`}
+                          />
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={includeBidInstructionsInEmail}
+                        onClick={() => setIncludeBidInstructionsInEmail((prev) => !prev)}
+                        className="flex min-h-[92px] w-full items-center justify-between rounded-[20px] border border-slate-300 bg-white px-5 py-4 text-left transition-colors hover:bg-slate-50"
+                      >
+                        <span className="pr-4">
+                          <span className="block text-[15px] font-semibold text-slate-900">Include Bid Instructions</span>
+                          <span className="mt-1 block text-[15px] leading-6 text-slate-500">
+                            Append the instructions block to the email body.
+                          </span>
+                        </span>
+                        <span
+                          className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+                            includeBidInstructionsInEmail ? "bg-blue-600" : "bg-slate-200"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block size-5 rounded-full bg-white shadow-sm transition ${
+                              includeBidInstructionsInEmail ? "translate-x-5" : "translate-x-0.5"
+                            }`}
+                          />
+                        </span>
+                      </button>
+                    </div>
+                  </FormCard>
+
+                  <FormCard
+                    title="Email Message"
+                    description="Customize the message that will be sent to subcontractors."
+                    icon={
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="24"
+                        height="24"
+                        viewBox="0 0 24 24"
+                        className="h-5 w-5 text-primary"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        aria-hidden
+                      >
+                        <path d="M12 20h9" />
+                        <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                      </svg>
+                    }
+                  >
+                    <div className="space-y-6">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <span className="text-[15px] font-semibold text-slate-500">Insert merge tag:</span>
+                        {quickInsertEmailTokens.map((token) => (
+                          <button
+                            key={token.value}
+                            type="button"
+                            onClick={() => messageEditorRef.current?.insertText(token.value)}
+                            className="inline-flex h-12 items-center gap-2 rounded-full border border-[#B9CCFF] bg-[#EEF4FF] px-6 text-[15px] font-semibold text-[#356DFF] transition hover:bg-[#E6EEFF]"
+                          >
+                            <Plus className="h-4 w-4" />
+                            {token.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <EmailRichTextEditor
+                        ref={messageEditorRef}
+                        value={invitationEmailDraft.message}
+                        onChange={(html) => setInvitationEmailDraft((prev) => ({ ...prev, message: html }))}
+                        placeholder="Write your invitation email..."
+                        attachmentLabel={emailAttachmentLabel}
+                      />
+                    </div>
+                  </FormCard>
+
+                <div className="space-y-4">
                 <article className="rounded-xl border border-slate-200 bg-white p-5">
                   <div className="mb-3 flex items-center justify-between">
                     <h4 className="text-sm font-semibold text-slate-800">Preview</h4>
@@ -7003,32 +7190,33 @@ export default function NewBidPackagePage() {
                     </button>
                   </div>
                 </article>
-              </aside>
-            </section>
+                </div>
+              </section>
 
-            <article className="rounded-xl border border-slate-200 bg-white p-5">
-              <h4 className="text-sm font-semibold text-slate-800">Recipients</h4>
-              {uniqueInviteRecipients.length ? (
-                <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  {uniqueInviteRecipients.map((recipient) => (
-                    <div
-                      key={`${recipient.companyName}-${recipient.email}`}
-                      className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
-                    >
-                      <div className="truncate font-semibold text-slate-900">{recipient.companyName}</div>
-                      <div className="mt-0.5 break-words text-slate-600">{recipient.email}</div>
-                      <div className="mt-1 break-words text-sm leading-5 text-slate-500">
-                        {recipient.tradeNames.join(", ")}
+              <article className="rounded-xl border border-slate-200 bg-white p-5">
+                <h4 className="text-sm font-semibold text-slate-800">Recipients</h4>
+                {uniqueInviteRecipients.length ? (
+                  <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {uniqueInviteRecipients.map((recipient) => (
+                      <div
+                        key={`${recipient.companyName}-${recipient.email}`}
+                        className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
+                      >
+                        <div className="truncate font-semibold text-slate-900">{recipient.companyName}</div>
+                        <div className="mt-0.5 break-words text-slate-600">{recipient.email}</div>
+                        <div className="mt-1 break-words text-sm leading-5 text-slate-500">
+                          {recipient.tradeNames.join(", ")}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
-                  No recipients selected.
-                </div>
-              )}
-            </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
+                    No recipients selected.
+                  </div>
+                )}
+              </article>
+            </div>
 
             {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
             {selectedSubsCount === 0 ? (
