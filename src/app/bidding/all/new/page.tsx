@@ -6422,7 +6422,7 @@ export default function NewBidPackagePage() {
                             {expanded ? (
                               <>
                                 <div className="border-t border-slate-200 bg-slate-50/50">
-                                  <div className="grid grid-cols-[40px_minmax(160px,1.05fr)_minmax(180px,0.95fr)_150px_190px_32px] items-center gap-x-5 px-5 py-3 text-xs font-extrabold uppercase tracking-[0.06em] text-slate-500">
+                                  <div className="grid grid-cols-[40px_minmax(160px,1.05fr)_minmax(180px,0.95fr)_150px_190px_32px] items-center gap-x-5 px-5 py-2 text-xs font-extrabold uppercase tracking-[0.06em] text-slate-500">
                                     <div className="flex justify-center">
                                       <span className="h-5 w-5 rounded-full border-2 border-[#356DFF]" />
                                     </div>
@@ -6623,15 +6623,6 @@ export default function NewBidPackagePage() {
                                                   </DropdownMenuRadioGroup>
                                                 </DropdownMenuSubContent>
                                               </DropdownMenuSub>
-                                              <DropdownMenuSeparator className="my-1 bg-border" />
-                                              <DropdownMenuItem
-                                                variant="destructive"
-                                                onClick={() => removeSubFromTrade(trade.id, sub.id)}
-                                                className="h-11 cursor-pointer rounded-xl px-5 py-3 text-base font-medium text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive"
-                                              >
-                                                <Trash2Icon className="size-4" />
-                                                Remove from trade
-                                              </DropdownMenuItem>
                                             </DropdownMenuContent>
                                           </DropdownMenu>
                                         </div>
