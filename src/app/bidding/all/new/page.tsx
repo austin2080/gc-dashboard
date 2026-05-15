@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { addDays } from "date-fns";
 import {
   createBidProject,
@@ -65,6 +65,8 @@ import {
   EmailRichTextEditor,
   type EmailRichTextEditorHandle,
 } from "@/components/email-rich-text-editor";
+import CompanyDetailPanel from "@/components/directory/company-detail-panel";
+import type { Company } from "@/lib/directory/types";
 import {
   isLikelyHtml,
   plainTextToEmailHtml,
@@ -430,6 +432,11 @@ type CompanyContact = {
   phone?: string | null;
   title?: string | null;
 };
+
+const DIRECTORY_CONTACTS_MARKER_START = "[[DIRECTORY_CONTACTS]]";
+const DIRECTORY_CONTACTS_MARKER_END = "[[/DIRECTORY_CONTACTS]]";
+const DIRECTORY_SYNC_EVENT = "directory-company-updated";
+const DIRECTORY_SYNC_STORAGE_KEY = "directory-company-updated-at";
 
 type AssignedSub = SubOption & {
   invited: boolean;
@@ -1142,6 +1149,200 @@ function getActiveCompanyContact(sub: Partial<SubOption & AssignedSub>) {
   return contacts[0];
 }
 
+function parseDirectoryCompanyContacts(company: Company): CompanyContact[] {
+  const notes = company.notes ?? "";
+  const startIndex = notes.indexOf(DIRECTORY_CONTACTS_MARKER_START);
+  const endIndex = notes.indexOf(DIRECTORY_CONTACTS_MARKER_END);
+  let storedContacts: CompanyContact[] = [];
+
+  if (startIndex !== -1 && endIndex !== -1 && endIndex > startIndex) {
+    const jsonPayload = notes
+      .slice(startIndex + DIRECTORY_CONTACTS_MARKER_START.length, endIndex)
+      .trim();
+    try {
+      const parsed = JSON.parse(jsonPayload) as {
+        contacts?: Array<{
+          id?: string;
+          name?: string;
+          email?: string;
+          phone?: string | null;
+          role?: string;
+          title?: string;
+        }>;
+      };
+      storedContacts = Array.isArray(parsed.contacts)
+        ? parsed.contacts.flatMap((contact) =>
+            contact?.name?.trim()
+              ? [
+                  {
+                    id: contact.id || crypto.randomUUID(),
+                    name: contact.name.trim(),
+                    email: contact.email?.trim() || "",
+                    phone: contact.phone?.trim() || null,
+                    title: contact.role?.trim() || contact.title?.trim() || null,
+                  },
+                ]
+              : []
+          )
+        : [];
+    } catch {
+      storedContacts = [];
+    }
+  }
+
+  const fallbackPrimary =
+    company.primaryContact?.trim() || company.email?.trim()
+      ? [
+          {
+            id: `${company.id}-primary-contact`,
+            name: company.primaryContact?.trim() || company.name,
+            email: company.email?.trim() || "",
+            phone: company.phone?.trim() || null,
+            title: company.contactTitle?.trim() || null,
+          },
+        ]
+      : [];
+
+  const deduped = new Map<string, CompanyContact>();
+  [...fallbackPrimary, ...storedContacts].forEach((contact) => {
+    const key = `${contact.name.trim().toLowerCase()}|${contact.email.trim().toLowerCase()}|${contact.phone?.trim().toLowerCase() ?? ""}`;
+    if (!contact.name.trim() || deduped.has(key)) return;
+    deduped.set(key, contact);
+  });
+
+  return [...deduped.values()];
+}
+
+function emitDirectorySyncSignal() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(DIRECTORY_SYNC_EVENT));
+  try {
+    window.localStorage.setItem(DIRECTORY_SYNC_STORAGE_KEY, String(Date.now()));
+  } catch {
+    // Ignore storage write failures.
+  }
+}
+
+function mapDirectoryCompanyToSubOption(company: Company): SubOption {
+  const contacts = parseDirectoryCompanyContacts(company);
+  return {
+    id: company.id,
+    company: company.name,
+    email: company.email ?? null,
+    phone: company.phone ?? null,
+    trade: company.trade ?? null,
+    primaryContact: company.primaryContact ?? null,
+    contactTitle: company.contactTitle ?? null,
+    contacts,
+  };
+}
+
+function buildFallbackDirectoryCompanyFromSub(sub: Partial<AssignedSub & SubOption>): Company {
+  const contacts = getCompanyContacts(sub);
+  const primaryContact = getActiveCompanyContact(sub);
+  const notes = contacts.length
+    ? `${DIRECTORY_CONTACTS_MARKER_START}${JSON.stringify({
+        contacts: contacts.map((contact) => ({
+          id: contact.id,
+          name: contact.name,
+          email: contact.email,
+          phone: contact.phone ?? null,
+          role: contact.title ?? null,
+        })),
+      })}${DIRECTORY_CONTACTS_MARKER_END}`
+    : undefined;
+
+  return {
+    id: sub.id ?? crypto.randomUUID(),
+    name: sub.company ?? "Subcontractor",
+    trade: sub.trade ?? undefined,
+    contactTitle: primaryContact?.title ?? sub.contactTitle ?? undefined,
+    primaryContact: primaryContact?.name ?? sub.primaryContact ?? undefined,
+    email: primaryContact?.email ?? sub.email ?? undefined,
+    phone: primaryContact?.phone ?? sub.phone ?? undefined,
+    notes,
+    isActive: true,
+    lastUpdated: new Date().toISOString(),
+  };
+}
+
+function syncAssignedSubWithDirectoryCompany(sub: AssignedSub, company: Company): AssignedSub {
+  const mapped = mapDirectoryCompanyToSubOption(company);
+  const seeded: AssignedSub = {
+    ...sub,
+    ...mapped,
+    bidInviteEmail: mapped.email ?? "",
+    activeContactId: null,
+    activeContactName: mapped.primaryContact ?? null,
+  };
+  const contacts = getCompanyContacts(seeded);
+  const selectedEmail = (sub.bidInviteEmail || "").trim().toLowerCase();
+  const selectedName = (sub.activeContactName || "").trim().toLowerCase();
+  const previousPrimaryEmail = (sub.email || "").trim().toLowerCase();
+  const previousPrimaryName = (sub.primaryContact || "").trim().toLowerCase();
+  const nextPrimaryEmail = (mapped.email || "").trim().toLowerCase();
+  const nextPrimaryName = (mapped.primaryContact || "").trim().toLowerCase();
+  const selectedId = sub.activeContactId?.trim() || "";
+  const previousPrimaryContact = getActiveCompanyContact({
+    ...sub,
+    contacts: [
+      ...(Array.isArray(sub.contacts) ? sub.contacts : []),
+      ...(previousPrimaryName || previousPrimaryEmail
+        ? [
+            {
+              id: `${sub.id}-previous-primary`,
+              name: sub.primaryContact || sub.company,
+              email: sub.email || "",
+              phone: sub.phone ?? null,
+              title: sub.contactTitle ?? null,
+            },
+          ]
+        : []),
+    ],
+  });
+  const selectedMatchesPreviousPrimary =
+    (selectedId && previousPrimaryContact?.id && selectedId === previousPrimaryContact.id) ||
+    (selectedEmail && previousPrimaryEmail && selectedEmail === previousPrimaryEmail) ||
+    (selectedName && previousPrimaryName && selectedName === previousPrimaryName);
+  const shouldFollowDirectoryPrimary =
+    (!selectedId || selectedMatchesPreviousPrimary) &&
+    (
+      (!selectedEmail && !selectedName) ||
+      selectedEmail === previousPrimaryEmail ||
+      selectedName === previousPrimaryName
+    );
+  const activeContact = shouldFollowDirectoryPrimary
+    ? (contacts.find((contact) => {
+        const contactEmail = contact.email.trim().toLowerCase();
+        const contactName = contact.name.trim().toLowerCase();
+        return (
+          (nextPrimaryEmail && contactEmail === nextPrimaryEmail) ||
+          (nextPrimaryName && contactName === nextPrimaryName)
+        );
+      }) ??
+      contacts[0] ??
+      null)
+    : ((sub.activeContactId
+        ? contacts.find((contact) => contact.id === sub.activeContactId)
+        : null) ??
+      (selectedEmail
+        ? contacts.find((contact) => contact.email.trim().toLowerCase() === selectedEmail)
+        : null) ??
+      (selectedName
+        ? contacts.find((contact) => contact.name.trim().toLowerCase() === selectedName)
+        : null) ??
+      contacts[0] ??
+      null);
+
+  return {
+    ...seeded,
+    contacts,
+    bidInviteEmail: activeContact?.email || mapped.email || "",
+    activeContactId: activeContact?.id ?? null,
+    activeContactName: activeContact?.name ?? null,
+  };
+}
+
 function getContactLinkLabel(contactCount: number) {
   if (contactCount <= 1) return "1 contact";
   return "View contacts";
@@ -1636,7 +1837,7 @@ export default function NewBidPackagePage() {
   const [activeFileSection, setActiveFileSection] = useState<FileSectionKey>("plans");
   const [selectedUploadSection, setSelectedUploadSection] = useState<FileSectionKey>("plans");
   const [selectedUploadFolderId, setSelectedUploadFolderId] = useState<string>("__root__");
-  const [expandedFileGroups, setExpandedFileGroups] = useState({
+  const [expandedFileGroups, setExpandedFileGroups] = useState<Record<string, boolean>>({
     plans: true,
     specs: true,
     addenda: true,
@@ -1649,6 +1850,7 @@ export default function NewBidPackagePage() {
   const [selectedDivisionFilter, setSelectedDivisionFilter] = useState("__all__");
   const [selectedTrades, setSelectedTrades] = useState<SelectedTrade[]>([]);
   const [subOptions, setSubOptions] = useState<SubOption[]>([]);
+  const [directoryCompanies, setDirectoryCompanies] = useState<Company[]>([]);
   const [loadingSubOptions, setLoadingSubOptions] = useState(false);
   const [companyUserOptions, setCompanyUserOptions] = useState<CompanyUserOption[]>([]);
   const [assignedSubsByTradeId, setAssignedSubsByTradeId] = useState<Record<string, AssignedSub[]>>({});
@@ -1662,6 +1864,7 @@ export default function NewBidPackagePage() {
   const [inviteQueryByTradeId, setInviteQueryByTradeId] = useState<Record<string, string>>({});
   const [expandedInviteTradeIds, setExpandedInviteTradeIds] = useState<string[]>([]);
   const previousActivePanelRef = useRef(activePanel);
+  const [inviteDrawerCompanyId, setInviteDrawerCompanyId] = useState<string | null>(null);
   const [newSubDrawerTradeId, setNewSubDrawerTradeId] = useState<string | null>(null);
   const [newSubDraft, setNewSubDraft] = useState({
     company_name: "",
@@ -2024,70 +2227,93 @@ export default function NewBidPackagePage() {
     };
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    async function loadSubOptions() {
-      setLoadingSubOptions(true);
-      try {
-        const response = await fetch("/api/directory/overview", { cache: "no-store" });
-        const payload = (await response.json().catch(() => null)) as
-          | {
-              companies?: Array<{
-                id?: string;
-                name?: string;
-                email?: string | null;
-                trade?: string | null;
-              }>;
-              error?: string;
-            }
-          | null;
-        if (!active) return;
-        if (!response.ok) {
-          setSubOptions([]);
-          setLoadingSubOptions(false);
-          return;
-        }
-        const mapped = Array.isArray(payload?.companies)
-          ? payload.companies.flatMap((company): SubOption[] => {
-              if (!company?.id || !company?.name) return [];
-              return [
-                {
-                  id: company.id,
-                  company: company.name,
-                  email: company.email ?? null,
-                  phone: company.phone ?? null,
-                  trade: company.trade ?? null,
-                  primaryContact: company.primaryContact ?? null,
-                  contactTitle: company.contactTitle ?? null,
-                  contacts:
-                    company.email
-                      ? [
-                          {
-                            id: `${company.id}-primary-contact`,
-                            name: company.primaryContact || company.name,
-                            email: company.email,
-                            phone: company.phone ?? null,
-                            title: company.contactTitle ?? null,
-                          },
-                        ]
-                      : [],
-                },
-              ];
-            })
-          : [];
-        setSubOptions(mapped);
-      } catch {
-        if (!active) return;
+  const refreshDirectoryCompanies = useCallback(async () => {
+    setLoadingSubOptions(true);
+    try {
+      const response = await fetch("/api/directory/overview", { cache: "no-store" });
+      const payload = (await response.json().catch(() => null)) as
+        | {
+            companies?: Company[];
+            error?: string;
+          }
+        | null;
+
+      if (!response.ok) {
+        setDirectoryCompanies([]);
         setSubOptions([]);
-      } finally {
-        if (active) setLoadingSubOptions(false);
+        return;
       }
+
+      const companies = Array.isArray(payload?.companies)
+        ? payload.companies.filter((company): company is Company => Boolean(company?.id && company?.name))
+        : [];
+      const mapped = companies.map(mapDirectoryCompanyToSubOption);
+      const companyById = new Map(companies.map((company) => [company.id, company]));
+
+      setDirectoryCompanies(companies);
+      setSubOptions(mapped);
+      setAssignedSubsByTradeId((current) =>
+        Object.fromEntries(
+          Object.entries(current).map(([tradeId, subs]) => [
+            tradeId,
+            subs.map((sub) => {
+              const updatedCompany = companyById.get(sub.id);
+              return updatedCompany ? syncAssignedSubWithDirectoryCompany(sub, updatedCompany) : sub;
+            }),
+          ])
+        )
+      );
+    } catch {
+      setDirectoryCompanies([]);
+      setSubOptions([]);
+    } finally {
+      setLoadingSubOptions(false);
     }
-    loadSubOptions();
-    return () => {
-      active = false;
-    };
   }, []);
+
+  useEffect(() => {
+    void refreshDirectoryCompanies();
+  }, [refreshDirectoryCompanies]);
+
+  useEffect(() => {
+    if (!inviteDrawerCompanyId) return;
+    void refreshDirectoryCompanies();
+  }, [inviteDrawerCompanyId, refreshDirectoryCompanies]);
+
+  useEffect(() => {
+    if (activePanel !== "invite-subs") return;
+    void refreshDirectoryCompanies();
+  }, [activePanel, refreshDirectoryCompanies]);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      void refreshDirectoryCompanies();
+    };
+    const handleDirectorySync = () => {
+      void refreshDirectoryCompanies();
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === DIRECTORY_SYNC_STORAGE_KEY) {
+        void refreshDirectoryCompanies();
+      }
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void refreshDirectoryCompanies();
+      }
+    };
+
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener(DIRECTORY_SYNC_EVENT, handleDirectorySync);
+    window.addEventListener("storage", handleStorage);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener(DIRECTORY_SYNC_EVENT, handleDirectorySync);
+      window.removeEventListener("storage", handleStorage);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [refreshDirectoryCompanies]);
 
   useEffect(() => {
     if (!editingProjectId) return;
@@ -2805,6 +3031,54 @@ export default function NewBidPackagePage() {
     selectedTrades,
   ]);
 
+  const inviteDrawerSub = useMemo(() => {
+    if (!inviteDrawerCompanyId) return null;
+
+    for (const assigned of inviteSubsByTradeId.values()) {
+      const match = assigned.find((sub) => sub.id === inviteDrawerCompanyId);
+      if (match) return match;
+    }
+
+    return subOptions.find((sub) => sub.id === inviteDrawerCompanyId) ?? null;
+  }, [inviteDrawerCompanyId, inviteSubsByTradeId, subOptions]);
+
+  const selectedInviteDrawerCompany = useMemo(() => {
+    if (!inviteDrawerCompanyId) return null;
+    return (
+      directoryCompanies.find((company) => company.id === inviteDrawerCompanyId) ??
+      (inviteDrawerSub ? buildFallbackDirectoryCompanyFromSub(inviteDrawerSub) : null)
+    );
+  }, [directoryCompanies, inviteDrawerCompanyId, inviteDrawerSub]);
+
+  const syncCompanyIntoInviteState = (updatedCompany: Company) => {
+    setDirectoryCompanies((current) => {
+      const existingIndex = current.findIndex((company) => company.id === updatedCompany.id);
+      if (existingIndex === -1) return [...current, updatedCompany];
+      return current.map((company) => (company.id === updatedCompany.id ? updatedCompany : company));
+    });
+
+    const mapped = mapDirectoryCompanyToSubOption(updatedCompany);
+
+    setSubOptions((current) => {
+      const existingIndex = current.findIndex((sub) => sub.id === updatedCompany.id);
+      if (existingIndex === -1) {
+        return [...current, mapped].sort((left, right) => left.company.localeCompare(right.company));
+      }
+      return current.map((sub) => (sub.id === updatedCompany.id ? mapped : sub));
+    });
+
+    setAssignedSubsByTradeId((current) =>
+      Object.fromEntries(
+        Object.entries(current).map(([tradeId, subs]) => [
+          tradeId,
+          subs.map((sub) =>
+            sub.id === updatedCompany.id ? syncAssignedSubWithDirectoryCompany(sub, updatedCompany) : sub
+          ),
+        ])
+      )
+    );
+  };
+
   useEffect(() => {
     const wasInviteSubs = previousActivePanelRef.current === "invite-subs";
     if (activePanel !== "invite-subs") {
@@ -2938,6 +3212,86 @@ export default function NewBidPackagePage() {
       [tradeId]: (prev[tradeId] ?? []).filter((id) => id !== sub.id),
     }));
   };
+
+  async function updateDirectoryCompanyRecord(
+    company: Company,
+    overrides: Partial<{
+      name: string;
+      trade: string;
+      contactTitle: string | undefined;
+      primaryContact: string | undefined;
+      email: string | undefined;
+      phone: string | undefined;
+      officePhone: string | undefined;
+      address: string | undefined;
+      city: string | undefined;
+      state: string | undefined;
+      zip: string | undefined;
+      website: string | undefined;
+      notes: string | undefined;
+      vendorType: string | undefined;
+      isActive: boolean;
+    }>
+  ) {
+    const has = <K extends keyof typeof overrides>(key: K) =>
+      Object.prototype.hasOwnProperty.call(overrides, key);
+    const nowIso = new Date().toISOString();
+    const payload = {
+      projectId: editingProjectId ?? undefined,
+      companies: [
+        {
+          id: company.id,
+          name: has("name") ? overrides.name : company.name,
+          company_name: has("name") ? overrides.name : company.name,
+          trade: has("trade") ? overrides.trade : company.trade,
+          contactTitle: has("contactTitle") ? overrides.contactTitle : company.contactTitle,
+          contact_title: has("contactTitle") ? overrides.contactTitle : company.contactTitle,
+          primaryContact: has("primaryContact") ? overrides.primaryContact : company.primaryContact,
+          primary_contact: has("primaryContact") ? overrides.primaryContact : company.primaryContact,
+          email: has("email") ? overrides.email : company.email,
+          phone: has("phone") ? overrides.phone : company.phone,
+          officePhone: has("officePhone") ? overrides.officePhone : company.officePhone,
+          office_phone: has("officePhone") ? overrides.officePhone : company.officePhone,
+          vendorType: has("vendorType") ? overrides.vendorType : company.vendorType,
+          vendor_type: has("vendorType") ? overrides.vendorType : company.vendorType,
+          address: has("address") ? overrides.address : company.address,
+          city: has("city") ? overrides.city : company.city,
+          state: has("state") ? overrides.state : company.state,
+          zip: has("zip") ? overrides.zip : company.zip,
+          website: has("website") ? overrides.website : company.website,
+          status: (overrides.isActive ?? company.isActive) ? "Active" : "Inactive",
+          notes: has("notes") ? overrides.notes : company.notes,
+          isActive: overrides.isActive ?? company.isActive,
+          updated_at: nowIso,
+        },
+      ],
+    };
+
+    const response = await fetch(
+      `/api/directory/companies${editingProjectId ? `?project=${encodeURIComponent(editingProjectId)}` : ""}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }
+    );
+
+    if (!response.ok) {
+      const raw = await response.text();
+      let responsePayload: { error?: string } = {};
+      try {
+        responsePayload = raw ? (JSON.parse(raw) as { error?: string }) : {};
+      } catch {
+        responsePayload = {};
+      }
+      throw new Error(
+        responsePayload.error ??
+          (raw
+            ? `Failed to update company (${response.status}): ${raw}`
+            : `Failed to update company (${response.status}).`)
+      );
+    }
+  }
 
   const removeSubFromTrade = (tradeId: string, subId: string) => {
     setAssignedSubsByTradeId((prev) => ({
@@ -3782,6 +4136,139 @@ export default function NewBidPackagePage() {
     }
 
     return true;
+  };
+
+  const inviteDrawerTradeOptions = useMemo(
+    () =>
+      costCodes
+        .filter((code) => Boolean(code.description) && !code.code.trim().startsWith("01"))
+        .map((code) => code.description?.trim() || "")
+        .filter(Boolean),
+    [costCodes]
+  );
+
+  const saveInviteDrawerCompanyInfo = async (updates: {
+    name: string;
+    trade?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    zip?: string;
+    website?: string;
+    phone?: string;
+    email?: string;
+    isActive: boolean;
+  }) => {
+    if (!selectedInviteDrawerCompany) return;
+    const previousCompany = selectedInviteDrawerCompany;
+    const nextCompany: Company = {
+      ...selectedInviteDrawerCompany,
+      name: updates.name,
+      trade: updates.trade ?? selectedInviteDrawerCompany.trade,
+      address: updates.address,
+      city: updates.city,
+      state: updates.state,
+      zip: updates.zip,
+      website: updates.website,
+      phone: updates.phone,
+      email: updates.email,
+      isActive: updates.isActive,
+      lastUpdated: new Date().toISOString(),
+    };
+    syncCompanyIntoInviteState(nextCompany);
+
+    try {
+      await updateDirectoryCompanyRecord(selectedInviteDrawerCompany, updates);
+      emitDirectorySyncSignal();
+      setToast({ type: "success", message: "Company updated." });
+    } catch (error) {
+      syncCompanyIntoInviteState(previousCompany);
+      throw error;
+    }
+  };
+
+  const saveInviteDrawerCompanyContacts = async (updates: {
+    contacts: Array<{
+      id: string;
+      name: string;
+      role: string;
+      email: string;
+      phone: string;
+      isPrimary: boolean;
+    }>;
+    notes: string | undefined;
+    primaryContact?: string;
+    contactTitle?: string;
+    email?: string;
+    phone?: string;
+  }) => {
+    if (!selectedInviteDrawerCompany) return;
+    const previousCompany = selectedInviteDrawerCompany;
+    const nextCompany: Company = {
+      ...selectedInviteDrawerCompany,
+      primaryContact: updates.primaryContact,
+      contactTitle: updates.contactTitle,
+      email: updates.email,
+      phone: updates.phone,
+      notes: updates.notes,
+      lastUpdated: new Date().toISOString(),
+    };
+    syncCompanyIntoInviteState(nextCompany);
+
+    try {
+      await updateDirectoryCompanyRecord(selectedInviteDrawerCompany, {
+        primaryContact: updates.primaryContact,
+        contactTitle: updates.contactTitle,
+        email: updates.email,
+        phone: updates.phone,
+        notes: updates.notes,
+      });
+      emitDirectorySyncSignal();
+      setToast({ type: "success", message: "Contacts updated." });
+    } catch (error) {
+      syncCompanyIntoInviteState(previousCompany);
+      throw error;
+    }
+  };
+
+  const saveInviteDrawerCompanyNotes = async (updates: { notes: string | undefined }) => {
+    if (!selectedInviteDrawerCompany) return;
+    const previousCompany = selectedInviteDrawerCompany;
+    const nextCompany: Company = {
+      ...selectedInviteDrawerCompany,
+      notes: updates.notes,
+      lastUpdated: new Date().toISOString(),
+    };
+    syncCompanyIntoInviteState(nextCompany);
+
+    try {
+      await updateDirectoryCompanyRecord(selectedInviteDrawerCompany, { notes: updates.notes });
+      emitDirectorySyncSignal();
+      setToast({ type: "success", message: "Notes updated." });
+    } catch (error) {
+      syncCompanyIntoInviteState(previousCompany);
+      throw error;
+    }
+  };
+
+  const saveInviteDrawerCompanyDocuments = async (updates: { notes: string | undefined }) => {
+    if (!selectedInviteDrawerCompany) return;
+    const previousCompany = selectedInviteDrawerCompany;
+    const nextCompany: Company = {
+      ...selectedInviteDrawerCompany,
+      notes: updates.notes,
+      lastUpdated: new Date().toISOString(),
+    };
+    syncCompanyIntoInviteState(nextCompany);
+
+    try {
+      await updateDirectoryCompanyRecord(selectedInviteDrawerCompany, { notes: updates.notes });
+      emitDirectorySyncSignal();
+      setToast({ type: "success", message: "Documents updated." });
+    } catch (error) {
+      syncCompanyIntoInviteState(previousCompany);
+      throw error;
+    }
   };
 
   const stepMetaByPanel: Record<
@@ -5703,7 +6190,7 @@ export default function NewBidPackagePage() {
                                     <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-sm font-bold tracking-[0.18em] text-slate-500 md:text-[10px]">
                                       {normalizedTrade.code}
                                     </span>
-                                    <h4 className="truncate text-lg font-bold tracking-tight text-slate-900 md:text-lg">
+                                    <h4 className="truncate text-base font-bold tracking-tight text-slate-900 md:text-lg">
                                       {normalizedTrade.description ?? normalizedTrade.code}
                                     </h4>
                                   </div>
@@ -5798,7 +6285,16 @@ export default function NewBidPackagePage() {
                                     return (
                                       <div
                                         key={`${trade.id}-assigned-${sub.id}`}
-                                        className="grid grid-cols-[40px_minmax(160px,1.05fr)_minmax(180px,0.95fr)_150px_190px_32px] items-center gap-x-5 border-t border-slate-200 px-5 py-5"
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={() => setInviteDrawerCompanyId(sub.id)}
+                                        onKeyDown={(event) => {
+                                          if (event.key === "Enter" || event.key === " ") {
+                                            event.preventDefault();
+                                            setInviteDrawerCompanyId(sub.id);
+                                          }
+                                        }}
+                                        className="grid cursor-pointer grid-cols-[40px_minmax(160px,1.05fr)_minmax(180px,0.95fr)_150px_190px_32px] items-center gap-x-5 border-t border-slate-200 px-5 py-3.5 hover:bg-black/[0.02]"
                                       >
                                         <div className="flex justify-center">
                                           <span className="h-5 w-5 rounded-full border-2 border-[#356DFF]" />
@@ -5806,7 +6302,11 @@ export default function NewBidPackagePage() {
                                         <div className="min-w-0">
                                           <div className="truncate text-m font-bold text-slate-900">{sub.company}</div>
                                         </div>
-                                        <div className="min-w-0">
+                                        <div
+                                          className="min-w-0"
+                                          onClick={(event) => event.stopPropagation()}
+                                          onKeyDown={(event) => event.stopPropagation()}
+                                        >
                                           <CompanyContactSwitcher
                                             companyName={sub.company}
                                             sub={sub}
@@ -5837,7 +6337,11 @@ export default function NewBidPackagePage() {
                                           )}
                                           <span className="truncate">{activityLabel}</span>
                                         </div>
-                                        <div className="flex justify-end">
+                                        <div
+                                          className="flex justify-end"
+                                          onClick={(event) => event.stopPropagation()}
+                                          onKeyDown={(event) => event.stopPropagation()}
+                                        >
                                           <DropdownMenu>
                                             <DropdownMenuTrigger asChild>
                                               <button
@@ -6733,6 +7237,21 @@ export default function NewBidPackagePage() {
             </form>
           </div>
         </div>
+      ) : null}
+      {selectedInviteDrawerCompany ? (
+        <CompanyDetailPanel
+          company={selectedInviteDrawerCompany}
+          tradeOptions={inviteDrawerTradeOptions}
+          assignedProjects={[]}
+          allProjects={[]}
+          projectPickerOpen={false}
+          onClose={() => setInviteDrawerCompanyId(null)}
+          onSaveCompanyInfo={saveInviteDrawerCompanyInfo}
+          onSaveCompanyContacts={saveInviteDrawerCompanyContacts}
+          onSaveCompanyNotes={saveInviteDrawerCompanyNotes}
+          onSaveCompanyDocuments={saveInviteDrawerCompanyDocuments}
+          onAssignProject={() => {}}
+        />
       ) : null}
       {toast ? (
         <div className="fixed bottom-5 right-5 z-50">

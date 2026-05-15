@@ -733,6 +733,7 @@ export default function CompanyDetailPanel({
     if (!company || activeTab !== "bid-history") return;
 
     let active = true;
+    const currentCompany = company;
     setBidHistoryError("");
     setIsLoadingBidHistory(true);
 
@@ -743,8 +744,8 @@ export default function CompanyDetailPanel({
 
         if (!active) return;
 
-        const companyName = normalizeCompareValue(company.name);
-        const companyEmail = normalizeCompareValue(company.email);
+        const companyName = normalizeCompareValue(currentCompany.name);
+        const companyEmail = normalizeCompareValue(currentCompany.email);
 
         const rows = details
           .filter((detail): detail is NonNullable<typeof detail> => Boolean(detail))

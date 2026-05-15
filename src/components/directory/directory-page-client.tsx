@@ -64,6 +64,19 @@ const EMPTY_DRAFT: CompanyDraft = {
   isActive: true,
 };
 
+const DIRECTORY_SYNC_EVENT = "directory-company-updated";
+const DIRECTORY_SYNC_STORAGE_KEY = "directory-company-updated-at";
+
+function emitDirectorySyncSignal() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(DIRECTORY_SYNC_EVENT));
+  try {
+    window.localStorage.setItem(DIRECTORY_SYNC_STORAGE_KEY, String(Date.now()));
+  } catch {
+    // Ignore storage write failures.
+  }
+}
+
 function normalizeTradeValue(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -366,7 +379,7 @@ export default function DirectoryPageClient() {
           if (city) return city;
           return null;
         })
-        .filter(Boolean)
+        .filter((value): value is string => Boolean(value))
     );
     return Array.from(values).sort((left, right) => left.localeCompare(right));
   }, [companies]);
@@ -503,6 +516,8 @@ export default function DirectoryPageClient() {
           (raw ? `Failed to update company (${res.status}): ${raw}` : `Failed to update company (${res.status}).`)
       );
     }
+
+    emitDirectorySyncSignal();
   }
 
   async function saveCompany() {
@@ -572,6 +587,7 @@ export default function DirectoryPageClient() {
       }
       setModalOpen(false);
       await fetchDirectory();
+      emitDirectorySyncSignal();
       showToast(editingCompanyId ? "Company updated." : "Company added.", "success");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to save company.";
@@ -721,6 +737,7 @@ export default function DirectoryPageClient() {
       }
 
       await fetchDirectory();
+      emitDirectorySyncSignal();
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Import failed.");
     } finally {
@@ -814,6 +831,7 @@ export default function DirectoryPageClient() {
     }
     if (detailCompanyId === companyId) setDetailCompanyId(null);
     await fetchDirectory();
+    emitDirectorySyncSignal();
     showToast("Company removed.", "success");
     return true;
   }
@@ -1298,7 +1316,7 @@ export default function DirectoryPageClient() {
           tradeOptions={costCodeOptions
             .filter((code) => Boolean(code.title) && !code.code?.trim().startsWith("01"))
             .map((code) => code.title)
-            .filter(Boolean)}
+            .filter((title): title is string => Boolean(title))}
           assignedProjects={selectedCompanyProjects}
           allProjects={projects}
           projectPickerOpen={projectPickerOpen}
