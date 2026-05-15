@@ -7814,14 +7814,14 @@ export default function NewBidPackagePage() {
             <div className="flex items-start justify-between gap-6 border-b border-slate-200 bg-white px-9 pb-8 pt-7">
               <div className="flex items-start justify-between gap-6">
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-3 text-[15px] font-bold uppercase tracking-[0.08em] text-[#356DFF]">
-                    <Plus className="h-5 w-5" />
+                  <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.08em] text-[#356DFF]">
+                    <Plus className="h-3.5 w-3.5" />
                     <span>New Subcontractor</span>
                   </div>
-                  <h2 className="mt-5 text-[22px] font-semibold leading-none tracking-tight text-slate-950">
+                  <h2 className="mt-1 text-xl font-semibold leading-none tracking-tight text-slate-950">
                     Add to Subs Directory
                   </h2>
-                  <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-500">
+                  <p className="mt-1 max-w-3xl text-xs leading-7 text-slate-500">
                     Capture company details, primary contact, and trade coverage. You can edit performance data later.
                   </p>
                 </div>
@@ -7934,11 +7934,12 @@ export default function NewBidPackagePage() {
               }}
             >
               <div className="min-h-0 flex-1 overflow-y-auto">
-                <div className="space-y-10 px-8 py-8">
+                <div className="px-8 py-8">
+                  <div className="space-y-10 rounded-[28px] border border-slate-200 bg-white px-8 py-8 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
                   <section className="space-y-6">
-                    <div className="text-[14px] font-extrabold uppercase tracking-[0.08em] text-slate-500">Company</div>
+                    <div className="text-[14px] font-semibold uppercase tracking-[0.08em] text-slate-500">Company</div>
 
-                    <div className="space-y-3">
+                    <div className="space-y-6">
                       <label className="text-[12px] font-semibold text-slate-950">
                         Company name <span className="text-rose-500">*</span>
                       </label>
@@ -8152,6 +8153,7 @@ export default function NewBidPackagePage() {
                   {newSubError ? (
                     <p className="rounded-[18px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">{newSubError}</p>
                   ) : null}
+                  </div>
                 </div>
               </div>
               <div className="flex items-center justify-end gap-4 border-t border-slate-200 bg-white px-8 py-6">
