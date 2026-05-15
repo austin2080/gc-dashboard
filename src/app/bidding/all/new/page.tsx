@@ -79,7 +79,6 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
-  Clock3,
   Ellipsis,
   Eye,
   File,
@@ -1399,14 +1398,9 @@ function syncAssignedSubWithDirectoryCompany(sub: AssignedSub, company: Company)
   };
 }
 
-function getContactLinkLabel(contactCount: number) {
-  if (contactCount <= 1) return "1 contact";
-  return "Recipients";
-}
-
-function getRecipientSummaryLabel(selectedCount: number) {
-  if (selectedCount === 0) return "No recipients selected";
-  return `${selectedCount} recipient${selectedCount === 1 ? "" : "s"} selected`;
+function getContactLinkLabel(selectedCount: number) {
+  if (selectedCount === 0) return "Select";
+  return `${selectedCount} selected`;
 }
 
 function getContactRoleLabel(contact: CompanyContact) {
@@ -1436,88 +1430,89 @@ function CompanyContactSwitcher({
 
   return (
     <div className="min-w-0">
-      <div className="truncate text-m text-slate-900">{displayContact?.name || companyName}</div>
-      <div className="truncate text-xs text-slate-500">{displayContact?.email || "No invite email set"}</div>
-      <div className="mt-1 truncate text-[11px] font-medium text-slate-400">
-        {getRecipientSummaryLabel(selectedContacts.length)}
-      </div>
-      <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-slate-400 hover:text-slate-600"
-          >
-            {getContactLinkLabel(contacts.length)}
-            <ChevronDown className="h-3.5 w-3.5" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          sideOffset={10}
-          className="w-[340px] rounded-2xl border border-slate-200 bg-white p-0 shadow-soft-md"
-        >
-          <div className="border-b border-slate-200 px-4 pt-4 pb-3">
-            <div className="text-sm font-semibold text-slate-900">Select recipients</div>
-            <div className="mt-1 text-xs text-slate-500">{companyName}</div>
-          </div>
-          <div className="p-2">
-            {contacts.length ? (
-              contacts.map((contact) => {
-                const selected = selectedIds.has(contact.id);
-                return (
-                  <button
-                    key={contact.id}
-                    type="button"
-                    onClick={() => onToggleContact(contact)}
-                    className={`flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 ${
-                      selected ? "border-blue-200 bg-blue-50/70" : "border-transparent"
-                    }`}
-                  >
-                    <span
-                      className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border transition-colors ${
-                        selected ? "border-[#356DFF] bg-[#356DFF] text-white" : "border-slate-300 bg-white text-transparent"
-                      }`}
-                      aria-hidden="true"
-                    >
-                      <Check className="h-3 w-3" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <div className="truncate text-sm font-semibold text-slate-900">{contact.name}</div>
-                        {contact.isPrimary ? (
-                          <span className="inline-flex rounded-full bg-[#EEF2FF] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[#356DFF]">
-                            Primary
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="truncate text-xs text-slate-500">{contact.email || "No email"}</div>
-                      <div className="mt-1 flex items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-slate-400">
-                        <span>{getContactRoleLabel(contact)}</span>
-                        {selected ? <span className="text-[#356DFF]">Selected</span> : null}
-                      </div>
-                    </div>
-                  </button>
-                );
-              })
-            ) : (
-              <div className="px-3 py-3 text-sm text-slate-500">No contacts available.</div>
-            )}
-          </div>
-          <div className="border-t border-slate-200 p-2">
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 shrink-0">
+          <div className="text-m text-slate-900">{displayContact?.name || companyName}</div>
+          <div className="truncate text-xs text-slate-500">{displayContact?.email || "No invite email set"}</div>
+        </div>
+        <Popover open={open} onOpenChange={setOpen}>
+          <PopoverTrigger asChild>
             <button
               type="button"
-              onClick={() => {
-                setOpen(false);
-                onAddContact();
-              }}
-              className="inline-flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              className="mt-0.5 inline-flex h-9 shrink-0 items-center gap-1 rounded-[16px] border border-slate-200 bg-white px-2.5 text-sm font-semibold text-slate-600 shadow-soft-sm transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900"
             >
-              <Plus className="h-4 w-4" />
-              Add Contact
+              {getContactLinkLabel(selectedContacts.length)}
+              <ChevronDown className="h-4 w-4" />
             </button>
-          </div>
-        </PopoverContent>
-      </Popover>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            sideOffset={10}
+            className="w-[340px] rounded-2xl border border-slate-200 bg-white p-0 shadow-soft-md"
+          >
+            <div className="border-b border-slate-200 px-4 pt-4 pb-3">
+              <div className="text-sm font-semibold text-slate-900">Select recipients</div>
+              <div className="mt-1 text-xs text-slate-500">{companyName}</div>
+            </div>
+            <div className="p-2">
+              {contacts.length ? (
+                contacts.map((contact) => {
+                  const selected = selectedIds.has(contact.id);
+                  return (
+                    <button
+                      key={contact.id}
+                      type="button"
+                      onClick={() => onToggleContact(contact)}
+                      className={`flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 ${
+                        selected ? "border-blue-200 bg-blue-50/70" : "border-transparent"
+                      }`}
+                    >
+                      <span
+                        className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border transition-colors ${
+                          selected ? "border-[#356DFF] bg-[#356DFF] text-white" : "border-slate-300 bg-white text-transparent"
+                        }`}
+                        aria-hidden="true"
+                      >
+                        <Check className="h-3 w-3" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <div className="truncate text-sm font-semibold text-slate-900">{contact.name}</div>
+                          {contact.isPrimary ? (
+                            <span className="inline-flex rounded-full bg-[#EEF2FF] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[#356DFF]">
+                              Primary
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="truncate text-xs text-slate-500">{contact.email || "No email"}</div>
+                        <div className="mt-1 flex items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-slate-400">
+                          <span>{getContactRoleLabel(contact)}</span>
+                          {selected ? <span className="text-[#356DFF]">Selected</span> : null}
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="px-3 py-3 text-sm text-slate-500">No contacts available.</div>
+              )}
+            </div>
+            <div className="border-t border-slate-200 p-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  onAddContact();
+                }}
+                className="inline-flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              >
+                <Plus className="h-4 w-4" />
+                Add Contact
+              </button>
+            </div>
+          </PopoverContent>
+        </Popover>
+      </div>
     </div>
   );
 }
@@ -3476,6 +3471,18 @@ export default function NewBidPackagePage() {
     setSelectedInviteSubRows([]);
   };
 
+  const openNewSubDrawer = (tradeId: string | null) => {
+    if (!tradeId) return;
+    setNewSubDrawerTradeId(tradeId);
+    setNewSubDraft({
+      company_name: "",
+      primary_contact: "",
+      email: "",
+      phone: "",
+    });
+    setNewSubError(null);
+  };
+
   const changeInviteSubStatus = (
     tradeId: string,
     sub: AssignedSub,
@@ -3802,6 +3809,11 @@ export default function NewBidPackagePage() {
     () => new Set(selectedInviteSubRows.map((row) => getInviteSubRowKey(row.tradeId, row.subId))),
     [selectedInviteSubRows]
   );
+
+  const inviteSubDrawerTradeId =
+    inviteSubsTradeFilter !== "__all__" && selectedTrades.some((trade) => trade.id === inviteSubsTradeFilter)
+      ? inviteSubsTradeFilter
+      : filteredInviteTrades[0]?.id ?? selectedTrades[0]?.id ?? null;
 
   useEffect(() => {
     if (selectedInviteSubCount > 0) {
@@ -6305,14 +6317,25 @@ export default function NewBidPackagePage() {
                           </Select>
                         </div>
 
-                        <button
-                          type="button"
-                          onClick={() => setInviteTradeDrawerOpen(true)}
-                          className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-[20px] bg-[#356DFF] px-6 text-sm font-semibold text-white shadow-sm hover:bg-[#2456dc] disabled:cursor-not-allowed disabled:opacity-50 xl:ml-3"
-                        >
-                          <Plus className="h-5 w-5" />
-                          Add Trade
-                        </button>
+                        <div className="flex shrink-0 flex-wrap items-center gap-3 xl:ml-3">
+                          <button
+                            type="button"
+                            onClick={() => openNewSubDrawer(inviteSubDrawerTradeId)}
+                            disabled={!inviteSubDrawerTradeId}
+                            className="inline-flex h-10 items-center gap-2 rounded-[20px] border border-[#356DFF] bg-white px-5 text-sm font-semibold text-[#356DFF] shadow-sm hover:bg-blue-50 hover:text-[#2456dc] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Plus className="h-4 w-4" />
+                            Add Sub
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setInviteTradeDrawerOpen(true)}
+                            className="inline-flex h-10 items-center justify-center gap-2 rounded-[20px] bg-[#356DFF] px-6 text-sm font-semibold text-white shadow-sm hover:bg-[#2456dc] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Plus className="h-5 w-5" />
+                            Add Trade
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </section>
@@ -6357,14 +6380,34 @@ export default function NewBidPackagePage() {
                         const normalizedTrade = normalizeSelectedTradeShape(trade);
                         const assigned = inviteSubsByTradeId.get(trade.id) ?? [];
                         const expanded = expandedInviteTradeIds.includes(trade.id);
-                        const invitedCount = assigned.filter((sub) =>
-                          sub.responseStatus === "invited" ||
-                          sub.responseStatus === "viewed" ||
-                          sub.responseStatus === "bidding" ||
-                          sub.responseStatus === "submitted"
+                        const selectedCount = assigned.filter((sub) =>
+                          selectedInviteSubRowKeys.has(getInviteSubRowKey(trade.id, sub.id))
                         ).length;
-                        const biddingCount = assigned.filter((sub) => sub.responseStatus === "bidding").length;
-                        const submittedCount = assigned.filter((sub) => sub.responseStatus === "submitted").length;
+                        const totalSubcontractors = assigned.length;
+                        const coveragePillClass =
+                          selectedCount >= 3
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-600"
+                            : selectedCount === 2
+                              ? "border-blue-200 bg-blue-50 text-[#356DFF]"
+                              : selectedCount === 1
+                                ? "border-amber-200 bg-amber-50 text-amber-700"
+                                : "border-rose-200 bg-rose-50 text-rose-600";
+                        const coverageDotClass =
+                          selectedCount >= 3
+                            ? "bg-emerald-500"
+                            : selectedCount === 2
+                              ? "bg-[#356DFF]"
+                              : selectedCount === 1
+                                ? "bg-amber-500"
+                                : "bg-rose-500";
+                        const coverageLabel =
+                          selectedCount >= 3
+                            ? "Strong Coverage"
+                            : selectedCount === 2
+                              ? "OK Coverage"
+                              : selectedCount === 1
+                                ? "Low Coverage"
+                                : "No Coverage";
                         return (
                           <article key={`invite-${trade.id}`} className="overflow-hidden rounded-[28px] border border-slate-200 bg-white">
                             <div className="flex items-start justify-between gap-4 px-4 py-4 md:px-6">
@@ -6389,47 +6432,31 @@ export default function NewBidPackagePage() {
                                     <h4 className="truncate text-base font-bold tracking-tight text-slate-900 md:text-lg">
                                       {normalizedTrade.description ?? normalizedTrade.code}
                                     </h4>
+                                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${coveragePillClass}`}>
+                                      <span className={`h-1.5 w-1.5 rounded-full ${coverageDotClass}`} />
+                                      {coverageLabel}
+                                    </span>
                                   </div>
-                                  <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-semibold text-slate-500">
-                                    <span><span className="font-bold text-slate-900">{invitedCount}</span> invited</span>
-                                    <span><span className="font-bold text-[#FF6A21]">{biddingCount}</span> bidding</span>
-                                    <span><span className="font-bold text-emerald-500">{submittedCount}</span> submitted</span>
+                                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm font-medium text-slate-500">
+                                    <span><span className="font-bold text-slate-900">{totalSubcontractors}</span> subcontractor{totalSubcontractors === 1 ? "" : "s"}</span>
+                                    <span className="text-slate-300">•</span>
+                                    <span><span className="font-bold text-[#356DFF]">{selectedCount}</span> selected</span>
                                   </div>
                                 </div>
                               </div>
 
-                              <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setNewSubDrawerTradeId(trade.id);
-                                    setNewSubDraft({
-                                      company_name: "",
-                                      primary_contact: "",
-                                      email: "",
-                                      phone: "",
-                                    });
-                                    setNewSubError(null);
-                                  }}
-                                  className="inline-flex h-9 items-center gap-2 rounded-[20px] border border-[#356DFF] bg-white px-5 text-sm font-semibold text-[#356DFF] shadow-sm hover:bg-blue-50 hover:text-[#2456dc]"
-                                >
-                                  <Plus className="h-4 w-4" />
-                                  Add Sub
-                                </button>
-                              </div>
                             </div>
 
                             {expanded ? (
                               <>
                                 <div className="border-t border-slate-200 bg-slate-50/50">
-                                  <div className="grid grid-cols-[40px_minmax(160px,1.05fr)_minmax(180px,0.95fr)_150px_190px_32px] items-center gap-x-5 px-5 py-2 text-xs font-extrabold uppercase tracking-[0.06em] text-slate-500">
+                                  <div className="grid grid-cols-[40px_minmax(180px,1.15fr)_minmax(220px,1fr)_170px_32px] items-center gap-x-5 px-5 py-2 text-xs font-extrabold uppercase tracking-[0.06em] text-slate-500">
                                     <div className="flex justify-center">
                                       <span className="h-5 w-5 rounded-full border-2 border-[#356DFF]" />
                                     </div>
                                     <div>Subcontractor</div>
-                                    <div>Contact</div>
-                                    <div>Status</div>
-                                    <div>Last Activity</div>
+                                    <div>Recipients</div>
+                                    <div>Vendor Status</div>
                                     <div aria-hidden="true" />
                                   </div>
                                 </div>
@@ -6440,46 +6467,23 @@ export default function NewBidPackagePage() {
                                     const isSelected = selectedInviteSubRowKeys.has(rowKey);
                                     const responseStatus = sub.responseStatus ?? (sub.willBid ? "bidding" : sub.invited ? "viewed" : "invited");
                                     const statusPillClass =
-                                      responseStatus === "submitted"
-                                        ? "border-emerald-200 bg-emerald-50 text-emerald-600"
-                                        : responseStatus === "bidding"
-                                          ? "border-orange-200 bg-orange-50 text-[#FF6A21]"
-                                          : responseStatus === "viewed"
-                                            ? "border-blue-200 bg-blue-50 text-[#356DFF]"
-                                            : responseStatus === "declined"
-                                              ? "border-red-200 bg-red-50 text-red-500"
-                                              : "border-slate-200 bg-slate-50 text-slate-500";
+                                      responseStatus === "declined"
+                                        ? "border-red-200 bg-red-50 text-red-600"
+                                        : responseStatus === "bidding" || responseStatus === "submitted"
+                                          ? "border-emerald-200 bg-emerald-50 text-emerald-600"
+                                          : "border-amber-200 bg-amber-50 text-amber-700";
                                     const statusDotClass =
-                                      responseStatus === "submitted"
-                                        ? "bg-emerald-500"
-                                        : responseStatus === "bidding"
-                                          ? "bg-[#FF6A21]"
-                                          : responseStatus === "viewed"
-                                            ? "bg-[#356DFF]"
-                                            : responseStatus === "declined"
-                                              ? "bg-red-500"
-                                            : "bg-slate-400";
+                                      responseStatus === "declined"
+                                        ? "bg-red-500"
+                                        : responseStatus === "bidding" || responseStatus === "submitted"
+                                          ? "bg-emerald-500"
+                                          : "bg-amber-500";
                                     const statusLabel =
-                                      responseStatus === "submitted"
-                                        ? "Submitted"
-                                        : responseStatus === "bidding"
-                                          ? "Bidding"
-                                          : responseStatus === "viewed"
-                                            ? "Viewed"
-                                            : responseStatus === "declined"
-                                              ? "Declined"
-                                            : "Invited";
-                                    const activityLabel =
-                                      responseStatus === "submitted"
-                                        ? "Submitted bid"
-                                        : responseStatus === "bidding"
-                                          ? "Downloaded plans"
-                                          : responseStatus === "viewed"
-                                            ? "Opened email"
-                                            : responseStatus === "declined"
-                                              ? "Declined invite"
-                                            : "Invite sent";
-
+                                      responseStatus === "declined"
+                                        ? "Do not use"
+                                        : responseStatus === "bidding" || responseStatus === "submitted"
+                                          ? "Active"
+                                          : "New";
                                     return (
                                       <div
                                         key={`${trade.id}-assigned-${sub.id}`}
@@ -6493,7 +6497,7 @@ export default function NewBidPackagePage() {
                                             toggleInviteSubRowSelection(trade.id, sub.id);
                                           }
                                         }}
-                                        className={`grid cursor-pointer grid-cols-[40px_minmax(160px,1.05fr)_minmax(180px,0.95fr)_150px_190px_32px] items-center gap-x-5 border-t px-5 py-3.5 transition-colors ${
+                                        className={`grid cursor-pointer grid-cols-[40px_minmax(180px,1.15fr)_minmax(220px,1fr)_170px_32px] items-center gap-x-5 border-t px-5 py-3.5 transition-colors ${
                                           isSelected
                                             ? "border-blue-100 bg-blue-50/70 hover:bg-blue-50"
                                             : "border-slate-200 hover:bg-black/[0.02]"
@@ -6542,18 +6546,6 @@ export default function NewBidPackagePage() {
                                             {statusLabel}
                                           </span>
                                         </div>
-                                        <div className="flex min-w-0 items-center gap-2 text-sm text-slate-500">
-                                          {responseStatus === "submitted" ? (
-                                            <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-                                          ) : responseStatus === "viewed" ? (
-                                            <Eye className="h-5 w-5 text-slate-400" />
-                                          ) : responseStatus === "declined" ? (
-                                            <Clock3 className="h-5 w-5 text-red-400" />
-                                          ) : (
-                                            <Upload className="h-5 w-5 text-slate-400" />
-                                          )}
-                                          <span className="truncate">{activityLabel}</span>
-                                        </div>
                                         <div
                                           className="flex justify-end"
                                           onClick={(event) => event.stopPropagation()}
@@ -6574,25 +6566,18 @@ export default function NewBidPackagePage() {
                                               align="end"
                                               className="min-w-[220px] overflow-hidden rounded-2xl border border-border bg-surface p-1 shadow-soft-md"
                                             >
-                                              <DropdownMenuSub>
-                                                <DropdownMenuSubTrigger className="h-11 cursor-pointer rounded-xl px-5 py-3 text-base font-medium text-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground [&_svg]:h-5 [&_svg]:w-5">
-                                                  <ArrowRightLeft className="size-4" />
-                                                  Move to trade
-                                                </DropdownMenuSubTrigger>
-                                                <DropdownMenuSubContent className="min-w-[220px] overflow-hidden rounded-2xl border border-border bg-surface p-1 shadow-soft-md">
-                                                  {selectedTrades
-                                                    .filter((option) => option.id !== trade.id)
-                                                    .map((option) => (
-                                                      <DropdownMenuItem
-                                                        key={`move-${sub.id}-${option.id}`}
-                                                        onClick={() => moveInviteSubToTrade(trade.id, option.id, sub)}
-                                                        className="h-11 cursor-pointer rounded-xl px-5 py-3 text-base font-medium text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
-                                                      >
-                                                        {option.description ?? option.code}
-                                                      </DropdownMenuItem>
-                                                    ))}
-                                                </DropdownMenuSubContent>
-                                              </DropdownMenuSub>
+                                              <DropdownMenuItem
+                                                onClick={() => {
+                                                  setInviteDrawerInitialTab("company-info");
+                                                  setInviteDrawerStartAddingContact(false);
+                                                  setInviteDrawerCompanyId(sub.id);
+                                                }}
+                                                className="h-11 cursor-pointer rounded-xl px-5 py-3 text-base font-medium text-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+                                              >
+                                                <Eye className="size-4" />
+                                                View Profile
+                                              </DropdownMenuItem>
+                                              <DropdownMenuSeparator className="my-1 bg-border" />
                                               <DropdownMenuSub>
                                                 <DropdownMenuSubTrigger className="h-11 cursor-pointer rounded-xl px-5 py-3 text-base font-medium text-foreground data-[state=open]:bg-accent data-[state=open]:text-accent-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground [&_svg]:h-5 [&_svg]:w-5">
                                                   <CheckCircle2 className="size-4" />
@@ -6600,17 +6585,27 @@ export default function NewBidPackagePage() {
                                                 </DropdownMenuSubTrigger>
                                                 <DropdownMenuSubContent className="min-w-[220px] overflow-hidden rounded-2xl border border-border bg-surface p-1 shadow-soft-md">
                                                   <DropdownMenuRadioGroup
-                                                    value={sub.responseStatus ?? "invited"}
-                                                    onValueChange={(value) =>
-                                                      changeInviteSubStatus(trade.id, sub, value as AssignedSub["responseStatus"])
+                                                    value={
+                                                      sub.responseStatus === "declined"
+                                                        ? "declined"
+                                                        : sub.responseStatus === "bidding" || sub.responseStatus === "submitted"
+                                                          ? "bidding"
+                                                          : "invited"
                                                     }
+                                                    onValueChange={(value) => {
+                                                      const nextStatus =
+                                                        value === "declined"
+                                                          ? "declined"
+                                                          : value === "bidding"
+                                                            ? "bidding"
+                                                            : "invited";
+                                                      changeInviteSubStatus(trade.id, sub, nextStatus as AssignedSub["responseStatus"]);
+                                                    }}
                                                   >
                                                     {([
-                                                      { value: "invited", label: "Invited" },
-                                                      { value: "viewed", label: "Viewed" },
-                                                      { value: "bidding", label: "Bidding" },
-                                                      { value: "submitted", label: "Submitted" },
-                                                      { value: "declined", label: "Declined" },
+                                                      { value: "bidding", label: "Active" },
+                                                      { value: "invited", label: "New" },
+                                                      { value: "declined", label: "Do Not Use" },
                                                     ] as const).map((option) => (
                                                       <DropdownMenuRadioItem
                                                         key={`status-${sub.id}-${option.value}`}
