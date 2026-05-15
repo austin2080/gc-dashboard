@@ -454,6 +454,11 @@ type InvitationEmailDraft = {
   requireAcknowledgement: boolean;
 };
 
+type SelectedInviteSubRow = {
+  tradeId: string;
+  subId: string;
+};
+
 type CompanyUserOption = {
   id: string;
   name: string;
@@ -1408,6 +1413,10 @@ function getContactRoleLabel(contact: CompanyContact) {
   return contact.title?.trim() || (contact.isPrimary ? "Primary" : "Contact");
 }
 
+function getInviteSubRowKey(tradeId: string, subId: string) {
+  return `${tradeId}::${subId}`;
+}
+
 function CompanyContactSwitcher({
   companyName,
   sub,
@@ -1948,6 +1957,9 @@ export default function NewBidPackagePage() {
   const [inviteDrawerCompanyId, setInviteDrawerCompanyId] = useState<string | null>(null);
   const [inviteDrawerInitialTab, setInviteDrawerInitialTab] = useState<"company-info" | "contacts">("company-info");
   const [inviteDrawerStartAddingContact, setInviteDrawerStartAddingContact] = useState(false);
+  const [selectedInviteSubRows, setSelectedInviteSubRows] = useState<SelectedInviteSubRow[]>([]);
+  const [inviteSelectionBarVisible, setInviteSelectionBarVisible] = useState(false);
+  const [inviteSelectionBarMounted, setInviteSelectionBarMounted] = useState(false);
   const [newSubDrawerTradeId, setNewSubDrawerTradeId] = useState<string | null>(null);
   const [newSubDraft, setNewSubDraft] = useState({
     company_name: "",
@@ -3194,6 +3206,20 @@ export default function NewBidPackagePage() {
     }
   }, [activePanel, expandedInviteTradeIds, inviteSubsByTradeId, selectedTrades]);
 
+  useEffect(() => {
+    const validRowKeys = new Set<string>();
+    for (const [tradeId, subs] of inviteSubsByTradeId.entries()) {
+      for (const sub of subs) {
+        validRowKeys.add(getInviteSubRowKey(tradeId, sub.id));
+      }
+    }
+
+    setSelectedInviteSubRows((prev) => {
+      const next = prev.filter((row) => validRowKeys.has(getInviteSubRowKey(row.tradeId, row.subId)));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [inviteSubsByTradeId]);
+
   const sortedProjectTaxCityOptions = useMemo(
     () =>
       [...projectTaxCityOptions].sort((left, right) => {
@@ -3434,6 +3460,20 @@ export default function NewBidPackagePage() {
           : item
       ),
     }));
+  };
+
+  const toggleInviteSubRowSelection = (tradeId: string, subId: string) => {
+    setSelectedInviteSubRows((prev) => {
+      const exists = prev.some((row) => row.tradeId === tradeId && row.subId === subId);
+      if (exists) {
+        return prev.filter((row) => !(row.tradeId === tradeId && row.subId === subId));
+      }
+      return [...prev, { tradeId, subId }];
+    });
+  };
+
+  const clearSelectedInviteSubRows = () => {
+    setSelectedInviteSubRows([]);
   };
 
   const changeInviteSubStatus = (
@@ -3755,6 +3795,29 @@ export default function NewBidPackagePage() {
       }, 0),
     [assignedSubsByTradeId]
   );
+
+  const selectedInviteSubCount = selectedInviteSubRows.length;
+
+  const selectedInviteSubRowKeys = useMemo(
+    () => new Set(selectedInviteSubRows.map((row) => getInviteSubRowKey(row.tradeId, row.subId))),
+    [selectedInviteSubRows]
+  );
+
+  useEffect(() => {
+    if (selectedInviteSubCount > 0) {
+      setInviteSelectionBarMounted(true);
+      const frame = window.requestAnimationFrame(() => {
+        setInviteSelectionBarVisible(true);
+      });
+      return () => window.cancelAnimationFrame(frame);
+    }
+
+    setInviteSelectionBarVisible(false);
+    const timer = window.setTimeout(() => {
+      setInviteSelectionBarMounted(false);
+    }, 220);
+    return () => window.clearTimeout(timer);
+  }, [selectedInviteSubCount]);
 
   const uniqueInviteRecipients = useMemo(
     () => buildInviteRecipientsPayload(assignedSubsByTradeId, selectedTrades),
@@ -6254,6 +6317,41 @@ export default function NewBidPackagePage() {
                     </div>
                   </section>
 
+                  {inviteSelectionBarMounted ? (
+                    <div
+                      className={`overflow-hidden transition-all duration-200 ease-out ${
+                        inviteSelectionBarVisible ? "max-h-28 opacity-100" : "max-h-0 opacity-0"
+                      }`}
+                      aria-hidden={!inviteSelectionBarVisible}
+                    >
+                      <section
+                        className={`rounded-[24px] border border-blue-200 bg-blue-50/70 px-5 py-3 shadow-soft-sm transition-all duration-200 ease-out ${
+                          inviteSelectionBarVisible
+                            ? "translate-y-0 scale-100"
+                            : "-translate-y-2 scale-[0.99]"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-4">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className="inline-flex h-9 min-w-9 items-center justify-center rounded-full bg-[#356DFF] px-3 text-sm font-bold text-white">
+                              {selectedInviteSubCount}
+                            </span>
+                            <p className="truncate text-sm font-semibold text-[#2456dc]">
+                              {selectedInviteSubCount} sub{selectedInviteSubCount === 1 ? "" : "s"} selected
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={clearSelectedInviteSubRows}
+                            className="inline-flex h-9 items-center rounded-[14px] px-3 text-sm font-semibold text-[#356DFF] hover:bg-white/70 hover:text-[#2456dc]"
+                          >
+                            Clear
+                          </button>
+                        </div>
+                      </section>
+                    </div>
+                  ) : null}
+
                   {filteredInviteTrades.length ? (
                     filteredInviteTrades.map((trade) => {
                         const normalizedTrade = normalizeSelectedTradeShape(trade);
@@ -6338,6 +6436,8 @@ export default function NewBidPackagePage() {
 
                                 {assigned.length ? (
                                   assigned.map((sub) => {
+                                    const rowKey = getInviteSubRowKey(trade.id, sub.id);
+                                    const isSelected = selectedInviteSubRowKeys.has(rowKey);
                                     const responseStatus = sub.responseStatus ?? (sub.willBid ? "bidding" : sub.invited ? "viewed" : "invited");
                                     const statusPillClass =
                                       responseStatus === "submitted"
@@ -6385,23 +6485,37 @@ export default function NewBidPackagePage() {
                                         key={`${trade.id}-assigned-${sub.id}`}
                                         role="button"
                                         tabIndex={0}
-                                        onClick={() => {
-                                          setInviteDrawerInitialTab("company-info");
-                                          setInviteDrawerStartAddingContact(false);
-                                          setInviteDrawerCompanyId(sub.id);
-                                        }}
+                                        aria-pressed={isSelected}
+                                        onClick={() => toggleInviteSubRowSelection(trade.id, sub.id)}
                                         onKeyDown={(event) => {
                                           if (event.key === "Enter" || event.key === " ") {
                                             event.preventDefault();
-                                            setInviteDrawerInitialTab("company-info");
-                                            setInviteDrawerStartAddingContact(false);
-                                            setInviteDrawerCompanyId(sub.id);
+                                            toggleInviteSubRowSelection(trade.id, sub.id);
                                           }
                                         }}
-                                        className="grid cursor-pointer grid-cols-[40px_minmax(160px,1.05fr)_minmax(180px,0.95fr)_150px_190px_32px] items-center gap-x-5 border-t border-slate-200 px-5 py-3.5 hover:bg-black/[0.02]"
+                                        className={`grid cursor-pointer grid-cols-[40px_minmax(160px,1.05fr)_minmax(180px,0.95fr)_150px_190px_32px] items-center gap-x-5 border-t px-5 py-3.5 transition-colors ${
+                                          isSelected
+                                            ? "border-blue-100 bg-blue-50/70 hover:bg-blue-50"
+                                            : "border-slate-200 hover:bg-black/[0.02]"
+                                        }`}
                                       >
                                         <div className="flex justify-center">
-                                          <span className="h-5 w-5 rounded-full border-2 border-[#356DFF]" />
+                                          <button
+                                            type="button"
+                                            aria-label={`${isSelected ? "Deselect" : "Select"} ${sub.company}`}
+                                            aria-pressed={isSelected}
+                                            onClick={(event) => {
+                                              event.stopPropagation();
+                                              toggleInviteSubRowSelection(trade.id, sub.id);
+                                            }}
+                                            className={`inline-flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors ${
+                                              isSelected
+                                                ? "border-[#356DFF] bg-[#356DFF] text-white"
+                                                : "border-[#356DFF] bg-white text-transparent"
+                                            }`}
+                                          >
+                                            <Check className="h-3.5 w-3.5" />
+                                          </button>
                                         </div>
                                         <div className="min-w-0">
                                           <div className="truncate text-m font-bold text-slate-900">{sub.company}</div>
