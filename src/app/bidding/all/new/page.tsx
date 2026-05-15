@@ -97,7 +97,6 @@ import {
   Tag,
   Trash2Icon,
   Upload,
-  User,
   Users,
   X,
 } from "lucide-react";
@@ -431,6 +430,7 @@ type CompanyContact = {
   email: string;
   phone?: string | null;
   title?: string | null;
+  isPrimary?: boolean;
 };
 
 const DIRECTORY_CONTACTS_MARKER_START = "[[DIRECTORY_CONTACTS]]";
@@ -444,6 +444,7 @@ type AssignedSub = SubOption & {
   bidInviteEmail: string;
   activeContactId?: string | null;
   activeContactName?: string | null;
+  selectedRecipientIds?: string[];
   responseStatus?: "draft" | "invited" | "viewed" | "bidding" | "submitted" | "declined";
 };
 
@@ -1070,6 +1071,7 @@ function buildAssignedSubWithStatus(
   responseStatus: AssignedSub["responseStatus"]
 ): AssignedSub {
   const contacts = getCompanyContacts(sub);
+  const selectedRecipientIds = getSelectedRecipientIds(sub, contacts);
   const activeContact = getActiveCompanyContact(sub);
   return {
     ...sub,
@@ -1081,6 +1083,7 @@ function buildAssignedSubWithStatus(
         : (activeContact?.email || sub.email || ""),
     activeContactId: activeContact?.id ?? null,
     activeContactName: activeContact?.name ?? null,
+    selectedRecipientIds,
     contacts,
     responseStatus,
   };
@@ -1100,6 +1103,7 @@ function getCompanyContacts(sub: Partial<SubOption & AssignedSub>) {
       email,
       phone: contact.phone ?? null,
       title: contact.title ?? null,
+      isPrimary: Boolean(contact.isPrimary),
     });
   });
 
@@ -1118,6 +1122,7 @@ function getCompanyContacts(sub: Partial<SubOption & AssignedSub>) {
         email: fallbackEmail,
         phone: sub.phone ?? null,
         title: sub.contactTitle ?? null,
+        isPrimary: true,
       });
     }
   }
@@ -1125,7 +1130,47 @@ function getCompanyContacts(sub: Partial<SubOption & AssignedSub>) {
   return Array.from(deduped.values());
 }
 
+function getPrimaryCompanyContact(sub: Partial<SubOption & AssignedSub>) {
+  const contacts = getCompanyContacts(sub);
+  return (
+    contacts.find((contact) => contact.isPrimary) ??
+    contacts.find((contact) => {
+      const contactEmail = contact.email.trim().toLowerCase();
+      const contactName = contact.name.trim().toLowerCase();
+      return (
+        (sub.email?.trim().toLowerCase() && contactEmail === sub.email.trim().toLowerCase()) ||
+        (sub.primaryContact?.trim().toLowerCase() &&
+          contactName === sub.primaryContact.trim().toLowerCase())
+      );
+    }) ??
+    contacts[0] ??
+    null
+  );
+}
+
+function getSelectedRecipientIds(
+  sub: Partial<SubOption & AssignedSub>,
+  contacts = getCompanyContacts(sub)
+) {
+  if (!contacts.length) return [];
+  const validIds = new Set(contacts.map((contact) => contact.id));
+  const selectedIds = Array.isArray(sub.selectedRecipientIds)
+    ? sub.selectedRecipientIds.filter((id) => validIds.has(id))
+    : [];
+  if (selectedIds.length) return Array.from(new Set(selectedIds));
+  const primaryContact = getPrimaryCompanyContact({ ...sub, contacts });
+  return primaryContact ? [primaryContact.id] : [contacts[0].id];
+}
+
+function getSelectedCompanyContacts(sub: Partial<SubOption & AssignedSub>) {
+  const contacts = getCompanyContacts(sub);
+  const selectedIds = new Set(getSelectedRecipientIds(sub, contacts));
+  return contacts.filter((contact) => selectedIds.has(contact.id));
+}
+
 function getActiveCompanyContact(sub: Partial<SubOption & AssignedSub>) {
+  const selectedContacts = getSelectedCompanyContacts(sub);
+  if (selectedContacts.length) return selectedContacts[0];
   const contacts = getCompanyContacts(sub);
   if (!contacts.length) return null;
 
@@ -1168,6 +1213,7 @@ function parseDirectoryCompanyContacts(company: Company): CompanyContact[] {
           phone?: string | null;
           role?: string;
           title?: string;
+          isPrimary?: boolean;
         }>;
       };
       storedContacts = Array.isArray(parsed.contacts)
@@ -1180,6 +1226,7 @@ function parseDirectoryCompanyContacts(company: Company): CompanyContact[] {
                     email: contact.email?.trim() || "",
                     phone: contact.phone?.trim() || null,
                     title: contact.role?.trim() || contact.title?.trim() || null,
+                    isPrimary: Boolean(contact.isPrimary),
                   },
                 ]
               : []
@@ -1199,6 +1246,7 @@ function parseDirectoryCompanyContacts(company: Company): CompanyContact[] {
             email: company.email?.trim() || "",
             phone: company.phone?.trim() || null,
             title: company.contactTitle?.trim() || null,
+            isPrimary: true,
           },
         ]
       : [];
@@ -1248,6 +1296,7 @@ function buildFallbackDirectoryCompanyFromSub(sub: Partial<AssignedSub & SubOpti
           email: contact.email,
           phone: contact.phone ?? null,
           role: contact.title ?? null,
+          isPrimary: Boolean(contact.isPrimary),
         })),
       })}${DIRECTORY_CONTACTS_MARKER_END}`
     : undefined;
@@ -1276,6 +1325,7 @@ function syncAssignedSubWithDirectoryCompany(sub: AssignedSub, company: Company)
     activeContactName: mapped.primaryContact ?? null,
   };
   const contacts = getCompanyContacts(seeded);
+  const nextSelectedRecipientIds = getSelectedRecipientIds(sub, contacts);
   const selectedEmail = (sub.bidInviteEmail || "").trim().toLowerCase();
   const selectedName = (sub.activeContactName || "").trim().toLowerCase();
   const previousPrimaryEmail = (sub.email || "").trim().toLowerCase();
@@ -1340,34 +1390,49 @@ function syncAssignedSubWithDirectoryCompany(sub: AssignedSub, company: Company)
     bidInviteEmail: activeContact?.email || mapped.email || "",
     activeContactId: activeContact?.id ?? null,
     activeContactName: activeContact?.name ?? null,
+    selectedRecipientIds: nextSelectedRecipientIds,
   };
 }
 
 function getContactLinkLabel(contactCount: number) {
   if (contactCount <= 1) return "1 contact";
-  return "View contacts";
+  return "Recipients";
+}
+
+function getRecipientSummaryLabel(selectedCount: number) {
+  if (selectedCount === 0) return "No recipients selected";
+  return `${selectedCount} recipient${selectedCount === 1 ? "" : "s"} selected`;
+}
+
+function getContactRoleLabel(contact: CompanyContact) {
+  return contact.title?.trim() || (contact.isPrimary ? "Primary" : "Contact");
 }
 
 function CompanyContactSwitcher({
   companyName,
   sub,
-  onSelectContact,
+  onToggleContact,
   onAddContact,
 }: {
   companyName: string;
   sub: AssignedSub;
-  onSelectContact: (contact: CompanyContact) => void;
+  onToggleContact: (contact: CompanyContact) => void;
   onAddContact: () => void;
 }) {
+  const [open, setOpen] = useState(false);
   const contacts = getCompanyContacts(sub);
-  const activeContact = getActiveCompanyContact(sub);
+  const selectedContacts = getSelectedCompanyContacts(sub);
+  const displayContact = selectedContacts[0] ?? getPrimaryCompanyContact(sub) ?? contacts[0] ?? null;
+  const selectedIds = new Set(getSelectedRecipientIds(sub, contacts));
 
   return (
     <div className="min-w-0">
-      <div className="truncate text-m text-slate-900">{activeContact?.name || companyName}</div>
-      <div className="truncate text-xs text-slate-500">{activeContact?.email || sub.bidInviteEmail || sub.email || "No invite email set"}</div>
-      {activeContact?.phone ? <div className="truncate text-xs text-slate-500">{activeContact.phone}</div> : null}
-      <Popover>
+      <div className="truncate text-m text-slate-900">{displayContact?.name || companyName}</div>
+      <div className="truncate text-xs text-slate-500">{displayContact?.email || "No invite email set"}</div>
+      <div className="mt-1 truncate text-[11px] font-medium text-slate-400">
+        {getRecipientSummaryLabel(selectedContacts.length)}
+      </div>
+      <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -1380,39 +1445,48 @@ function CompanyContactSwitcher({
         <PopoverContent
           align="start"
           sideOffset={10}
-          className="w-[320px] rounded-2xl border border-slate-200 bg-white p-0 shadow-soft-md"
+          className="w-[340px] rounded-2xl border border-slate-200 bg-white p-0 shadow-soft-md"
         >
           <div className="border-b border-slate-200 px-4 pt-4 pb-3">
-            <div className="text-sm font-semibold text-slate-900">Company contacts</div>
+            <div className="text-sm font-semibold text-slate-900">Select recipients</div>
             <div className="mt-1 text-xs text-slate-500">{companyName}</div>
           </div>
           <div className="p-2">
             {contacts.length ? (
               contacts.map((contact) => {
-                const selected = activeContact?.id === contact.id;
+                const selected = selectedIds.has(contact.id);
                 return (
                   <button
                     key={contact.id}
                     type="button"
-                    onClick={() => onSelectContact(contact)}
-                    className={`flex w-full items-start justify-between gap-3 rounded-xl px-3 py-3 text-left hover:bg-slate-50 ${
-                      selected ? "bg-slate-50" : ""
+                    onClick={() => onToggleContact(contact)}
+                    className={`flex w-full items-start gap-3 rounded-xl border px-3 py-3 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 ${
+                      selected ? "border-blue-200 bg-blue-50/70" : "border-transparent"
                     }`}
                   >
-                    <div className="min-w-0">
+                    <span
+                      className={`mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-[5px] border transition-colors ${
+                        selected ? "border-[#356DFF] bg-[#356DFF] text-white" : "border-slate-300 bg-white text-transparent"
+                      }`}
+                      aria-hidden="true"
+                    >
+                      <Check className="h-3 w-3" />
+                    </span>
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-500">
-                          <User className="h-4 w-4" />
-                        </span>
-                        <div className="min-w-0">
-                          <div className="truncate text-sm font-semibold text-slate-900">{contact.name}</div>
-                          <div className="truncate text-xs text-slate-500">{contact.email}</div>
-                          {contact.phone ? <div className="truncate text-[11px] text-slate-500">{contact.phone}</div> : null}
-                          {contact.title ? <div className="truncate text-[11px] text-slate-400">{contact.title}</div> : null}
-                        </div>
+                        <div className="truncate text-sm font-semibold text-slate-900">{contact.name}</div>
+                        {contact.isPrimary ? (
+                          <span className="inline-flex rounded-full bg-[#EEF2FF] px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.08em] text-[#356DFF]">
+                            Primary
+                          </span>
+                        ) : null}
+                      </div>
+                      <div className="truncate text-xs text-slate-500">{contact.email || "No email"}</div>
+                      <div className="mt-1 flex items-center gap-2 text-[11px] uppercase tracking-[0.08em] text-slate-400">
+                        <span>{getContactRoleLabel(contact)}</span>
+                        {selected ? <span className="text-[#356DFF]">Selected</span> : null}
                       </div>
                     </div>
-                    {selected ? <Check className="mt-0.5 h-4 w-4 shrink-0 text-[#356DFF]" /> : null}
                   </button>
                 );
               })
@@ -1423,11 +1497,14 @@ function CompanyContactSwitcher({
           <div className="border-t border-slate-200 p-2">
             <button
               type="button"
-              onClick={onAddContact}
+              onClick={() => {
+                setOpen(false);
+                onAddContact();
+              }}
               className="inline-flex w-full items-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
             >
               <Plus className="h-4 w-4" />
-              Add contact
+              Add Contact
             </button>
           </div>
         </PopoverContent>
@@ -1496,24 +1573,28 @@ function buildInviteRecipientsPayload(
     if (!tradeName) continue;
 
     for (const sub of assignedSubs) {
-      const email = (sub.bidInviteEmail || sub.email || "").trim().toLowerCase();
       const companyName = sub.company.trim();
-      if (!email || !companyName) continue;
-      const activeContact = getActiveCompanyContact(sub);
+      if (!companyName) continue;
+      const selectedContacts = getSelectedCompanyContacts(sub);
 
-      const recipientKey = `${companyName.toLowerCase()}::${email}`;
-      const existing = recipients.get(recipientKey);
-      if (!existing) {
-        recipients.set(recipientKey, {
-          contactName: activeContact?.name || companyName,
-          companyName,
-          email,
-          tradeNames: new Set([tradeName]),
-        });
-        continue;
+      for (const contact of selectedContacts) {
+        const email = contact.email.trim().toLowerCase();
+        if (!email) continue;
+
+        const recipientKey = `${companyName.toLowerCase()}::${email}`;
+        const existing = recipients.get(recipientKey);
+        if (!existing) {
+          recipients.set(recipientKey, {
+            contactName: contact.name || companyName,
+            companyName,
+            email,
+            tradeNames: new Set([tradeName]),
+          });
+          continue;
+        }
+
+        existing.tradeNames.add(tradeName);
       }
-
-      existing.tradeNames.add(tradeName);
     }
   }
 
@@ -1865,6 +1946,8 @@ export default function NewBidPackagePage() {
   const [expandedInviteTradeIds, setExpandedInviteTradeIds] = useState<string[]>([]);
   const previousActivePanelRef = useRef(activePanel);
   const [inviteDrawerCompanyId, setInviteDrawerCompanyId] = useState<string | null>(null);
+  const [inviteDrawerInitialTab, setInviteDrawerInitialTab] = useState<"company-info" | "contacts">("company-info");
+  const [inviteDrawerStartAddingContact, setInviteDrawerStartAddingContact] = useState(false);
   const [newSubDrawerTradeId, setNewSubDrawerTradeId] = useState<string | null>(null);
   const [newSubDraft, setNewSubDraft] = useState({
     company_name: "",
@@ -2446,6 +2529,7 @@ export default function NewBidPackagePage() {
                     email: subcontractor.email,
                     phone: subcontractor.phone ?? null,
                     title: null,
+                    isPrimary: true,
                   },
                 ]
               : [],
@@ -2453,6 +2537,7 @@ export default function NewBidPackagePage() {
           willBid: bid.status === "bidding" || bid.status === "submitted",
           bidInviteEmail: subcontractor.email ?? "",
           activeContactName: bid.contact_name ?? subcontractor.primary_contact ?? subcontractor.company_name,
+          selectedRecipientIds: subcontractor.email ? [`${subcontractor.id}-primary-contact`] : [],
           responseStatus:
             bid.status === "submitted"
               ? "submitted"
@@ -3322,18 +3407,30 @@ export default function NewBidPackagePage() {
     }));
   };
 
-  const setInviteSubActiveContact = (tradeId: string, subId: string, contact: CompanyContact) => {
+  const toggleInviteSubRecipient = (tradeId: string, subId: string, contact: CompanyContact) => {
     setAssignedSubsByTradeId((prev) => ({
       ...prev,
       [tradeId]: (prev[tradeId] ?? []).map((item) =>
         item.id === subId
-          ? {
-              ...item,
-              activeContactId: contact.id,
-              activeContactName: contact.name,
-              bidInviteEmail: contact.email,
-              contacts: getCompanyContacts(item),
-            }
+          ? (() => {
+              const contacts = getCompanyContacts(item);
+              const currentIds = new Set(getSelectedRecipientIds(item, contacts));
+              if (currentIds.has(contact.id)) {
+                currentIds.delete(contact.id);
+              } else {
+                currentIds.add(contact.id);
+              }
+              const selectedContacts = contacts.filter((entry) => currentIds.has(entry.id));
+              const leadContact = selectedContacts[0] ?? null;
+              return {
+                ...item,
+                activeContactId: leadContact?.id ?? null,
+                activeContactName: leadContact?.name ?? null,
+                bidInviteEmail: leadContact?.email ?? "",
+                contacts,
+                selectedRecipientIds: Array.from(currentIds),
+              };
+            })()
           : item
       ),
     }));
@@ -4121,12 +4218,13 @@ export default function NewBidPackagePage() {
         if (!projectSubId) continue;
         const pairKey = `${tradeId}:${projectSubId}`;
         if (existingBidPairs.has(pairKey)) continue;
+        const leadRecipient = getSelectedCompanyContacts(sub)[0] ?? getActiveCompanyContact(sub);
         const createdBid = await createTradeBid({
           project_id: projectId,
           trade_id: tradeId,
           project_sub_id: projectSubId,
           status: sub.willBid ? "bidding" : "invited",
-          contact_name: sub.activeContactName ?? sub.primaryContact ?? sub.company,
+          contact_name: leadRecipient?.name ?? sub.activeContactName ?? sub.primaryContact ?? sub.company,
           bid_amount: null,
           notes: null,
         });
@@ -6287,10 +6385,16 @@ export default function NewBidPackagePage() {
                                         key={`${trade.id}-assigned-${sub.id}`}
                                         role="button"
                                         tabIndex={0}
-                                        onClick={() => setInviteDrawerCompanyId(sub.id)}
+                                        onClick={() => {
+                                          setInviteDrawerInitialTab("company-info");
+                                          setInviteDrawerStartAddingContact(false);
+                                          setInviteDrawerCompanyId(sub.id);
+                                        }}
                                         onKeyDown={(event) => {
                                           if (event.key === "Enter" || event.key === " ") {
                                             event.preventDefault();
+                                            setInviteDrawerInitialTab("company-info");
+                                            setInviteDrawerStartAddingContact(false);
                                             setInviteDrawerCompanyId(sub.id);
                                           }
                                         }}
@@ -6310,13 +6414,12 @@ export default function NewBidPackagePage() {
                                           <CompanyContactSwitcher
                                             companyName={sub.company}
                                             sub={sub}
-                                            onSelectContact={(contact) => setInviteSubActiveContact(trade.id, sub.id, contact)}
-                                            onAddContact={() =>
-                                              setToast({
-                                                type: "success",
-                                                message: `Add contact for ${sub.company} is ready for wiring.`,
-                                              })
-                                            }
+                                            onToggleContact={(contact) => toggleInviteSubRecipient(trade.id, sub.id, contact)}
+                                            onAddContact={() => {
+                                              setInviteDrawerInitialTab("contacts");
+                                              setInviteDrawerStartAddingContact(true);
+                                              setInviteDrawerCompanyId(sub.id);
+                                            }}
                                           />
                                         </div>
                                         <div>
@@ -7245,7 +7348,13 @@ export default function NewBidPackagePage() {
           assignedProjects={[]}
           allProjects={[]}
           projectPickerOpen={false}
-          onClose={() => setInviteDrawerCompanyId(null)}
+          initialTab={inviteDrawerInitialTab}
+          startAddingContact={inviteDrawerStartAddingContact}
+          onClose={() => {
+            setInviteDrawerCompanyId(null);
+            setInviteDrawerInitialTab("company-info");
+            setInviteDrawerStartAddingContact(false);
+          }}
           onSaveCompanyInfo={saveInviteDrawerCompanyInfo}
           onSaveCompanyContacts={saveInviteDrawerCompanyContacts}
           onSaveCompanyNotes={saveInviteDrawerCompanyNotes}
@@ -7547,6 +7656,7 @@ export default function NewBidPackagePage() {
                             email: directoryCompany.email ?? newSubDraft.email.trim(),
                             phone: newSubDraft.phone.trim() || null,
                             title: null,
+                            isPrimary: true,
                           },
                         ]
                       : [],

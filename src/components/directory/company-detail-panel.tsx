@@ -46,6 +46,8 @@ type Props = {
   assignedProjects: ProjectDirectoryEntry[];
   allProjects: ProjectDirectoryEntry[];
   projectPickerOpen: boolean;
+  initialTab?: DrawerTab;
+  startAddingContact?: boolean;
   onClose: () => void;
   onSaveCompanyInfo: (updates: {
     name: string;
@@ -520,6 +522,8 @@ export default function CompanyDetailPanel({
   assignedProjects,
   allProjects,
   projectPickerOpen,
+  initialTab = "company-info",
+  startAddingContact = false,
   onClose,
   onSaveCompanyInfo,
   onSaveCompanyContacts,
@@ -527,7 +531,7 @@ export default function CompanyDetailPanel({
   onSaveCompanyDocuments,
   onAssignProject,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<DrawerTab>("company-info");
+  const [activeTab, setActiveTab] = useState<DrawerTab>(initialTab);
   const [isEditingCompanyInfo, setIsEditingCompanyInfo] = useState(false);
   const [isSavingCompanyInfo, setIsSavingCompanyInfo] = useState(false);
   const [companyInfoError, setCompanyInfoError] = useState("");
@@ -586,7 +590,7 @@ export default function CompanyDetailPanel({
     const isNewCompany = previousCompanyIdRef.current !== company.id;
     previousCompanyIdRef.current = company.id;
     if (isNewCompany) {
-      setActiveTab("company-info");
+      setActiveTab(initialTab);
     }
     setIsEditingCompanyInfo(false);
     setCompanyInfoError("");
@@ -598,7 +602,7 @@ export default function CompanyDetailPanel({
     setIsLoadingBidHistory(false);
     setPendingTrade("");
     setCustomTradeInput("");
-    setIsAddingContact(false);
+    setIsAddingContact(startAddingContact);
     setIsAddingNote(false);
     setEditingContactId(null);
     setEditingDocumentId(null);
@@ -625,7 +629,7 @@ export default function CompanyDetailPanel({
       setAsPrimary: false,
     });
     setCompanyInfoDraft(toDraft(company));
-  }, [company]);
+  }, [company, initialTab, startAddingContact]);
 
   const tradeTitles = useMemo(() => getTradeTitles(company?.trade), [company?.trade]);
 
