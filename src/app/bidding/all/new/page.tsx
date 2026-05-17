@@ -73,6 +73,8 @@ import {
   sanitizeEmailHtml,
 } from "@/lib/email/html";
 import {
+  ArrowLeft,
+  ArrowRight,
   ArrowRightLeft,
   CalendarIcon,
   Check,
@@ -94,6 +96,7 @@ import {
   Pencil,
   Plus,
   Search,
+  Save,
   Send,
   Tag,
   TriangleAlert,
@@ -515,6 +518,8 @@ const INVITATION_EMAIL_DRAFT_STORAGE_KEY = "bidding-all-new-invitation-email-dra
 const BID_PACKAGE_AUTOSAVE_STORAGE_KEY = "bidding-all-new-package-autosave-v1";
 const BID_PROJECT_GENERAL_INFO_STORAGE_KEY = "bidding-project-general-info-v1";
 const BID_PACKAGE_FILES_STORAGE_KEY = "bidding-package-files-v1";
+const BID_PACKAGE_FILES_INDEXED_DB = "bidding-package-files-indexed-db";
+const BID_PACKAGE_FILES_OBJECT_STORE = "uploaded-files";
 const BID_PACKAGE_FOLDERS_STORAGE_KEY = "bidding-package-folders-v1";
 const BID_PACKAGE_DOCUMENT_SETS_STORAGE_KEY = "bidding-package-document-sets-v1";
 const TOKEN_LIST = [
@@ -894,7 +899,7 @@ function FormCard({
       <div className="border-b border-slate-200 px-7 pb-6 pt-7">
         <div className="flex items-start gap-4">
           {icon ? (
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-sky-600 ring-1 ring-sky-100 [&_svg]:text-sky-600">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-sky-600 ring-1 ring-sky-100 [&_svg]:text-sky-600">
               {icon}
             </span>
           ) : null}
@@ -942,6 +947,17 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatRelativeDraftSavedLabel(savedAt: string) {
+  const deltaMs = Date.now() - new Date(savedAt).getTime();
+  if (!Number.isFinite(deltaMs) || deltaMs < 60_000) return "Last saved a few seconds ago";
+  const minutes = Math.floor(deltaMs / 60_000);
+  if (minutes < 60) return `Last saved ${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Last saved ${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  return `Last saved ${days} day${days === 1 ? "" : "s"} ago`;
 }
 
 function createDefaultDraft(): BidPackageDraft {
@@ -1736,6 +1752,108 @@ function readBidPackageFilesMap(): Record<string, UploadedBidFile[]> {
   }
 }
 
+function getBidPackageIndexedFilesKey(projectId: string | null) {
+  return projectId ? `project:${projectId}` : "draft:new-project";
+}
+
+function openBidPackageFilesDatabase(): Promise<IDBDatabase | null> {
+  if (typeof window === "undefined" || !("indexedDB" in window)) {
+    return Promise.resolve(null);
+  }
+  return new Promise((resolve) => {
+    try {
+      const request = window.indexedDB.open(BID_PACKAGE_FILES_INDEXED_DB, 1);
+      request.onupgradeneeded = () => {
+        const database = request.result;
+        if (!database.objectStoreNames.contains(BID_PACKAGE_FILES_OBJECT_STORE)) {
+          database.createObjectStore(BID_PACKAGE_FILES_OBJECT_STORE);
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function readIndexedBidPackageFiles(projectId: string | null): Promise<UploadedBidFile[] | null> {
+  const database = await openBidPackageFilesDatabase();
+  if (!database) return null;
+  return new Promise((resolve) => {
+    try {
+      const transaction = database.transaction(BID_PACKAGE_FILES_OBJECT_STORE, "readonly");
+      const store = transaction.objectStore(BID_PACKAGE_FILES_OBJECT_STORE);
+      const request = store.get(getBidPackageIndexedFilesKey(projectId));
+      request.onsuccess = () => {
+        const value = request.result;
+        if (!Array.isArray(value)) {
+          resolve(null);
+          return;
+        }
+        resolve(
+          value.flatMap((item) => {
+            const normalized = normalizeUploadedBidFile(item);
+            return normalized ? [normalized] : [];
+          })
+        );
+      };
+      request.onerror = () => resolve(null);
+      transaction.oncomplete = () => database.close();
+      transaction.onerror = () => database.close();
+    } catch {
+      database.close();
+      resolve(null);
+    }
+  });
+}
+
+async function writeIndexedBidPackageFiles(projectId: string | null, files: UploadedBidFile[]) {
+  const database = await openBidPackageFilesDatabase();
+  if (!database) return;
+  await new Promise<void>((resolve) => {
+    try {
+      const transaction = database.transaction(BID_PACKAGE_FILES_OBJECT_STORE, "readwrite");
+      const store = transaction.objectStore(BID_PACKAGE_FILES_OBJECT_STORE);
+      store.put(files, getBidPackageIndexedFilesKey(projectId));
+      transaction.oncomplete = () => {
+        database.close();
+        resolve();
+      };
+      transaction.onerror = () => {
+        database.close();
+        resolve();
+      };
+    } catch {
+      database.close();
+      resolve();
+    }
+  });
+}
+
+async function deleteIndexedBidPackageFiles(projectId: string | null) {
+  const database = await openBidPackageFilesDatabase();
+  if (!database) return;
+  await new Promise<void>((resolve) => {
+    try {
+      const transaction = database.transaction(BID_PACKAGE_FILES_OBJECT_STORE, "readwrite");
+      const store = transaction.objectStore(BID_PACKAGE_FILES_OBJECT_STORE);
+      store.delete(getBidPackageIndexedFilesKey(projectId));
+      transaction.oncomplete = () => {
+        database.close();
+        resolve();
+      };
+      transaction.onerror = () => {
+        database.close();
+        resolve();
+      };
+    } catch {
+      database.close();
+      resolve();
+    }
+  });
+}
+
 function writeBidPackageFiles(projectId: string, files: UploadedBidFile[]) {
   if (typeof window === "undefined") return;
   const current = readBidPackageFilesMap();
@@ -2022,6 +2140,7 @@ export default function NewBidPackagePage() {
   const [invitationDraftHydrated, setInvitationDraftHydrated] = useState(false);
   const [invitationSaving, setInvitationSaving] = useState(false);
   const [invitationSavedAt, setInvitationSavedAt] = useState<string | null>(null);
+  const [projectDraftSavedAt, setProjectDraftSavedAt] = useState<string | null>(null);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [tokenValuesOpen, setTokenValuesOpen] = useState(false);
   const [testDialogOpen, setTestDialogOpen] = useState(false);
@@ -2628,7 +2747,8 @@ export default function NewBidPackagePage() {
           requireAcknowledgement: prev.requireAcknowledgement,
         }));
       }
-      const storedFiles = readBidPackageFilesMap()[projectId] ?? [];
+      const indexedFiles = await readIndexedBidPackageFiles(projectId);
+      const storedFiles = indexedFiles ?? readBidPackageFilesMap()[projectId] ?? [];
       setCustomFolders(autosaveCustomFolders ?? readBidPackageFoldersMap()[projectId] ?? []);
       setUploadedFiles(storedFiles);
       setDocumentSetIds(
@@ -2852,60 +2972,76 @@ export default function NewBidPackagePage() {
   useEffect(() => {
     if (editingProjectId) return;
 
-    try {
-      const raw = localStorage.getItem(getBidPackageAutosaveStorageKey(null));
-      if (raw) {
-        const parsed = JSON.parse(raw) as Partial<BidPackageAutosavePayload>;
-        if (parsed.draft) {
-          const { package_number: _stalePackageNumber, ...autosavedDraft } = parsed.draft;
-          setDraft((prev) => ({ ...prev, ...autosavedDraft }));
+    let active = true;
+    async function loadNewProjectDraft() {
+      try {
+        const indexedFiles = await readIndexedBidPackageFiles(null);
+        if (!active) return;
+        const raw = localStorage.getItem(getBidPackageAutosaveStorageKey(null));
+        if (raw) {
+          const parsed = JSON.parse(raw) as Partial<BidPackageAutosavePayload>;
+          if (!active) return;
+          if (parsed.draft) {
+            const { package_number: _stalePackageNumber, ...autosavedDraft } = parsed.draft;
+            setDraft((prev) => ({ ...prev, ...autosavedDraft }));
+          }
+          setActivePanel("general");
+          if (parsed.activeFileSection) {
+            const normalizedSection = normalizeFileSectionKey(parsed.activeFileSection);
+            setActiveFileSection(normalizedSection);
+            setSelectedUploadSection(normalizedSection);
+          }
+          if (typeof parsed.costCodeQuery === "string") {
+            setCostCodeQuery(parsed.costCodeQuery);
+          }
+          if (Array.isArray(parsed.selectedTrades)) {
+            setSelectedTrades(parsed.selectedTrades);
+          }
+          if (parsed.assignedSubsByTradeId && typeof parsed.assignedSubsByTradeId === "object") {
+            setAssignedSubsByTradeId(parsed.assignedSubsByTradeId);
+          }
+          if (parsed.inviteQueryByTradeId && typeof parsed.inviteQueryByTradeId === "object") {
+            setInviteQueryByTradeId(parsed.inviteQueryByTradeId);
+          }
+          const autosavedFiles = Array.isArray(parsed.uploadedFiles)
+            ? parsed.uploadedFiles.flatMap((item) => {
+                const normalized = normalizeUploadedBidFile(item);
+                return normalized ? [normalized] : [];
+              })
+            : [];
+          const restoredFiles = indexedFiles ?? autosavedFiles;
+          if (Array.isArray(parsed.customFolders)) {
+            setCustomFolders(
+              parsed.customFolders.flatMap((item) => {
+                const normalized = normalizeCustomFileFolder(item);
+                return normalized ? [normalized] : [];
+              })
+            );
+          }
+          if (Array.isArray(parsed.documentSetIds)) {
+            setDocumentSetIds(mergeDocumentSetIds(parsed.documentSetIds, restoredFiles));
+          } else {
+            setDocumentSetIds(mergeDocumentSetIds(undefined, restoredFiles));
+          }
+          if (restoredFiles.length) {
+            setUploadedFiles(restoredFiles);
+          }
+        } else if (indexedFiles?.length) {
+          setUploadedFiles(indexedFiles);
+          setDocumentSetIds(mergeDocumentSetIds(undefined, indexedFiles));
         }
-        setActivePanel("general");
-        if (parsed.activeFileSection) {
-          const normalizedSection = normalizeFileSectionKey(parsed.activeFileSection);
-          setActiveFileSection(normalizedSection);
-          setSelectedUploadSection(normalizedSection);
-        }
-        if (typeof parsed.costCodeQuery === "string") {
-          setCostCodeQuery(parsed.costCodeQuery);
-        }
-        if (Array.isArray(parsed.selectedTrades)) {
-          setSelectedTrades(parsed.selectedTrades);
-        }
-        if (parsed.assignedSubsByTradeId && typeof parsed.assignedSubsByTradeId === "object") {
-          setAssignedSubsByTradeId(parsed.assignedSubsByTradeId);
-        }
-        if (parsed.inviteQueryByTradeId && typeof parsed.inviteQueryByTradeId === "object") {
-          setInviteQueryByTradeId(parsed.inviteQueryByTradeId);
-        }
-        const autosavedFiles = Array.isArray(parsed.uploadedFiles)
-          ? parsed.uploadedFiles.flatMap((item) => {
-              const normalized = normalizeUploadedBidFile(item);
-              return normalized ? [normalized] : [];
-            })
-          : [];
-        if (Array.isArray(parsed.customFolders)) {
-          setCustomFolders(
-            parsed.customFolders.flatMap((item) => {
-              const normalized = normalizeCustomFileFolder(item);
-              return normalized ? [normalized] : [];
-            })
-          );
-        }
-        if (Array.isArray(parsed.documentSetIds)) {
-          setDocumentSetIds(mergeDocumentSetIds(parsed.documentSetIds, autosavedFiles));
-        } else {
-          setDocumentSetIds(mergeDocumentSetIds(undefined, autosavedFiles));
-        }
-        if (Array.isArray(parsed.uploadedFiles)) {
-          setUploadedFiles(autosavedFiles);
+      } catch {
+        // Ignore malformed autosave payloads.
+      } finally {
+        if (active) {
+          setBidPackageAutosaveHydrated(true);
         }
       }
-    } catch {
-      // Ignore malformed autosave payloads.
-    } finally {
-      setBidPackageAutosaveHydrated(true);
     }
+    void loadNewProjectDraft();
+    return () => {
+      active = false;
+    };
   }, [editingProjectId]);
 
   useEffect(() => {
@@ -2944,6 +3080,7 @@ export default function NewBidPackagePage() {
       };
       try {
         localStorage.setItem(autosaveStorageKey, JSON.stringify(payload));
+        setProjectDraftSavedAt(new Date().toISOString());
       } catch {
         // Ignore storage quota/private mode issues.
       }
@@ -2963,6 +3100,11 @@ export default function NewBidPackagePage() {
     selectedTrades,
     uploadedFiles,
   ]);
+
+  useEffect(() => {
+    if (!bidPackageAutosaveHydrated) return;
+    void writeIndexedBidPackageFiles(editingProjectId ?? null, uploadedFiles);
+  }, [bidPackageAutosaveHydrated, editingProjectId, uploadedFiles]);
 
   const divisionFilterOptions = useMemo(() => {
     const options = new Map<string, DivisionFilterOption>();
@@ -4313,6 +4455,30 @@ export default function NewBidPackagePage() {
   );
   const renderedMessage = sanitizeEmailHtml(renderTokens(invitationMessageHtml));
 
+  const saveBidPackageDraftNow = async () => {
+    const payload: BidPackageAutosavePayload = {
+      draft,
+      activePanel,
+      activeFileSection,
+      costCodeQuery,
+      selectedTrades,
+      assignedSubsByTradeId,
+      inviteQueryByTradeId,
+      documentSetIds,
+      customFolders,
+      uploadedFiles,
+    };
+    try {
+      localStorage.setItem(autosaveStorageKey, JSON.stringify(payload));
+      await writeIndexedBidPackageFiles(editingProjectId ?? null, uploadedFiles);
+      const now = new Date().toISOString();
+      setProjectDraftSavedAt(now);
+      setToast({ type: "success", message: "Draft saved." });
+    } catch {
+      setToast({ type: "error", message: "Unable to save draft." });
+    }
+  };
+
   const saveInvitationDraftNow = async () => {
     try {
       localStorage.setItem(
@@ -4347,6 +4513,12 @@ export default function NewBidPackagePage() {
       setToast({ type: "error", message: "Unable to save draft." });
     }
   };
+  const saveCurrentStepDraftNow = async () => {
+    await saveBidPackageDraftNow();
+    if (activePanel === "bid-email") {
+      await saveInvitationDraftNow();
+    }
+  };
   const discardBidPackageDraft = () => {
     try {
       localStorage.removeItem(getBidPackageAutosaveStorageKey(editingProjectId));
@@ -4354,6 +4526,7 @@ export default function NewBidPackagePage() {
     } catch {
       // Ignore storage cleanup failures.
     }
+    void deleteIndexedBidPackageFiles(editingProjectId ?? null);
     router.push("/bidding/all");
   };
   const activeDrawerTrade = newSubDrawerTradeId
@@ -4668,6 +4841,18 @@ export default function NewBidPackagePage() {
   };
   const currentStepMeta = stepMetaByPanel[activePanel];
   const completedStepsCount = Math.max(currentStepMeta.step - 1, 0);
+  const footerStatusText =
+    activePanel === "general"
+      ? "Step 1 creates your project. Steps 2–5 prepare your first bid package."
+      : `${projectDraftSavedAt ? formatRelativeDraftSavedLabel(projectDraftSavedAt) : "Draft not saved yet"} • Autosave on`;
+  const footerShellClass =
+    "fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-4 border-t border-slate-200 bg-white/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-white/90 lg:px-8";
+  const footerSecondaryButtonClass =
+    "inline-flex h-12 items-center justify-center gap-3 rounded-[18px] border border-slate-200 bg-white px-6 text-base font-semibold text-slate-900 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50";
+  const footerGhostButtonClass =
+    "inline-flex h-12 items-center justify-center gap-2 rounded-[18px] px-3 text-base font-semibold text-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-40";
+  const footerPrimaryButtonClass =
+    "inline-flex h-12 items-center justify-center gap-3 rounded-[18px] bg-[#356DFF] px-7 text-base font-semibold text-white shadow-sm hover:bg-[#2456dc] disabled:cursor-not-allowed disabled:opacity-60";
 
   return (
     <main className="bid-package-builder bg-slate-50 px-2 pb-8">
@@ -5642,21 +5827,26 @@ export default function NewBidPackagePage() {
 
         {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
-        <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85 sm:px-6 lg:px-12">
-          <button
-            type="button"
-            onClick={discardBidPackageDraft}
-            className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={() => setActivePanel("files")}
-            className="rounded-md bg-accent px-8 py-2 text-base font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            Continue to Files
-          </button>
+        <div className={footerShellClass}>
+          <p className="text-[15px] font-medium text-slate-500">{footerStatusText}</p>
+          <div className="flex items-center gap-3">
+            <button type="button" disabled className={footerGhostButtonClass}>
+              <ArrowLeft className="h-5 w-5" />
+              Back
+            </button>
+            <button type="button" onClick={saveCurrentStepDraftNow} className={footerSecondaryButtonClass}>
+              <Save className="h-5 w-5" />
+              Save Draft
+            </button>
+            <button
+              type="button"
+              onClick={() => setActivePanel("files")}
+              className={footerPrimaryButtonClass}
+            >
+              {isEditMode ? "Save & Continue" : "Create Project & Continue"}
+              <ArrowRight className="h-5 w-5" />
+            </button>
+          </div>
         </div>
           </>
         ) : activePanel === "files" ? (
@@ -6135,29 +6325,27 @@ export default function NewBidPackagePage() {
 
             {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
-            <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85 sm:px-6 lg:px-12">
-              <button
-                type="button"
-                onClick={() => setActivePanel("general")}
-                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Back
-              </button>
-              <button
-                type="button"
-                onClick={discardBidPackageDraft}
-                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => setActivePanel("trade-coverage")}
-                disabled={submitting}
-                className="rounded-md bg-accent px-8 py-2 text-base font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Continue to Trades
-              </button>
+            <div className={footerShellClass}>
+              <p className="text-[15px] font-medium text-slate-500">{footerStatusText}</p>
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={() => setActivePanel("general")} className={footerGhostButtonClass}>
+                  <ArrowLeft className="h-5 w-5" />
+                  Back
+                </button>
+                <button type="button" onClick={saveCurrentStepDraftNow} className={footerSecondaryButtonClass}>
+                  <Save className="h-5 w-5" />
+                  Save Draft
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActivePanel("trade-coverage")}
+                  disabled={submitting}
+                  className={footerPrimaryButtonClass}
+                >
+                  Next Step
+                  <ArrowRight className="h-5 w-5" />
+                </button>
+              </div>
             </div>
           </>
         ) : activePanel === "trade-coverage" ? (
@@ -6431,30 +6619,28 @@ export default function NewBidPackagePage() {
 
             {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
-            <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85 sm:px-6 lg:px-12">
-              <button
-                type="button"
-                onClick={() => setActivePanel("files")}
-                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Back
-              </button>
-              <button
-                type="button"
-                onClick={discardBidPackageDraft}
-                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setActivePanel("invite-subs");
-                }}
-                className="rounded-md bg-accent px-8 py-2 text-base font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Invite Subcontractors
-              </button>
+            <div className={footerShellClass}>
+              <p className="text-[15px] font-medium text-slate-500">{footerStatusText}</p>
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={() => setActivePanel("files")} className={footerGhostButtonClass}>
+                  <ArrowLeft className="h-5 w-5" />
+                  Back
+                </button>
+                <button type="button" onClick={saveCurrentStepDraftNow} className={footerSecondaryButtonClass}>
+                  <Save className="h-5 w-5" />
+                  Save Draft
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActivePanel("invite-subs");
+                  }}
+                  className={footerPrimaryButtonClass}
+                >
+                  Next Step
+                  <ArrowRight className="h-5 w-5" />
+                </button>
+              </div>
             </div>
           </>
         ) : activePanel === "invite-subs" ? (
@@ -6863,29 +7049,27 @@ export default function NewBidPackagePage() {
 
             {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
 
-            <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85 sm:px-6 lg:px-12">
-              <button
-                type="button"
-                onClick={() => setActivePanel("trade-coverage")}
-                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Back
-              </button>
-              <button
-                type="button"
-                onClick={discardBidPackageDraft}
-                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => setActivePanel("bid-email")}
-                disabled={submitting}
-                className="rounded-md bg-accent px-8 py-2 text-base font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Review Email
-              </button>
+            <div className={footerShellClass}>
+              <p className="text-[15px] font-medium text-slate-500">{footerStatusText}</p>
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={() => setActivePanel("trade-coverage")} className={footerGhostButtonClass}>
+                  <ArrowLeft className="h-5 w-5" />
+                  Back
+                </button>
+                <button type="button" onClick={saveCurrentStepDraftNow} className={footerSecondaryButtonClass}>
+                  <Save className="h-5 w-5" />
+                  Save Draft
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActivePanel("bid-email")}
+                  disabled={submitting}
+                  className={footerPrimaryButtonClass}
+                >
+                  Next Step
+                  <ArrowRight className="h-5 w-5" />
+                </button>
+              </div>
             </div>
           </>
         ) : (
@@ -7236,37 +7420,27 @@ export default function NewBidPackagePage() {
               </p>
             ) : null}
 
-            <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-slate-50/85 sm:px-6 lg:px-12">
-              <button
-                type="button"
-                onClick={() => setActivePanel("invite-subs")}
-                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Back
-              </button>
-              <button
-                type="button"
-                onClick={discardBidPackageDraft}
-                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                value="skip"
-                disabled={submitting}
-                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {submitting ? "Creating..." : "Skip and Create Bid Package"}
-              </button>
-              <button
-                type="submit"
-                value="send"
-                disabled={!canSendInvites}
-                className="rounded-md bg-accent px-8 py-2 text-base font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {submitting ? "Sending..." : "Send Invites"}
-              </button>
+            <div className={footerShellClass}>
+              <p className="text-[15px] font-medium text-slate-500">{footerStatusText}</p>
+              <div className="flex items-center gap-3">
+                <button type="button" onClick={() => setActivePanel("invite-subs")} className={footerGhostButtonClass}>
+                  <ArrowLeft className="h-4 w-4" />
+                  Back
+                </button>
+                <button type="button" onClick={saveCurrentStepDraftNow} className={footerSecondaryButtonClass}>
+                  <Save className="h-4 w-4" />
+                  Save Draft
+                </button>
+                <button
+                  type="submit"
+                  value="send"
+                  disabled={!canSendInvites}
+                  className={footerPrimaryButtonClass}
+                >
+                  <Send className="h-4 w-4" />
+                  {submitting ? "Sending..." : "Send Bid Invites"}
+                </button>
+              </div>
             </div>
           </>
         )}
