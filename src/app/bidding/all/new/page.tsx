@@ -94,7 +94,9 @@ import {
   Pencil,
   Plus,
   Search,
+  Send,
   Tag,
+  TriangleAlert,
   Trash2Icon,
   Upload,
   Users,
@@ -556,16 +558,16 @@ const LEGACY_INVITATION_MESSAGE = [
 ].join("\n");
 const DEFAULT_INVITATION_MESSAGE = sanitizeEmailHtml(
   [
-    '<p><span style="font-size:14px">Hello,</span></p>',
-    '<p><span style="font-size:14px">You are invited to bid on the {project_name} project! You can access the plans via the link below. Please let me know if you are interested in bidding on this project with us.</span></p>',
-    '<p><span style="font-size:14px"><strong>Location and Project Information</strong></span></p>',
+    "<p>Hello,</p>",
+    "<p>You are invited to bid on the {project_name} project! You can access the plans via the link below. Please let me know if you are interested in bidding on this project with us.</p>",
+    "<p><strong>Location and Project Information</strong></p>",
     "<ul>",
     "<li><p>Hours are expected to be 7am-4pm</p></li>",
     "<li><p>{project_address}</p></li>",
     "<li><p>Building Area Square Footage: {project_size}</p></li>",
     "<li><p>Net Site Area Square Footage: {project_site_size}</p></li>",
     "</ul>",
-    '<p><span style="font-size:14px"><strong>Bid Information</strong></span></p>',
+    "<p><strong>Bid Information</strong></p>",
     "<ul>",
     "<li><p>Bids are due by {bid_due_date}</p></li>",
     "<li><p>If proposing substitutions, please do not include in your base bid, please list as an add alt/ deduct.</p></li>",
@@ -897,10 +899,10 @@ function FormCard({
             </span>
           ) : null}
           <div className="min-w-0">
-            <h3 className="text-[20px] font-semibold leading-tight text-slate-950 [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
+            <h3 className="text-base font-bold leading-tight text-slate-950 [font-family:'Plus_Jakarta_Sans',Inter,sans-serif]">
               {title}
             </h3>
-            {description ? <p className="mt-1.5 text-[15px] leading-6 text-slate-500">{description}</p> : null}
+            {description ? <p className="mt-0.5 text-sm leading-6 text-slate-500">{description}</p> : null}
           </div>
         </div>
       </div>
@@ -4075,7 +4077,57 @@ export default function NewBidPackagePage() {
     ],
     []
   );
-  const emailAttachmentLabel = `${uploadedFiles.length} attachment${uploadedFiles.length === 1 ? "" : "s"}`;
+  const includedAttachmentCount =
+    includedAttachments.plans + includedAttachments.specs + includedAttachments.addenda;
+  const emailAttachmentLabel = `${includedAttachmentCount} attachment${includedAttachmentCount === 1 ? "" : "s"}`;
+  const reviewChecklistItems = useMemo(
+    () => [
+      {
+        label: "Project information complete",
+        complete: Boolean(draft.project_name.trim() && draft.primary_bidding_contact.trim() && draft.due_date),
+      },
+      {
+        label: "Files uploaded",
+        complete: uploadedFiles.length > 0,
+      },
+      {
+        label: "Trade coverage reviewed",
+        complete: selectedTrades.length > 0,
+      },
+      {
+        label: "Subcontractors selected",
+        complete: selectedSubsCount > 0,
+      },
+      {
+        label: "Email message ready",
+        complete: Boolean(invitationEmailDraft.subject.trim() && invitationEmailDraft.message.trim()),
+      },
+    ],
+    [
+      draft.due_date,
+      draft.primary_bidding_contact,
+      draft.project_name,
+      invitationEmailDraft.message,
+      invitationEmailDraft.subject,
+      selectedSubsCount,
+      selectedTrades.length,
+      uploadedFiles.length,
+    ]
+  );
+  const missingInviteEmailCount = useMemo(() => {
+    const missingSubIds = new Set<string>();
+    Object.values(assignedSubsByTradeId).forEach((subs) => {
+      subs.forEach((sub) => {
+        const selectedContacts = getSelectedCompanyContacts(sub);
+        if (!selectedContacts.length) return;
+        const hasEmailRecipient = selectedContacts.some((contact) => contact.email.trim());
+        if (!hasEmailRecipient) {
+          missingSubIds.add(sub.id);
+        }
+      });
+    });
+    return missingSubIds.size;
+  }, [assignedSubsByTradeId]);
 
   const handleDueDateChange = (next: string) => {
     setDraft((prev) => ({
@@ -7059,15 +7111,15 @@ export default function NewBidPackagePage() {
                   >
                     <div className="space-y-6">
                       <div className="flex flex-wrap items-center gap-3">
-                        <span className="text-[15px] font-semibold text-slate-500">Insert merge tag:</span>
+                        <span className="text-xs font-semibold text-slate-500">Insert merge tag:</span>
                         {quickInsertEmailTokens.map((token) => (
                           <button
                             key={token.value}
                             type="button"
                             onClick={() => messageEditorRef.current?.insertText(token.value)}
-                            className="inline-flex h-12 items-center gap-2 rounded-full border border-[#B9CCFF] bg-[#EEF4FF] px-6 text-[15px] font-semibold text-[#356DFF] transition hover:bg-[#E6EEFF]"
+                            className="inline-flex items-center gap- rounded-full border border-[#B9CCFF] bg-[#EEF4FF] px-2.5 py-1 text-xs font-semibold text-[#356DFF] transition hover:bg-[#E6EEFF]"
                           >
-                            <Plus className="h-4 w-4" />
+                            <Plus className="h-3 w-3" />
                             {token.label}
                           </button>
                         ))}
@@ -7083,139 +7135,93 @@ export default function NewBidPackagePage() {
                     </div>
                   </FormCard>
 
-                <div className="space-y-4">
-                <article className="rounded-xl border border-slate-200 bg-white p-5">
-                  <div className="mb-3 flex items-center justify-between">
-                    <h4 className="text-sm font-semibold text-slate-800">Preview</h4>
-                    <button
-                      type="button"
-                      onClick={() => setTokenValuesOpen((open) => !open)}
-                      className="text-sm font-semibold text-slate-600 hover:text-slate-900"
+                <FormCard
+                  title="Final Review"
+                  description="Confirm everything looks right before sending invitations."
+                  icon={
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="24"
+                      height="24"
+                      viewBox="0 0 24 24"
+                      className="h-5 w-5 text-primary"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      aria-hidden
                     >
-                      Show token values
-                    </button>
-                  </div>
-                  {tokenValuesOpen ? (
-                    <div className="mb-3 rounded-md border border-slate-200 bg-slate-50 p-2 text-sm text-slate-600">
-                      {TOKEN_LIST.map((token) => (
-                        <div key={`token-map-${token}`} className="flex items-start justify-between gap-2 py-0.5">
-                          <span className="font-mono text-slate-700">{token}</span>
-                          <span className="text-right">{tokenValues[token] || "—"}</span>
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="m9 12 2 2 4-4" />
+                    </svg>
+                  }
+                >
+                  <div className="grid gap-8 lg:grid-cols-[minmax(0,1.2fr)_1px_minmax(280px,0.72fr)]">
+                    <div className="space-y-5">
+                      {reviewChecklistItems.map((item) => (
+                        <div key={item.label} className="flex items-center gap-5">
+                          <span
+                            className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${
+                              item.complete ? "bg-emerald-500 text-white" : "bg-slate-200 text-slate-500"
+                            }`}
+                          >
+                            {item.complete ? <Check className="h-3.5 w-3.5" strokeWidth={2.5} /> : <Info className="h-5 w-5" />}
+                          </span>
+                          <span className="text-[15px] font-semibold text-slate-900">{item.label}</span>
                         </div>
                       ))}
                     </div>
-                  ) : null}
-                  <div className="space-y-2 rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                    <div>
-                      <span className="font-semibold">From:</span>{" "}
-                      {primaryBiddingContactDisplay || "Primary bidding contact"}
-                    </div>
-                    <div>
-                      <span className="font-semibold">To:</span> {uniqueInviteRecipients.length} recipient{uniqueInviteRecipients.length === 1 ? "" : "s"}
-                    </div>
-                    <div>
-                      <span className="font-semibold">Due Date Preview:</span> {tokenValues["{bid_due_date}"] || "TBD"}
-                    </div>
-                    <div>
-                      <span className="font-semibold">Subject:</span> {renderedSubject || "—"}
-                    </div>
-                    <div>
-                      <span className="font-semibold">Message:</span>
-                      {renderedMessage ? (
-                        <div
-                          className={`mt-1 ${EMAIL_PREVIEW_CLASS}`}
-                          dangerouslySetInnerHTML={{ __html: renderedMessage }}
-                        />
-                      ) : (
-                        <p className="mt-1">—</p>
-                      )}
-                    </div>
-                  </div>
-                </article>
 
-                <article className="rounded-xl border border-slate-200 bg-white p-5">
-                  <div className="space-y-2">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewModalOpen(true)}
-                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      Preview Email
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setTestDialogOpen(true);
-                        setTestSendEmail("");
-                      }}
-                      disabled={mailboxBadge.label !== "Connected"}
-                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Send test to myself
-                    </button>
-                    <button
-                      type="button"
-                      onClick={saveInvitationDraftNow}
-                      className="w-full rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      {editingProjectId ? "Save Draft" : "Save Local Draft"}
-                    </button>
-                  </div>
-                  <div className="mt-3 text-sm text-slate-500">
-                    {invitationSaving
-                      ? "Saving draft..."
-                      : invitationSavedAt
-                        ? editingProjectId
-                          ? `Draft saved to bid package ${new Date(invitationSavedAt).toLocaleTimeString()}`
-                          : `Local draft saved ${new Date(invitationSavedAt).toLocaleTimeString()}. It will save to the bid package when created.`
-                        : editingProjectId
-                          ? "Draft not saved yet."
-                          : "Local draft not saved yet. Database save is available after the bid package is created."}
-                  </div>
-                  <div className="mt-4 flex items-center justify-end gap-2 border-t border-slate-200 pt-4">
-                    <button
-                      type="button"
-                      onClick={() => setActivePanel("invite-subs")}
-                      className="rounded-md border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      value="send"
-                      disabled={!canSendInvites}
-                      className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent/90 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {submitting ? "Sending..." : "Send Invites"}
-                    </button>
-                  </div>
-                </article>
-                </div>
-              </section>
+                    <div className="hidden lg:block bg-slate-200" aria-hidden="true" />
 
-              <article className="rounded-xl border border-slate-200 bg-white p-5">
-                <h4 className="text-sm font-semibold text-slate-800">Recipients</h4>
-                {uniqueInviteRecipients.length ? (
-                  <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {uniqueInviteRecipients.map((recipient) => (
-                      <div
-                        key={`${recipient.companyName}-${recipient.email}`}
-                        className="min-w-0 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm"
-                      >
-                        <div className="truncate font-semibold text-slate-900">{recipient.companyName}</div>
-                        <div className="mt-0.5 break-words text-slate-600">{recipient.email}</div>
-                        <div className="mt-1 break-words text-sm leading-5 text-slate-500">
-                          {recipient.tradeNames.join(", ")}
+                    <div className="space-y-5">
+                      {missingInviteEmailCount > 0 ? (
+                        <div className="rounded-[20px] border border-orange-200 bg-orange-50/60 px-6 py-5 text-center">
+                          <div className="flex items-start justify-center gap-3 text-orange-600">
+                            <TriangleAlert className="mt-0.5 h-6 w-6 shrink-0" />
+                            <p className="text-[15px] leading-8 text-slate-900">
+                              <span className="font-bold">{missingInviteEmailCount} subcontractor{missingInviteEmailCount === 1 ? "" : "s"}</span> are missing email addresses and will be skipped.
+                            </p>
+                          </div>
                         </div>
+                      ) : null}
+
+                      <button
+                        type="button"
+                        onClick={() => setPreviewModalOpen(true)}
+                        className="flex h-10 w-full items-center justify-center gap-3 rounded-[20px] border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:border-accent hover:bg-accent hover:text-accent-foreground"
+                      >
+                        <Eye className="h-4 w-4" />
+                        Preview Email
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTestDialogOpen(true);
+                          setTestSendEmail("");
+                        }}
+                        disabled={mailboxBadge.label !== "Connected"}
+                        className="flex h-10 w-full items-center justify-center gap-3 rounded-[20px] border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:border-accent hover:bg-accent hover:text-accent-foreground disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <Send className="h-4 w-4" />
+                        Send Test Email
+                      </button>
+                      <p className="text-center text-[11px] text-slate-500">Test emails are sent only to you.</p>
+
+                      <div className="rounded-[16px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500">
+                        {invitationSaving
+                          ? "Saving draft..."
+                          : invitationSavedAt
+                            ? editingProjectId
+                              ? `Draft saved to bid package ${new Date(invitationSavedAt).toLocaleTimeString()}`
+                              : `Local draft saved ${new Date(invitationSavedAt).toLocaleTimeString()}. It will save to the bid package when created.`
+                            : editingProjectId
+                              ? "Draft not saved yet."
+                              : "Local draft not saved yet. Database save is available after the bid package is created."}
                       </div>
-                    ))}
+                    </div>
                   </div>
-                ) : (
-                  <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-500">
-                    No recipients selected.
-                  </div>
-                )}
-              </article>
+                </FormCard>
+              </section>
             </div>
 
             {error ? <p className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}

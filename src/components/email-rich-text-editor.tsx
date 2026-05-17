@@ -17,10 +17,11 @@ import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import {
   Bold,
-  Highlighter,
   Italic,
   List,
   ListOrdered,
+  Link2,
+  Palette,
   Paperclip,
   Type,
   Underline as UnderlineIcon,
@@ -123,7 +124,7 @@ const FONT_SIZES = [
 
 function toolbarButtonClass(active = false) {
   return [
-    "inline-flex h-10 min-w-10 items-center justify-center rounded-xl px-2 text-slate-500 transition",
+    "inline-flex h-11 min-w-11 items-center justify-center rounded-xl px-2 text-slate-500 transition",
     active
       ? "bg-slate-100 text-slate-900"
       : "hover:bg-slate-50 hover:text-slate-900",
@@ -166,7 +167,7 @@ export const EmailRichTextEditor = forwardRef<
     editorProps: {
       attributes: {
         class:
-          "min-h-[420px] w-full px-10 py-8 text-[18px] leading-10 text-slate-900 outline-none",
+          "min-h-[420px] w-full px-10 py-8 text-[18px] leading-7 text-slate-900 outline-none",
       },
       transformPastedHTML: (html) => sanitizeEmailHtml(html),
     },
@@ -242,41 +243,49 @@ export const EmailRichTextEditor = forwardRef<
           list-style: decimal;
         }
       `}</style>
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-white px-6 py-4">
+      <div className="flex flex-wrap items-center justify-between gap-1 border-b border-slate-200 bg-white px-2 py-2">
         <div className="flex flex-wrap items-center gap-1">
-        <button type="button" className={toolbarButtonClass(editor.isActive("bold"))} onClick={() => editor.chain().focus().toggleBold().run()} aria-label="Bold">
-          <Bold className="h-5 w-5" />
-        </button>
-        <button type="button" className={toolbarButtonClass(editor.isActive("italic"))} onClick={() => editor.chain().focus().toggleItalic().run()} aria-label="Italic">
-          <Italic className="h-5 w-5" />
-        </button>
-        <button type="button" className={toolbarButtonClass(editor.isActive("underline"))} onClick={() => editor.chain().focus().toggleUnderline().run()} aria-label="Underline">
-          <UnderlineIcon className="h-5 w-5" />
-        </button>
-        <span className="mx-2 hidden h-10 w-px bg-slate-200 md:block" />
-        <button type="button" className={toolbarButtonClass(editor.isActive("bulletList"))} onClick={() => editor.chain().focus().toggleBulletList().run()} aria-label="Bullet list">
-          <List className="h-5 w-5" />
-        </button>
-        <button type="button" className={toolbarButtonClass(editor.isActive("orderedList"))} onClick={() => editor.chain().focus().toggleOrderedList().run()} aria-label="Numbered list">
-          <ListOrdered className="h-5 w-5" />
-        </button>
-        <span className="mx-2 hidden h-10 w-px bg-slate-200 md:block" />
-        <label className="inline-flex h-10 items-center gap-2 rounded-xl px-2 text-slate-500 transition hover:bg-slate-50 hover:text-slate-900">
-          <Highlighter className="h-5 w-5" />
-          <input
-            aria-label="Highlight color"
-            type="color"
-            className="size-5 cursor-pointer border-0 bg-transparent p-0"
-            onChange={(event) => editor.chain().focus().toggleHighlight({ color: event.target.value }).run()}
-          />
-        </label>
-        <button type="button" className={toolbarButtonClass()} onClick={() => applyFontSize("18px")} aria-label="Large text">
-          <Type className="h-5 w-5" />
-        </button>
+          <button type="button" className={toolbarButtonClass(editor.isActive("bold"))} onClick={() => editor.chain().focus().toggleBold().run()} aria-label="Bold">
+            <Bold className="h-4 w-4" strokeWidth={2} />
+          </button>
+          <button type="button" className={toolbarButtonClass(editor.isActive("italic"))} onClick={() => editor.chain().focus().toggleItalic().run()} aria-label="Italic">
+            <Italic className="h-4 w-4" strokeWidth={2} />
+          </button>
+          <button type="button" className={toolbarButtonClass(editor.isActive("underline"))} onClick={() => editor.chain().focus().toggleUnderline().run()} aria-label="Underline">
+            <UnderlineIcon className="h-4 w-4" strokeWidth={2} />
+          </button>
+          <span className="mx-1 h-10 w-px bg-slate-200" />
+          <button type="button" className={toolbarButtonClass(editor.isActive("bulletList"))} onClick={() => editor.chain().focus().toggleBulletList().run()} aria-label="Bullet list">
+            <List className="h-4 w-4" strokeWidth={2} />
+          </button>
+          <button type="button" className={toolbarButtonClass(editor.isActive("orderedList"))} onClick={() => editor.chain().focus().toggleOrderedList().run()} aria-label="Numbered list">
+            <ListOrdered className="h-4 w-4" strokeWidth={2} />
+          </button>
+          <span className="mx-1 h-10 w-px bg-slate-200" />
+          <button
+            type="button"
+            className={toolbarButtonClass()}
+            onClick={() => editor.chain().focus().insertContent("{portal_link}").run()}
+            aria-label="Insert link"
+          >
+            <Link2 className="h-4 w-4" strokeWidth={2} />
+          </button>
+          <label className="relative inline-flex h-11 min-w-11 cursor-pointer items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-50 hover:text-slate-900">
+            <Palette className="h-4 w-4" strokeWidth={2} />
+            <input
+              aria-label="Highlight color"
+              type="color"
+              className="absolute inset-0 cursor-pointer opacity-0"
+              onChange={(event) => editor.chain().focus().toggleHighlight({ color: event.target.value }).run()}
+            />
+          </label>
+          <button type="button" className={toolbarButtonClass()} onClick={() => applyFontSize("18px")} aria-label="Large text">
+            <Type className="h-4 w-4" strokeWidth={2} />
+          </button>
         </div>
         {attachmentLabel ? (
           <div className="inline-flex items-center gap-3 text-[15px] font-medium text-slate-500">
-            <Paperclip className="h-5 w-5" />
+            <Paperclip className="h-4 w-4" />
             <span>{attachmentLabel}</span>
           </div>
         ) : null}
